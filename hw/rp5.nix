@@ -17,14 +17,15 @@
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
           extraConfig = ''
-            BATTERY_QCOM_FG m
-            CHARGER_QCOM_SMB5 m
+            ARCH_QCOM y
+            BATTERY_QCOM_FG y
+            CHARGER_QCOM_SMB5 y
             DRM_PANEL_DDIC_CH13726A m
-            INPUT_PM8941_PWRKEY m
-            INPUT_QCOM_SPMI_HAPTICS m
-            JOYSTICK_RETROID m
-            LEDS_HTR3212 m
-            RTC_DRV_PM8XXX m
+            INPUT_PM8941_PWRKEY y
+            INPUT_QCOM_SPMI_HAPTICS y
+            JOYSTICK_RETROID y
+            LEDS_HTR3212 y
+            RTC_DRV_PM8XXX y
           '';
         };
       }
@@ -65,23 +66,15 @@
   };
   powerManagement.enable = true;
   programs.niri.enable = true;
-  programs.sway = {
-    enable = true;
-    wrapperFeatures.gtk = true;
-  };
   services = {
-    logind.settings.Login = {
-      HandlePowerKey = "ignore";
-      HandleSuspendKey = "ignore";
-      HandleHibernateKey = "ignore";
-      HandleLidSwitch = "ignore";
-    };
+    logind.settings.Login.HandleSuspendKey = "ignore";
+    logind.settings.Login.HandleHibernateKey = "ignore";
+    logind.settings.Login.HandlePowerKey = "ignore";
     greetd = {
       enable = true;
       settings = rec {
         initial_session = {
-          #command = "niri-session";
-          command = "sway";
+          command = "niri-session";
           user = "pcarrier";
         };
         default_session = initial_session;

@@ -150,8 +150,8 @@ let
         enable = true;
         settings = {
           colors = {
-            background = "#000000";
-            text = "#ffffff";
+            background = "000000a0";
+            text = "ffffffff";
           };
         };
       };
