@@ -189,7 +189,7 @@
               wd = "diff --word-diff --patience";
             };
           };
-          gitui.enable = true;
+          lazygit.enable = true;
           fish = {
             enable = true;
             interactiveShellInit = ''
