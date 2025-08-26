@@ -34,8 +34,8 @@
               zoxide
             ];
             sessionVariables = {
-              EDITOR = "cursor";
-              VISUAL = "cursor";
+              EDITOR = "cursor --wait";
+              VISUAL = "cursor --wait";
               BROWSER = "wslview";
             };
           };
@@ -214,6 +214,7 @@
                 c = "clear";
                 dl = "aria2c -x 16 -s 16 -j 16";
                 g = "git";
+                lg = "lazygit";
                 n = "nh os switch /src/sys";
                 t = "time";
                 v = "nvim";
@@ -227,6 +228,7 @@
               settings = {
                 scroll_buffer_size = 1000000;
                 layout = "compact";
+                show_startup_tips = false;
               };
             };
             zoxide = {
