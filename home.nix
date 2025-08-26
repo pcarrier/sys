@@ -26,6 +26,7 @@
               jq
               mosh
               nixfmt
+              nmap
               nodejs
               ripgrep
               tree
