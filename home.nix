@@ -20,7 +20,9 @@
             packages = with pkgs; [
               bat
               claude-code
+              codex
               fd
+              fastfetch
               file
               htop
               jq
@@ -217,7 +219,8 @@
                 set fish_greeting
               '';
               shellAliases = {
-                c = "clear";
+                C = "clear";
+                c = "cursor";
                 dl = "aria2c -x 16 -s 16 -j 16";
                 g = "git";
                 lg = "lazygit";
