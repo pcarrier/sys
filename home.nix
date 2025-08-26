@@ -53,7 +53,10 @@
             };
             aria2.enable = true;
             fd.enable = true;
-            gh.enable = true;
+            gh = {
+              enable = true;
+              settings.git_protocol = "ssh";
+            };
             keychain = {
               enable = true;
               enableFishIntegration = true;
