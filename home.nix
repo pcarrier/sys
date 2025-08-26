@@ -25,7 +25,6 @@
               htop
               jq
               mosh
-              neovim
               nixfmt
               nodejs
               ripgrep
@@ -35,8 +34,8 @@
               zoxide
             ];
             sessionVariables = {
-              EDITOR = "nvim";
-              VISUAL = "nvim";
+              EDITOR = "cursor";
+              VISUAL = "cursor";
               BROWSER = "wslview";
             };
           };
@@ -61,6 +60,11 @@
               enable = true;
               enableFishIntegration = true;
               keys = [ "id_ed25519" ];
+            };
+            neovim = {
+              enable = true;
+              viAlias = true;
+              vimAlias = true;
             };
             nh = {
               enable = true;
