@@ -253,20 +253,16 @@ let
           g = "git";
           lg = "lazygit";
           n = "nh os switch /src/sys";
-          t = "time";
+          t = "tmux attach";
           v = "nvim";
         };
       };
-      zellij = {
+      tmux = {
         enable = true;
-        enableFishIntegration = true;
-        attachExistingSession = systemType == "wsl";
-        exitShellOnExit = true;
-        settings = {
-          scroll_buffer_size = 1000000;
-          layout = "compact";
-          show_startup_tips = false;
-        };
+        historyLimit = 1000000;
+        mouse = true;
+        newSession = true;
+        clock24 = true;
       };
       zoxide = {
         enable = true;
