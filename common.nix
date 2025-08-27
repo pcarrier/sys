@@ -13,6 +13,7 @@
       wheelNeedsPassword = false;
     };
   };
+  time.timeZone = "UTC";
   nix = {
     settings = {
       experimental-features = [

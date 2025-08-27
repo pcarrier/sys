@@ -260,7 +260,7 @@ let
       zellij = {
         enable = true;
         enableFishIntegration = true;
-        attachExistingSession = true;
+        attachExistingSession = systemType == "wsl";
         exitShellOnExit = true;
         settings = {
           scroll_buffer_size = 1000000;
