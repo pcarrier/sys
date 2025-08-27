@@ -2,6 +2,7 @@
   pkgs,
   lib,
   systemType,
+  trusted,
   ...
 }:
 {
@@ -68,7 +69,7 @@
             keychain = {
               enable = true;
               enableFishIntegration = true;
-              keys = [ "id_ed25519" ];
+              keys = lib.optionals trusted [ "id_ed25519" ];
             };
             neovim = {
               enable = true;
@@ -133,7 +134,7 @@
               userEmail = "pc@rrier.fr";
               lfs.enable = true;
               delta.enable = true;
-              signing = {
+              signing = lib.mkIf trusted {
                 format = "ssh";
                 key = "~/.ssh/id_ed25519";
                 signByDefault = true;

@@ -20,7 +20,11 @@
     }:
     let
       makeWsl =
-        { name, system }:
+        {
+          name,
+          system,
+          trusted ? true,
+        }:
         nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
@@ -31,7 +35,10 @@
             ./home.nix
             {
               wsl.wslConf.network.hostname = name;
-              _module.args.systemType = "wsl";
+              _module.args = {
+                systemType = "wsl";
+                inherit trusted;
+              };
             }
           ];
         };
@@ -41,6 +48,7 @@
           name,
           system,
           hardware,
+          trusted ? false,
         }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -52,7 +60,10 @@
             ./home.nix
             {
               networking.hostName = name;
-              _module.args.systemType = "bare";
+              _module.args = {
+                systemType = "bare";
+                inherit trusted;
+              };
             }
           ];
         };
