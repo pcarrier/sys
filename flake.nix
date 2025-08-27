@@ -10,7 +10,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-
   outputs =
     {
       self,
@@ -27,6 +26,7 @@
           modules = [
             nixos-wsl.nixosModules.default
             home-manager.nixosModules.home-manager
+            ./common.nix
             ./wsl.nix
             ./home.nix
             {
@@ -45,6 +45,18 @@
         dog = makeWsl {
           name = "dog";
           system = "x86_64-linux";
+        };
+        gorilla = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ./common.nix
+            ./bare.nix
+            ./hw/ax52.nix
+            {
+              networking.hostName = "gorilla";
+              _module.args.systemType = "bare";
+            }
+          ];
         };
       };
     };
