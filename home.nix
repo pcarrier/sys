@@ -18,25 +18,30 @@
             username = "pcarrier";
             homeDirectory = "/home/pcarrier";
             stateVersion = "25.11";
-            packages = with pkgs; [
-              bat
-              claude-code
-              codex
-              fd
-              fastfetch
-              file
-              htop
-              jq
-              mosh
-              nixfmt
-              nmap
-              nodejs
-              ripgrep
-              tree
-              wslu
-              yt-dlp
-              zoxide
-            ];
+            packages =
+              with pkgs;
+              [
+                bat
+                claude-code
+                codex
+                fd
+                fastfetch
+                file
+                htop
+                jq
+                mosh
+                nixfmt
+                nmap
+                nodejs
+                ripgrep
+                tree
+                wslu
+                yt-dlp
+                zoxide
+              ]
+              ++ lib.optionals (systemType == "bare") [
+                cursor
+              ];
             sessionVariables = {
               EDITOR = "cursor --wait";
               VISUAL = "cursor --wait";
