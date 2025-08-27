@@ -84,7 +84,10 @@
           name = "gorilla";
           system = "x86_64-linux";
           hardware = ./hw/ax52.nix;
-          extraModules = [ ./docker.nix ];
+          extraModules = [
+            ./docker.nix
+            ./rdp.nix
+          ];
         };
       };
     };
