@@ -195,10 +195,12 @@
                 dsc = "describe";
                 dw = "diff --color-words --patience";
                 ec = "config --global -e";
+                fp = "push --force-with-lease";
                 k = "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
                 kk = "log --no-merges --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
                 nr = "name-rev --name-only --refs=refs/heads/*";
                 nri = "name-rev --refs=refs/heads/* --stdin";
+                p = "push";
                 pr = "!gh pr create -w";
                 pulla = "pull --all";
                 pusha = "push --all";
