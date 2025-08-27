@@ -217,6 +217,12 @@
               enable = true;
               interactiveShellInit = ''
                 set fish_greeting
+
+                function __fish_postexec --on-event fish_postexec
+                  set_color yellow
+                  echo took $CMD_DURATION ms
+                  set_color normal
+                end
               '';
               shellAliases = {
                 C = "clear";
