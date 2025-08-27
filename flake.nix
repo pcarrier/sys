@@ -52,6 +52,7 @@
             ./common.nix
             ./bare.nix
             ./hw/ax52.nix
+            ./home.nix
             {
               networking.hostName = "gorilla";
               _module.args.systemType = "bare";
