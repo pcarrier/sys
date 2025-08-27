@@ -49,6 +49,7 @@
           system,
           hardware,
           trusted ? false,
+          extraModules ? [ ],
         }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -65,7 +66,8 @@
                 inherit trusted;
               };
             }
-          ];
+          ]
+          ++ extraModules;
         };
     in
     {
@@ -82,6 +84,7 @@
           name = "gorilla";
           system = "x86_64-linux";
           hardware = ./hw/ax52.nix;
+          extraModules = [ ./docker.nix ];
         };
       };
     };

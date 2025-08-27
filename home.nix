@@ -35,14 +35,16 @@
                 nodejs
                 ripgrep
                 tree
-                wslu
                 yt-dlp
                 zoxide
               ]
-              ++ lib.optionals (systemType == "bare") [ pkgs.code-cursor ];
+              ++ lib.optionals (systemType == "bare") [ pkgs.code-cursor ]
+              ++ lib.optionals (systemType == "wsl") [ pkgs.wslu ];
             sessionVariables = {
               EDITOR = "cursor --wait";
               VISUAL = "cursor --wait";
+            }
+            // lib.optionalAttrs (systemType == "wsl") {
               BROWSER = "wslview";
             };
             sessionPath = lib.mkIf (systemType == "wsl") [
