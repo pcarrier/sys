@@ -140,6 +140,10 @@ let
           horse = {
             hostname = "horse.pcarrier.com";
           };
+          gorilla = {
+            forwardX11Trusted = true;
+            forwardAgent = true;
+          };
         };
       };
       git = {
