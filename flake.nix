@@ -11,20 +11,31 @@
     };
   };
 
-  outputs = { self, nixpkgs, nixos-wsl, home-manager, ... }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }:
     let
-      makeWsl = { name, system }:
+      makeWsl =
+        { name, system }:
         nixpkgs.lib.nixosSystem {
-          system = system;
+          inherit system;
           modules = [
             nixos-wsl.nixosModules.default
             home-manager.nixosModules.home-manager
             ./wsl.nix
             ./home.nix
-            { wsl.wslConf.network.hostname = name; }
+            {
+              wsl.wslConf.network.hostname = name;
+              _module.args.systemType = "wsl";
+            }
           ];
         };
-    in {
+    in
+    {
       nixosConfigurations = {
         chimp = makeWsl {
           name = "chimp";

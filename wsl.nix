@@ -1,14 +1,22 @@
-{ config, lib, pkgs, ... }: {
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+{
   wsl = {
     enable = true;
     interop.register = true;
     startMenuLaunchers = true;
     useWindowsDriver = true;
     wrapBinSh = true;
-    extraBin = [{
-      name = "bash";
-      src = config.wsl.binShExe;
-    }];
+    extraBin = [
+      {
+        name = "bash";
+        src = config.wsl.binShExe;
+      }
+    ];
     defaultUser = "pcarrier";
   };
 
@@ -21,7 +29,10 @@
 
   nix = {
     settings = {
-      experimental-features = [ "nix-command" "flakes" ];
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
       trusted-users = [ "pcarrier" ];
     };
   };

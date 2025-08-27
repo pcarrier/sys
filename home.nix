@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  systemType,
   ...
 }:
 {
@@ -41,6 +42,9 @@
               VISUAL = "cursor --wait";
               BROWSER = "wslview";
             };
+            sessionPath = lib.mkIf (systemType == "wsl") [
+              "/mnt/c/Users/pierr/AppData/Local/Programs/cursor/resources/app/bin"
+            ];
           };
 
           programs = {
