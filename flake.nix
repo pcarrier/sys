@@ -35,6 +35,27 @@
             }
           ];
         };
+
+      makeBare =
+        {
+          name,
+          system,
+          hardware,
+        }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            home-manager.nixosModules.home-manager
+            ./common.nix
+            ./bare.nix
+            hardware
+            ./home.nix
+            {
+              networking.hostName = name;
+              _module.args.systemType = "bare";
+            }
+          ];
+        };
     in
     {
       nixosConfigurations = {
@@ -46,18 +67,10 @@
           name = "dog";
           system = "x86_64-linux";
         };
-        gorilla = nixpkgs.lib.nixosSystem {
+        gorilla = makeBare {
+          name = "gorilla";
           system = "x86_64-linux";
-          modules = [
-            ./common.nix
-            ./bare.nix
-            ./hw/ax52.nix
-            ./home.nix
-            {
-              networking.hostName = "gorilla";
-              _module.args.systemType = "bare";
-            }
-          ];
+          hardware = ./hw/ax52.nix;
         };
       };
     };

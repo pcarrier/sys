@@ -1,4 +1,5 @@
 {
+  pkgs,
   lib,
   systemType,
   ...
@@ -37,9 +38,7 @@
                 yt-dlp
                 zoxide
               ]
-              ++ lib.optionals (systemType == "bare") [
-                cursor
-              ];
+              ++ lib.optionals (systemType == "bare") [ pkgs.code-cursor ];
             sessionVariables = {
               EDITOR = "cursor --wait";
               VISUAL = "cursor --wait";
