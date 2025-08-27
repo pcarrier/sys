@@ -23,7 +23,12 @@
     };
   };
   nixpkgs.config.allowUnfree = true;
-  services.sshd.enable = true;
+  services.openssh = {
+    enable = true;
+    settings = {
+      X11Forwarding = true;
+    };
+  };
   programs.fish.enable = true;
   users.users.pcarrier = {
     isNormalUser = true;
