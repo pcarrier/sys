@@ -8,6 +8,10 @@
       enable = true;
       wheelNeedsPassword = false;
     };
+    sudo = {
+      enable = true;
+      wheelNeedsPassword = false;
+    };
   };
   nix = {
     settings = {

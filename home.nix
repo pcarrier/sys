@@ -66,10 +66,10 @@
               enable = true;
               settings.git_protocol = "ssh";
             };
-            keychain = {
+            keychain = lib.mkIf trusted {
               enable = true;
               enableFishIntegration = true;
-              keys = lib.optionals trusted [ "id_ed25519" ];
+              keys = [ "id_ed25519" ];
             };
             neovim = {
               enable = true;
