@@ -27,6 +27,7 @@ let
         nodejs
         ripgrep
         tree
+        wget # for cursor
         yt-dlp
         zoxide
       ];
