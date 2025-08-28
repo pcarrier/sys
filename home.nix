@@ -44,13 +44,20 @@ let
       home.sessionPath = [
         "/mnt/c/Users/pierr/AppData/Local/Programs/cursor/resources/app/bin"
       ];
+      programs.fish.functions.pbcopy = {
+        body = "clip.exe";
+      };
     };
     bare = {
       home.packages = with pkgs; [
         brave
         code-cursor
+        xclip
       ];
       home.sessionVariables.BROWSER = "brave";
+      programs.fish.functions.pbcopy = {
+        body = "xclip -selection clipboard";
+      };
     };
   };
 
