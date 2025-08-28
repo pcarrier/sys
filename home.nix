@@ -20,6 +20,7 @@ let
         file
         htop
         jq
+        moreutils
         mosh
         nixfmt
         nmap
@@ -219,6 +220,7 @@ let
           kk = "log --no-merges --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
           nr = "name-rev --name-only --refs=refs/heads/*";
           nri = "name-rev --refs=refs/heads/* --stdin";
+          P = "pull";
           p = "push";
           pr = "!gh pr create -w";
           pulla = "pull --all";
@@ -248,13 +250,20 @@ let
         shellAliases = {
           C = "clear";
           c = "cursor";
-          cm = "git cm -m";
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";
           n = "nh os switch /src/sys";
           t = "tmux attach";
           v = "nvim";
+        };
+        functions = {
+          T = {
+            body = "$argv 2>&1 | ts";
+          };
+          cm = {
+            body = ''git cm -m "$argv"'';
+          };
         };
       };
       tmux = {
