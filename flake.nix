@@ -10,6 +10,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
+
   outputs =
     {
       self,
@@ -19,68 +20,19 @@
       ...
     }:
     let
-      makeWsl =
-        {
-          name,
-          system,
-          trusted ? true,
-        }:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          modules = [
-            nixos-wsl.nixosModules.default
-            home-manager.nixosModules.home-manager
-            ./common.nix
-            ./wsl.nix
-            ./home.nix
-            {
-              wsl.wslConf.network.hostname = name;
-              _module.args = {
-                systemType = "wsl";
-                inherit trusted;
-              };
-            }
-          ];
-        };
-
-      makeBare =
-        {
-          name,
-          system,
-          hardware,
-          trusted ? false,
-          extraModules ? [ ],
-        }:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          modules = [
-            home-manager.nixosModules.home-manager
-            ./common.nix
-            ./bare.nix
-            hardware
-            ./home.nix
-            {
-              networking.hostName = name;
-              _module.args = {
-                systemType = "bare";
-                inherit trusted;
-              };
-            }
-          ]
-          ++ extraModules;
-        };
+      build = import ./build.nix;
     in
     {
       nixosConfigurations = {
-        chimp = makeWsl {
+        chimp = build.wsl {
           name = "chimp";
           system = "aarch64-linux";
-        };
-        dog = makeWsl {
+        } { inherit nixpkgs nixos-wsl home-manager; };
+        dog = build.wsl {
           name = "dog";
           system = "x86_64-linux";
-        };
-        gorilla = makeBare {
+        } { inherit nixpkgs nixos-wsl home-manager; };
+        gorilla = build.bare {
           name = "gorilla";
           system = "x86_64-linux";
           hardware = ./hw/ax52.nix;
@@ -88,7 +40,7 @@
             ./docker.nix
             ./rdp.nix
           ];
-        };
+        } { inherit nixpkgs home-manager; };
       };
     };
 }
