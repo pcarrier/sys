@@ -111,12 +111,14 @@ let
       };
       ssh = {
         enable = true;
-        addKeysToAgent = "yes";
-        compression = true;
         extraConfig = ''
           StrictHostKeyChecking accept-new
         '';
         matchBlocks = {
+          "*" = {
+            addKeysToAgent = "yes";
+            compression = true;
+          };
           ident = {
             hostname = "ident.me";
             port = 2222;
