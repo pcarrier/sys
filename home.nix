@@ -66,7 +66,7 @@ let
 
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
-      discord
+      vesktop
       slack
       spotify
       zoom-us
