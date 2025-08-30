@@ -24,6 +24,7 @@
           wsl.wslConf.network.hostname = name;
           _module.args = {
             systemType = "wsl";
+            desktop = false;
             inherit trusted;
           };
         }
@@ -37,6 +38,7 @@
       system,
       hardware,
       trusted ? false,
+      desktop ? false,
       extraModules ? [ ],
     }:
     { nixpkgs, home-manager, ... }:
@@ -52,7 +54,7 @@
           networking.hostName = name;
           _module.args = {
             systemType = "bare";
-            inherit trusted;
+            inherit desktop trusted;
           };
         }
       ]

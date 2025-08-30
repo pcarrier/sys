@@ -56,6 +56,8 @@
         } { inherit nixpkgs home-manager; };
         sloth = build.bare {
           name = "sloth";
+          trusted = true;
+          desktop = true;
           system = "x86_64-linux";
           hardware = ./hw/deck.nix;
           extraModules = [

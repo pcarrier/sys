@@ -2,7 +2,8 @@
   pkgs,
   lib,
   systemType,
-  trusted,
+  trusted ? false,
+  desktop ? false,
   ...
 }:
 let
@@ -61,6 +62,15 @@ let
         body = "xclip -selection clipboard";
       };
     };
+  };
+
+  desktopConfig = lib.mkIf desktop {
+    home.packages = with pkgs; [
+      discord
+      slack
+      spotify
+      zoom-us
+    ];
   };
 
   trustedConfig = lib.mkIf trusted {
@@ -301,6 +311,7 @@ in
       pcarrier = lib.mkMerge [
         baseConfig
         (systemConfigs.${systemType} or { })
+        desktopConfig
         trustedConfig
         programsConfig
       ];
