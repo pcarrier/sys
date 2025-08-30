@@ -27,10 +27,16 @@
         chimp = build.wsl {
           name = "chimp";
           system = "aarch64-linux";
+          extraModules = [
+            ./mail.nix
+          ];
         } { inherit nixpkgs nixos-wsl home-manager; };
         dog = build.wsl {
           name = "dog";
           system = "x86_64-linux";
+          extraModules = [
+            ./docker.nix
+          ];
         } { inherit nixpkgs nixos-wsl home-manager; };
         gorilla = build.bare {
           name = "gorilla";

@@ -24,7 +24,17 @@
     };
   };
   nixpkgs.config.allowUnfree = true;
-  services.openssh.enable = true;
+  services = {
+    opensmtpd = {
+      enable = true;
+      serverConfiguration = ''
+        listen on localhost
+        action "local" maildir alias <aliases>
+        match for local action "local"
+      '';
+    };
+    openssh.enable = true;
+  };
   programs.fish.enable = true;
   users.users.pcarrier = {
     isNormalUser = true;

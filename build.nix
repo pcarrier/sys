@@ -4,6 +4,7 @@
       name,
       system,
       trusted ? true,
+      extraModules ? [ ],
     }:
     {
       nixpkgs,
@@ -26,7 +27,8 @@
             inherit trusted;
           };
         }
-      ];
+      ]
+      ++ extraModules;
     };
 
   bare =

@@ -111,6 +111,7 @@ let
       };
       ssh = {
         enable = true;
+        enableDefaultConfig = false;
         extraConfig = ''
           StrictHostKeyChecking accept-new
         '';
