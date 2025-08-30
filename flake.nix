@@ -1,12 +1,16 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    home-manager = {
-      url = "github:nix-community/home-manager";
+    jovian = {
+      url = "github:Jovian-Experiments/Jovian-NixOS";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -16,6 +20,7 @@
       nixpkgs,
       nixos-wsl,
       home-manager,
+      jovian,
       ...
     }:
     let
@@ -49,6 +54,15 @@
             ./rdp.nix
           ];
         } { inherit nixpkgs home-manager; };
+        sloth = build.bare {
+          name = "sloth";
+          system = "x86_64-linux";
+          hardware = ./hw/deck.nix;
+          extraModules = [
+            ./remote-builder.nix
+            jovian.nixosModules.default
+          ];
+        } { inherit nixpkgs home-manager jovian; };
       };
     };
 }
