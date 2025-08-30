@@ -13,7 +13,6 @@
 
   outputs =
     {
-      self,
       nixpkgs,
       nixos-wsl,
       home-manager,
@@ -29,6 +28,7 @@
           system = "aarch64-linux";
           extraModules = [
             ./mail.nix
+            ./remote-builder.nix
           ];
         } { inherit nixpkgs nixos-wsl home-manager; };
         dog = build.wsl {
@@ -36,6 +36,7 @@
           system = "x86_64-linux";
           extraModules = [
             ./docker.nix
+            ./remote-builder.nix
           ];
         } { inherit nixpkgs nixos-wsl home-manager; };
         gorilla = build.bare {

@@ -20,7 +20,7 @@
         "nix-command"
         "flakes"
       ];
-      trusted-users = [ "pcarrier" ];
+      trusted-users = [ "@wheel" ];
     };
   };
   nixpkgs.config.allowUnfree = true;
