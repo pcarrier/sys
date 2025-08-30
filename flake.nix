@@ -44,6 +44,7 @@
           hardware = ./hw/ax52.nix;
           extraModules = [
             ./docker.nix
+            ./kube.nix
             ./rdp.nix
           ];
         } { inherit nixpkgs home-manager; };
