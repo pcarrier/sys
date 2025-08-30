@@ -4,8 +4,6 @@
     "xhci_pci"
     "ahci"
     "usbhid"
-    "uas"
-    "sd_mod"
   ];
   boot.kernelModules = [ "kvm-amd" ];
   fileSystems = {
