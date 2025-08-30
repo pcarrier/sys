@@ -231,7 +231,7 @@ let
           kk = "log --no-merges --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
           nr = "name-rev --name-only --refs=refs/heads/*";
           nri = "name-rev --refs=refs/heads/* --stdin";
-          P = "pull";
+          pl = "pull";
           p = "push";
           pr = "!gh pr create -w";
           pulla = "pull --all";
