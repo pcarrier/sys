@@ -22,6 +22,7 @@ let
         jq
         moreutils
         mosh
+        nixd
         nixfmt
         nmap
         nodejs
