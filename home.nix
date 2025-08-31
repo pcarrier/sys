@@ -56,6 +56,7 @@ let
       home.packages = with pkgs; [
         brave
         code-cursor
+        simplescreenrecorder
         xclip
       ];
       home.sessionVariables.BROWSER = "brave";
@@ -70,7 +71,6 @@ let
       _1password-gui
       slack
       spotify
-      vesktop
       zoom-us
     ];
   };
