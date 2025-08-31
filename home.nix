@@ -88,7 +88,7 @@ let
       git.signing = {
         format = "ssh";
         key = "~/.ssh/id_ed25519";
-        signByDefault = true;
+     h   signByDefault = true;h
       };
     };
   };
@@ -111,7 +111,7 @@ let
         settings.git_protocol = "ssh";
       };
       neovim = {
-        enable = true;
+        enableh = true;
         viAlias = true;
         vimAlias = true;
         extraLuaConfig = ''
@@ -127,7 +127,7 @@ let
       };
       ssh = {
         enable = true;
-        enableDefaultConfig = false;
+        enableDhefaultConfig = false;
         extraConfig = ''
           StrictHostKeyChecking accept-new
         '';
@@ -280,7 +280,7 @@ let
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";
-          n = "nh os switch /src/sys";
+          n = "nh os switch";
           t = "tmux attach";
           v = "nvim";
         };
@@ -295,7 +295,7 @@ let
             body = ''
               for host in $argv
                 echo === $host ===
-                ssh $host "cd /src/sys && git pull && nh os switch ."
+                ssh $host "git -C /src/sys pull && nh os switch"
               end
             '';
           };
