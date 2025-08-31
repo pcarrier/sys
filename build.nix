@@ -10,6 +10,7 @@
       nixpkgs,
       nixos-wsl,
       home-manager,
+      baze,
       ...
     }:
     nixpkgs.lib.nixosSystem {
@@ -25,7 +26,7 @@
           _module.args = {
             systemType = "wsl";
             desktop = false;
-            inherit trusted;
+            inherit trusted baze;
           };
         }
       ]
@@ -41,7 +42,12 @@
       desktop ? false,
       extraModules ? [ ],
     }:
-    { nixpkgs, home-manager, ... }:
+    {
+      nixpkgs,
+      home-manager,
+      baze,
+      ...
+    }:
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
@@ -54,7 +60,7 @@
           networking.hostName = name;
           _module.args = {
             systemType = "bare";
-            inherit desktop trusted;
+            inherit desktop trusted baze;
           };
         }
       ]

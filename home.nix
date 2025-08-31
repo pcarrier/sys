@@ -2,6 +2,7 @@
   pkgs,
   lib,
   systemType,
+  baze,
   trusted ? false,
   desktop ? false,
   ...
@@ -14,6 +15,7 @@ let
       stateVersion = "25.11";
       packages = with pkgs; [
         bat
+        baze.packages.${system}.default
         claude-code
         codex
         fd
