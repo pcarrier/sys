@@ -40,8 +40,7 @@ in
     };
     openssh = {
       enable = true;
-      permitRootLogin = "yes";
-      passwordAuthentication = false;
+      settings.PasswordAuthentication = false;
     };
   };
   programs.fish.enable = true;
