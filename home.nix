@@ -67,9 +67,9 @@ let
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
       _1password-gui
-      vesktop
       slack
       spotify
+      vesktop
       zoom-us
     ];
   };
