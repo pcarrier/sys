@@ -19,6 +19,7 @@ let
         fd
         fastfetch
         file
+        gnuplot
         htop
         jq
         moreutils
