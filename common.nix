@@ -2,6 +2,11 @@
   pkgs,
   ...
 }:
+let
+  keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAvpKEUAeZFJkpIOuyV7PXuSkrNV51TCs7NxPCarRiEr"
+  ];
+in
 {
   security = {
     doas = {
@@ -33,16 +38,19 @@
         match for local action "local"
       '';
     };
-    openssh.enable = true;
+    openssh = {
+      enable = true;
+      permitRootLogin = "yes";
+      passwordAuthentication = false;
+    };
   };
   programs.fish.enable = true;
   users.users.pcarrier = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     shell = pkgs.fish;
-    openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAvpKEUAeZFJkpIOuyV7PXuSkrNV51TCs7NxPCarRiEr"
-    ];
+    openssh.authorizedKeys.keys = keys;
   };
+  users.users.root.openssh.authorizedKeys.keys = keys;
   system.stateVersion = "25.11";
 }
