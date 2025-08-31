@@ -291,6 +291,14 @@ let
           cm = {
             body = ''git cm -m "$argv"'';
           };
+          nu = {
+            body = ''
+              for host in $argv
+                echo === $host ===
+                ssh $host "cd /src/sys && git pull && nh os switch ."
+              end
+            '';
+          };
         };
       };
       tmux = {
