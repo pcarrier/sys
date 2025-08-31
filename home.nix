@@ -18,6 +18,7 @@ let
         codex
         fd
         fastfetch
+        ffmpeg
         file
         gnuplot
         htop
