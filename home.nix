@@ -59,6 +59,7 @@ let
       home.packages = with pkgs; [
         brave
         code-cursor
+        kdePackages.krdc
         simplescreenrecorder
         xclip
       ];
