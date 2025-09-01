@@ -1,6 +1,7 @@
 {
   pkgs,
   lib,
+  system,
   systemType,
   baze,
   trusted ? false,
