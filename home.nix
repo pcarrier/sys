@@ -349,20 +349,6 @@ in
         trustedConfig
         programsConfig
       ];
-      root = {
-        home.stateVersion = "25.11";
-        programs.ssh = {
-          enable = true;
-          enableDefaultConfig = false;
-          extraConfig = ''
-            StrictHostKeyChecking accept-new
-          '';
-          matchBlocks."*" = {
-            compression = true;
-            extraOptions.ConnectTimeout = "5";
-          };
-        };
-      };
     };
   };
 }
