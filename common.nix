@@ -30,22 +30,22 @@ in
     };
     distributedBuilds = true;
     buildMachines = [
-      # {
-      #   hostName = "gorilla";
-      #   systems = [
-      #     "x86_64-linux"
-      #     "aarch64-linux"
-      #   ];
-      #   protocol = "ssh-ng";
-      #   maxJobs = 16;
-      #   speedFactor = 1;
-      #   supportedFeatures = [
-      #     "nixos-test"
-      #     "benchmark"
-      #     "big-parallel"
-      #     "kvm"
-      #   ];
-      # }
+      {
+        hostName = "gorilla";
+        systems = [
+          "x86_64-linux"
+          "aarch64-linux"
+        ];
+        protocol = "ssh-ng";
+        maxJobs = 16;
+        speedFactor = 1;
+        supportedFeatures = [
+          "nixos-test"
+          "benchmark"
+          "big-parallel"
+          "kvm"
+        ];
+      }
       # {
       #   hostName = "dog";
       #   systems = [
