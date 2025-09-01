@@ -10,9 +10,9 @@
 let
   baseConfig = {
     home = {
+      stateVersion = "25.11";
       username = "pcarrier";
       homeDirectory = "/home/pcarrier";
-      stateVersion = "25.11";
       packages = with pkgs; [
         bat
         baze.packages.${system}.default
@@ -329,6 +329,20 @@ in
         trustedConfig
         programsConfig
       ];
+      root = {
+        home.stateVersion = "25.11";
+        programs.ssh = {
+          enable = true;
+          enableDefaultConfig = false;
+          extraConfig = ''
+            StrictHostKeyChecking accept-new
+          '';
+          matchBlocks."*" = {
+            compression = true;
+            extraOptions.ConnectTimeout = "5";
+          };
+        };
+      };
     };
   };
 }
