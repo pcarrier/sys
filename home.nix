@@ -16,6 +16,7 @@ let
       packages = with pkgs; [
         bat
         baze.packages.${system}.default
+        bubblewrap
         claude-code
         codex
         fd
@@ -312,6 +313,11 @@ let
                 echo === $host ===
                 ssh root@$host nixos-rebuild switch github:pcarrier/sys#$ref
               end
+            '';
+          };
+          rc = {
+            body = ''
+              cursor --folder-uri=vscode-remote://ssh-remote+$1(pwd)
             '';
           };
         };

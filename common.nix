@@ -34,7 +34,7 @@ in
         hostName = "gorilla";
         systems = [
           "x86_64-linux"
-          "aarch64-linux"
+          # "aarch64-linux"
         ];
         protocol = "ssh-ng";
         maxJobs = 16;
