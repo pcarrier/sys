@@ -87,6 +87,7 @@
               trusted = true;
               desktop = true;
               system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
               hardware = ./hw/deck.nix;
               extraModules = [
                 jovian.nixosModules.default
