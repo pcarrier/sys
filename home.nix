@@ -284,6 +284,10 @@ let
           n = "nh os switch";
           t = "tmux attach";
           v = "nvim";
+          km = "kubectl --context minikube";
+          ks = "kubectl --namespace sandbox --context gke_twin-multiverse-sandbox_europe-west9_twin-multiverse-sandbox-paris";
+          kpp = "kubectl --namespace prod --context gke_twin-multiverse-prod_europe-west9_twin-multiverse-prod-paris";
+          kpi = "kubectl --namespace prod --context gke_twin-multiverse-prod_us-central1_twin-multiverse-prod-iowa";
         };
         functions = {
           T = {
