@@ -28,7 +28,7 @@
           _module.args = {
             systemType = "wsl";
             desktop = false;
-            inherit trusted baze;
+            inherit system trusted baze;
           };
         }
       ]
@@ -64,7 +64,7 @@
           networking.hostName = name;
           _module.args = {
             systemType = "bare";
-            inherit desktop trusted baze;
+            inherit system desktop trusted baze;
           };
         }
       ]
