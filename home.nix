@@ -298,9 +298,19 @@ let
           };
           nu = {
             body = ''
+              set -l ref (git -C /src/sys rev-parse HEAD)
               for host in $argv
                 echo === $host ===
-                ssh $host "git -C /src/sys pull && nh os switch"
+                ssh $host nh os switch github:pcarrier/sys/$ref
+              end
+            '';
+          };
+          nuke = {
+            body = ''
+              set -l ref (git -C /src/sys rev-parse HEAD)
+              for host in $argv
+                echo === $host ===
+                ssh root@$host nixos-rebuild switch github:pcarrier/sys#$ref
               end
             '';
           };

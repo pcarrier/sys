@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -15,12 +16,25 @@
     };
     baze = {
       url = "github:pcarrier/baze";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs = {
+        flake-utils.follows = "flake-utils";
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
+    colmena = {
+      url = "github:zhaofengli/colmena";
+      inputs = {
+        flake-utils.follows = "flake-utils";
+        nixpkgs.follows = "nixpkgs";
+      };
     };
   };
 
   outputs =
     {
+      self,
+      flake-utils,
+      colmena,
       nixpkgs,
       nixos-wsl,
       home-manager,
@@ -32,6 +46,7 @@
       build = import ./build.nix;
     in
     {
+      colmenaHive = colmena.lib.makeHive self.outputs.colmena;
       nixosConfigurations = {
         chimp =
           build.wsl
@@ -102,5 +117,23 @@
                 ;
             };
       };
-    };
+    }
+    // flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+      in
+      {
+        devShells = {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              nixfmt
+              (pkgs.writeShellScriptBin "hosts" ''
+                echo ${builtins.toString (builtins.attrNames self.nixosConfigurations)}
+              '')
+            ];
+          };
+        };
+      }
+    );
 }
