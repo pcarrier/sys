@@ -38,9 +38,9 @@
             {
               name = "chimp";
               system = "aarch64-linux";
+              emulated = [ "x86_64-linux" ];
               extraModules = [
                 ./mail.nix
-                ./remote-builder.nix
               ];
             }
             {
@@ -56,9 +56,9 @@
             {
               name = "dog";
               system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
               extraModules = [
                 ./docker.nix
-                ./remote-builder.nix
               ];
             }
             {
@@ -72,6 +72,7 @@
         gorilla = build.bare {
           name = "gorilla";
           system = "x86_64-linux";
+          emulated = [ "aarch64-linux" ];
           hardware = ./hw/ax52.nix;
           extraModules = [
             ./docker.nix
@@ -88,7 +89,6 @@
               system = "x86_64-linux";
               hardware = ./hw/deck.nix;
               extraModules = [
-                ./remote-builder.nix
                 jovian.nixosModules.default
               ];
             }

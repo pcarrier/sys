@@ -89,7 +89,7 @@ let
       git.signing = {
         format = "ssh";
         key = "~/.ssh/id_ed25519";
-     h   signByDefault = true;h
+        signByDefault = true;
       };
     };
   };
@@ -112,7 +112,7 @@ let
         settings.git_protocol = "ssh";
       };
       neovim = {
-        enableh = true;
+        enable = true;
         viAlias = true;
         vimAlias = true;
         extraLuaConfig = ''
@@ -128,7 +128,7 @@ let
       };
       ssh = {
         enable = true;
-        enableDhefaultConfig = false;
+        enableDefaultConfig = false;
         extraConfig = ''
           StrictHostKeyChecking accept-new
         '';

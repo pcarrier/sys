@@ -3,6 +3,7 @@
     {
       name,
       system,
+      emulated ? [ ],
       trusted ? true,
       extraModules ? [ ],
     }:
@@ -22,6 +23,7 @@
         ./wsl.nix
         ./home.nix
         {
+          boot.binfmt.emulatedSystems = emulated;
           wsl.wslConf.network.hostname = name;
           _module.args = {
             systemType = "wsl";
@@ -37,6 +39,7 @@
     {
       name,
       system,
+      emulated ? [ ],
       hardware,
       trusted ? false,
       desktop ? false,
@@ -57,6 +60,7 @@
         hardware
         ./home.nix
         {
+          boot.binfmt.emulatedSystems = emulated;
           networking.hostName = name;
           _module.args = {
             systemType = "bare";
