@@ -26,6 +26,7 @@ let
         gnuplot
         htop
         jq
+        ldns
         moreutils
         mosh
         nixd
