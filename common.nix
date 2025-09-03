@@ -8,6 +8,7 @@ let
   ];
 in
 {
+  zramSwap.enable = true;
   security = {
     doas = {
       enable = true;
