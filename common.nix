@@ -45,7 +45,10 @@ in
       settings.PasswordAuthentication = false;
     };
   };
-  programs.fish.enable = true;
+  programs = {
+    fish.enable = true;
+    nix-ld.enable = true;
+  };
   users.users.pcarrier = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];

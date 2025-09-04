@@ -17,5 +17,4 @@
     ];
     defaultUser = "pcarrier";
   };
-  programs.nix-ld.enable = true;
 }
