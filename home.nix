@@ -60,7 +60,7 @@ let
     bare = {
       home.packages = with pkgs; [
         brave
-        code-cursor
+        code-cursor-fhs
         kdePackages.krdc
         simplescreenrecorder
         xclip
