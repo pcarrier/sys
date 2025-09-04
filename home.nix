@@ -40,8 +40,8 @@ let
         zoxide
       ];
       sessionVariables = {
-        EDITOR = "cursor --wait";
-        VISUAL = "cursor --wait";
+        EDITOR = "code --wait";
+        VISUAL = "code --wait";
       };
     };
   };
@@ -60,7 +60,7 @@ let
     bare = {
       home.packages = with pkgs; [
         brave
-        code-cursor-fhs
+        vscode
         kdePackages.krdc
         simplescreenrecorder
         xclip
