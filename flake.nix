@@ -55,7 +55,7 @@
               system = "aarch64-linux";
               emulated = [ "x86_64-linux" ];
               extraModules = [
-                ./mail.nix
+                ./feat/mail.nix
               ];
             }
             {
@@ -73,7 +73,7 @@
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
               extraModules = [
-                ./docker.nix
+                ./feat/docker.nix
               ];
             }
             {
@@ -90,9 +90,9 @@
           emulated = [ "aarch64-linux" ];
           hardware = ./hw/ax52.nix;
           extraModules = [
-            ./docker.nix
-            ./kube.nix
-            ./rdp.nix
+            ./feat/docker.nix
+            ./feat/kube.nix
+            ./feat/rdp.nix
           ];
         } { inherit nixpkgs home-manager baze; };
         sloth =
