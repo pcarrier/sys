@@ -56,6 +56,7 @@
               emulated = [ "x86_64-linux" ];
               extraModules = [
                 ./feat/mail.nix
+                ./feat/docker.nix
               ];
             }
             {
@@ -93,6 +94,54 @@
             ./feat/docker.nix
             ./feat/kube.nix
             ./feat/rdp.nix
+          ];
+        } { inherit nixpkgs home-manager baze; };
+        rabbit = build.bare {
+          name = "rabbit";
+          system = "x86_64-linux";
+          emulated = [ "aarch64-linux" ];
+          hardware = ./hw/fw.nix;
+          extraModules = [
+            ./feat/zfs.nix
+            ./feat/media.nix
+            {
+              boot.zfs.extraPools = [
+                "tank"
+                "tonk"
+              ];
+              networking.hostId = "12345678";
+              services = {
+                syncoid = {
+                  enable = true;
+                  commands.tank-to-tonk = {
+                    source = "tank";
+                    target = "tonk/backups/tank";
+                  };
+                };
+                sanoid = {
+                  enable = true;
+                  templates = {
+                    perso = {
+                      hourly = 48;
+                      daily = 30;
+                      weekly = 5;
+                      monthly = 12;
+                      yearly = 10;
+                      autosnap = true;
+                      autoprune = true;
+                    };
+                  };
+                  datasets = {
+                    "tank" = {
+                      useTemplate = [ "perso" ];
+                    };
+                    "tonk" = {
+                      useTemplate = [ "perso" ];
+                    };
+                  };
+                };
+              };
+            }
           ];
         } { inherit nixpkgs home-manager baze; };
         sloth =

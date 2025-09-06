@@ -17,7 +17,6 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
-        claude-code
         codex
         fd
         fastfetch
@@ -35,14 +34,12 @@ let
         nodejs
         pssh
         ripgrep
-        tree
-        wget # for cursor
         yt-dlp
         zoxide
       ];
       sessionVariables = {
-        EDITOR = "code --wait";
-        VISUAL = "code --wait";
+        EDITOR = "codium --wait";
+        VISUAL = "codium --wait";
       };
     };
   };
@@ -52,7 +49,7 @@ let
       home.packages = with pkgs; [ wslu ];
       home.sessionVariables.BROWSER = "wslview";
       home.sessionPath = [
-        "/mnt/c/Users/pierr/AppData/Local/Programs/cursor/resources/app/bin"
+        "/mnt/c/Users/pierr/AppData/Local/Programs/VSCodium/bin"
       ];
       programs.fish.functions.pbcopy = {
         body = "clip.exe";
@@ -61,7 +58,7 @@ let
     bare = {
       home.packages = with pkgs; [
         brave
-        vscode
+        vscodium
         kdePackages.krdc
         simplescreenrecorder
         xclip
@@ -283,7 +280,7 @@ let
         '';
         shellAliases = {
           C = "clear";
-          c = "cursor";
+          c = "codium";
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";

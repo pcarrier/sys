@@ -8,6 +8,8 @@ let
   ];
 in
 {
+  hardware.enableRedistributableFirmware = true;
+  boot.kernelPackages = pkgs.linuxPackages_latest;
   zramSwap.enable = true;
   security = {
     doas = {
@@ -36,7 +38,7 @@ in
       enable = true;
       serverConfiguration = ''
         listen on localhost
-        action "local" maildir alias <aliases>
+        action "local" maildir
         match for local action "local"
       '';
     };
