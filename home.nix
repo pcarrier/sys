@@ -33,6 +33,7 @@ let
         nixfmt
         nmap
         nodejs
+        pssh
         ripgrep
         tree
         wget # for cursor
