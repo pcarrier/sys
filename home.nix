@@ -139,6 +139,9 @@ let
           "*" = {
             addKeysToAgent = "yes";
             compression = true;
+            controlMaster = "auto";
+            controlPath = "~/.ssh/control-%r@%h:%p";
+            controlPersist = "1h";
           };
           ident = {
             hostname = "ident.me";
