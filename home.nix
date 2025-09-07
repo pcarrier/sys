@@ -146,6 +146,9 @@ let
           vim.opt.autoindent = true;
           vim.opt.smartindent = true;
           vim.opt.expandtab = true;
+          vim.opt.number = true;
+          vim.opt.cursorline = true;
+
           require('supermaven-nvim').setup({});
           local lsp = require('lspconfig');
           lsp.nixd.setup({});
