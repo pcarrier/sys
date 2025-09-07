@@ -151,20 +151,22 @@ let
           enable = true;
           viAlias = true;
           vimAlias = true;
-          vimdiffAlias = true;
           extraLuaConfig = ''
-            vim.opt.autoindent = true;
-            vim.opt.smartindent = true;
-            vim.opt.expandtab = true;
-            vim.opt.number = true;
-            vim.opt.cursorline = true;
+            vim.opt.autoindent = true
+            vim.opt.smartindent = true
+            vim.opt.expandtab = true
+            vim.opt.number = true
+            vim.opt.relativenumber = true
+            vim.opt.cursorline = true
+            vim.opt.colorcolumn = "100"
+            vim.opt.termguicolors = true
 
-            require('supermaven-nvim').setup({});
-            local lsp = require('lspconfig');
-            lsp.nixd.setup({});
-            lsp.rust_analyzer.setup({});
+            require('supermaven-nvim').setup({})
+            local lsp = require('lspconfig')
+            lsp.nixd.setup({})
+            lsp.rust_analyzer.setup({})
 
-            vim.cmd.colorscheme('Tomorrow-Night-Bright');
+            vim.cmd.colorscheme('Tomorrow-Night-Bright')
           '';
           plugins = with pkgs.vimPlugins; [
             tomorrow
