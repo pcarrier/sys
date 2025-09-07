@@ -162,6 +162,7 @@ let
             require('supermaven-nvim').setup({});
             local lsp = require('lspconfig');
             lsp.nixd.setup({});
+            lsp.rust_analyzer.setup({});
 
             vim.cmd.colorscheme('Tomorrow-Night-Bright');
           '';
