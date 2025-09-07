@@ -46,26 +46,53 @@ let
 
   systemConfigs = {
     wsl = {
-      home.packages = with pkgs; [ wslu ];
-      home.sessionVariables.BROWSER = "wslview";
-      home.sessionPath = [
-        "/mnt/c/Users/pierr/AppData/Local/Programs/VSCodium/bin"
-      ];
+      home = {
+        packages = with pkgs; [ wslu ];
+        sessionVariables.BROWSER = "wslview";
+        sessionPath = [
+          "/mnt/c/Users/pierr/AppData/Local/Programs/VSCodium/bin"
+        ];
+      };
       programs.fish.functions.pbcopy = {
         body = "clip.exe";
       };
     };
     bare = {
-      home.packages = with pkgs; [
-        brave
-        vscodium
-        kdePackages.krdc
-        simplescreenrecorder
-        xclip
-      ];
-      home.sessionVariables.BROWSER = "brave";
-      programs.fish.functions.pbcopy = {
-        body = "xclip -selection clipboard";
+      home = {
+        packages = with pkgs; [
+          brave
+          kdePackages.krdc
+          simplescreenrecorder
+          xclip
+        ];
+        sessionVariables.BROWSER = "brave";
+      };
+      programs = {
+        vscode = {
+          enable = true;
+          package = pkgs.vscodium;
+          profiles.default.extensions = with pkgs.vscode-extensions; [
+            # openai.chatgpt missing
+            ms-azuretools.vscode-containers
+            mkhl.direnv
+            ms-azuretools.vscode-docker
+            editorconfig.editorconfig
+            tamasfe.even-better-toml
+            github.vscode-github-actions
+            github.vscode-pull-request-github
+            eamodio.gitlens
+            golang.go
+            hashicorp.terraform
+            oderwat.indent-rainbow
+            jnoortheen.nix-ide
+            esbenp.prettier-vscode
+            rust-lang.rust-analyzer
+            supermaven.supermaven
+          ];
+        };
+        fish.functions.pbcopy = {
+          body = "xclip -selection clipboard";
+        };
       };
     };
   };
@@ -119,10 +146,28 @@ let
           vim.opt.autoindent = true;
           vim.opt.smartindent = true;
           vim.opt.expandtab = true;
+          require('supermaven-nvim').setup({});
+          local lsp = require('lspconfig');
+          lsp.nixd.setup({});
         '';
         plugins = with pkgs.vimPlugins; [
           vim-nix
           supermaven-nvim
+          nvim-lspconfig
+          (nvim-treesitter.withPlugins (plugins: with plugins; [
+            tree-sitter-nix
+            tree-sitter-vim
+            tree-sitter-lua
+            tree-sitter-bash
+            tree-sitter-fish
+            tree-sitter-python
+            tree-sitter-go
+            tree-sitter-rust
+            tree-sitter-json
+            tree-sitter-yaml
+            tree-sitter-toml
+            tree-sitter-markdown
+          ]))
         ];
       };
       nh = {
