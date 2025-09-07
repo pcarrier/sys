@@ -120,6 +120,10 @@ let
           vim.opt.smartindent = true;
           vim.opt.expandtab = true;
         '';
+        plugins = with pkgs.vimPlugins; [
+          vim-nix
+          supermaven-nvim
+        ];
       };
       nh = {
         enable = true;
