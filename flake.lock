@@ -228,7 +228,8 @@
         "home-manager": "home-manager",
         "jovian": "jovian",
         "nixos-wsl": "nixos-wsl",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "tomorrowTheme": "tomorrowTheme"
       }
     },
     "stable": {
@@ -259,6 +260,22 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "tomorrowTheme": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1657362863,
+        "narHash": "sha256-G9NOFKP9GX8lKIoHVska6xAY9AKKMenZuVkx0YgfQyA=",
+        "owner": "chriskempson",
+        "repo": "tomorrow-theme",
+        "rev": "ccf6666d888198d341b26b3a99d0bc96500ad503",
+        "type": "github"
+      },
+      "original": {
+        "owner": "chriskempson",
+        "repo": "tomorrow-theme",
         "type": "github"
       }
     }

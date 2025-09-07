@@ -3,6 +3,7 @@
   lib,
   systemType,
   baze,
+  tomorrowThemeSrc,
   trusted ? false,
   desktop ? false,
   ...
@@ -138,41 +139,40 @@ let
         enable = true;
         settings.git_protocol = "ssh";
       };
-      neovim = {
-        enable = true;
-        viAlias = true;
-        vimAlias = true;
-        extraLuaConfig = ''
-          vim.opt.autoindent = true;
-          vim.opt.smartindent = true;
-          vim.opt.expandtab = true;
-          vim.opt.number = true;
-          vim.opt.cursorline = true;
+      neovim =
+        let
+          tomorrow = pkgs.vimUtils.buildVimPlugin {
+            pname = "tomorrow-theme";
+            version = "master";
+            src = "${tomorrowThemeSrc}/vim";
+          };
+        in
+        {
+          enable = true;
+          viAlias = true;
+          vimAlias = true;
+          vimdiffAlias = true;
+          extraLuaConfig = ''
+            vim.opt.autoindent = true;
+            vim.opt.smartindent = true;
+            vim.opt.expandtab = true;
+            vim.opt.number = true;
+            vim.opt.cursorline = true;
 
-          require('supermaven-nvim').setup({});
-          local lsp = require('lspconfig');
-          lsp.nixd.setup({});
-        '';
-        plugins = with pkgs.vimPlugins; [
-          vim-nix
-          supermaven-nvim
-          nvim-lspconfig
-          (nvim-treesitter.withPlugins (plugins: with plugins; [
-            tree-sitter-nix
-            tree-sitter-vim
-            tree-sitter-lua
-            tree-sitter-bash
-            tree-sitter-fish
-            tree-sitter-python
-            tree-sitter-go
-            tree-sitter-rust
-            tree-sitter-json
-            tree-sitter-yaml
-            tree-sitter-toml
-            tree-sitter-markdown
-          ]))
-        ];
-      };
+            require('supermaven-nvim').setup({});
+            local lsp = require('lspconfig');
+            lsp.nixd.setup({});
+
+            vim.cmd.colorscheme('Tomorrow-Night-Bright');
+          '';
+          plugins = with pkgs.vimPlugins; [
+            tomorrow
+            nvim-lspconfig
+            vim-nix
+            supermaven-nvim
+            nvim-treesitter.withAllGrammars
+          ];
+        };
       nh = {
         enable = true;
         clean.enable = true;

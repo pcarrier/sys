@@ -11,6 +11,7 @@
       nixpkgs,
       nixos-wsl,
       home-manager,
+      tomorrowTheme,
       baze,
       ...
     }:
@@ -29,6 +30,7 @@
             systemType = "wsl";
             desktop = false;
             inherit trusted baze;
+            tomorrowThemeSrc = tomorrowTheme;
           };
         }
       ]
@@ -48,6 +50,7 @@
     {
       nixpkgs,
       home-manager,
+      tomorrowTheme,
       baze,
       ...
     }:
@@ -65,6 +68,7 @@
           _module.args = {
             systemType = "bare";
             inherit desktop trusted baze;
+            tomorrowThemeSrc = tomorrowTheme;
           };
         }
       ]
