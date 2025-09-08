@@ -79,6 +79,7 @@ let
             eamodio.gitlens
             editorconfig.editorconfig
             esbenp.prettier-vscode
+            github.copilot
             github.vscode-github-actions
             github.vscode-pull-request-github
             golang.go
@@ -101,7 +102,6 @@ let
             #openai.chatgpt
             redhat.vscode-yaml
             rust-lang.rust-analyzer
-            supermaven.supermaven
             tamasfe.even-better-toml
             usernamehw.errorlens
           ];
