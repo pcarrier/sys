@@ -255,6 +255,9 @@ let
           gorilla = {
             forwardAgent = true;
           };
+          monster = {
+            forwardAgent = true;
+          };
         };
       };
       git = {
