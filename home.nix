@@ -35,6 +35,8 @@ let
         nodejs
         pssh
         ripgrep
+        tokei
+        tree
         yt-dlp
         wget # for remote vscode
         zoxide
