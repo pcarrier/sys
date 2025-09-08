@@ -85,18 +85,18 @@ let
             mkhl.direnv
             ms-azuretools.vscode-containers
             ms-azuretools.vscode-docker
-            ms-edgedevtools.vscode-edge-devtools
+            #ms-edgedevtools.vscode-edge-devtools
             ms-kubernetes-tools.vscode-kubernetes-tools
             ms-vscode-remote.remote-containers
             ms-vscode-remote.remote-ssh
             ms-vscode-remote.remote-ssh-edit
+            #ms-vscode-remote.remote-wsl
             ms-vscode.live-server
             ms-vscode.remote-explorer
-            ms-vscode.theme-tomorrowkit
             ms-windows-ai-studio.windows-ai-studio
-            nimsaem.nimvscode
+            #nimsaem.nimvscode
             oderwat.indent-rainbow
-            openai.chatgpt
+            #openai.chatgpt
             redhat.vscode-yaml
             rust-lang.rust-analyzer
             supermaven.supermaven
