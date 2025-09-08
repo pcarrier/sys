@@ -36,11 +36,12 @@ let
         pssh
         ripgrep
         yt-dlp
+        wget # for remote vscode
         zoxide
       ];
       sessionVariables = {
-        EDITOR = "codium --wait";
-        VISUAL = "codium --wait";
+        EDITOR = "code --wait";
+        VISUAL = "code --wait";
       };
     };
   };
@@ -51,7 +52,7 @@ let
         packages = with pkgs; [ wslu ];
         sessionVariables.BROWSER = "wslview";
         sessionPath = [
-          "/mnt/c/Users/pierr/AppData/Local/Programs/VSCodium/bin"
+          "/mnt/c/Users/pierr/AppData/Local/Programs/Microsoft VS Code/bin"
         ];
       };
       programs.fish.functions.pbcopy = {
@@ -71,7 +72,6 @@ let
       programs = {
         vscode = {
           enable = true;
-          package = pkgs.vscodium;
           profiles.default.extensions = with pkgs.vscode-extensions; [
             # openai.chatgpt missing
             ms-azuretools.vscode-containers
@@ -336,7 +336,7 @@ let
         '';
         shellAliases = {
           C = "clear";
-          c = "codium";
+          c = "code";
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";
