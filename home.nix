@@ -182,6 +182,14 @@ let
             lsp.nixd.setup({})
             lsp.rust_analyzer.setup({})
 
+            vim.api.nvim_create_autocmd("BufWritePre", {
+              callback = function(args)
+                vim.lsp.buf.format({
+                  bufnr = args.buf,
+                  async = false,
+               })
+              end,
+            })
             vim.cmd.colorscheme('Tomorrow-Night-Bright')
           '';
           plugins = with pkgs.vimPlugins; [
