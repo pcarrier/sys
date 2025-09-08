@@ -366,7 +366,7 @@ let
             body = "$argv 2>&1 | ts";
           };
           cm = {
-            body = ''git cm -m "$argv"'';
+            body = ''g cm -m "$argv"'';
           };
           nu = {
             body = ''

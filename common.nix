@@ -32,7 +32,11 @@ in
       trusted-users = [ "@wheel" ];
     };
   };
-  nixpkgs.config.allowUnfree = true;
+  nixpkgs.config = {
+    allowUnfree = true;
+    allowBroken = true;
+    allowUnsupportedSystem = true;
+  };
   services = {
     opensmtpd = {
       enable = true;
