@@ -73,22 +73,35 @@ let
         vscode = {
           enable = true;
           profiles.default.extensions = with pkgs.vscode-extensions; [
-            # openai.chatgpt missing
-            ms-azuretools.vscode-containers
-            mkhl.direnv
-            ms-azuretools.vscode-docker
+            denoland.vscode-deno
+            eamodio.gitlens
             editorconfig.editorconfig
-            tamasfe.even-better-toml
+            esbenp.prettier-vscode
             github.vscode-github-actions
             github.vscode-pull-request-github
-            eamodio.gitlens
             golang.go
             hashicorp.terraform
-            oderwat.indent-rainbow
             jnoortheen.nix-ide
-            esbenp.prettier-vscode
+            mkhl.direnv
+            ms-azuretools.vscode-containers
+            ms-azuretools.vscode-docker
+            ms-edgedevtools.vscode-edge-devtools
+            ms-kubernetes-tools.vscode-kubernetes-tools
+            ms-vscode-remote.remote-containers
+            ms-vscode-remote.remote-ssh
+            ms-vscode-remote.remote-ssh-edit
+            ms-vscode.live-server
+            ms-vscode.remote-explorer
+            ms-vscode.theme-tomorrowkit
+            ms-windows-ai-studio.windows-ai-studio
+            nimsaem.nimvscode
+            oderwat.indent-rainbow
+            openai.chatgpt
+            redhat.vscode-yaml
             rust-lang.rust-analyzer
             supermaven.supermaven
+            tamasfe.even-better-toml
+            usernamehw.errorlens
           ];
         };
         fish.functions.pbcopy = {
