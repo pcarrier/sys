@@ -19,6 +19,7 @@ let
         baze.packages.${system}.default
         bubblewrap
         codex
+        dive
         fd
         fastfetch
         ffmpeg
