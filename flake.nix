@@ -98,12 +98,29 @@
               name = "gorilla";
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
-              hardware = ./hw/ax52.nix;
+              hardware = ./hw/pc.nix;
               extraModules = [
                 ./feat/docker.nix
                 ./feat/kube.nix
                 ./feat/rdp.nix
               ];
+            }
+            {
+              inherit
+                nixpkgs
+                home-manager
+                tomorrowTheme
+                baze
+                ;
+            };
+        monster =
+          build.bare
+            {
+              name = "monster";
+              system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
+              hardware = ./hw/pc.nix;
+              extraModules = [ ];
             }
             {
               inherit
