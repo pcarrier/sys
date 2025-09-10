@@ -98,7 +98,7 @@
               name = "gorilla";
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
-              hardware = ./hw/pc.nix;
+              hardware = ./hw/amd1.nix;
               extraModules = [
                 ./feat/docker.nix
                 ./feat/kube.nix
@@ -119,7 +119,7 @@
               name = "monster";
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
-              hardware = ./hw/pc.nix;
+              hardware = ./hw/amd1.nix;
               extraModules = [ ];
             }
             {
