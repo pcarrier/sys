@@ -352,18 +352,17 @@ let
       lazygit.enable = true;
       fish = {
         enable = true;
-        interactiveShellInit = ''
-          set fish_greeting
-
-          function __fish_postexec --on-event fish_postexec
-            set_color yellow
-            echo took $CMD_DURATION ms
-            set_color normal
-          end
-        '';
+        plugins = with pkgs.fishPlugins; [
+          {
+            name = "hydro";
+            src = hydro.src;
+          }
+        ];
+        interactiveShellInit = "set fish_greeting";
         shellAliases = {
           C = "clear";
           c = "code";
+          ca = "cargo";
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";
