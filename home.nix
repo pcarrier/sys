@@ -1,6 +1,7 @@
 {
   pkgs,
   lib,
+  nix-index,
   systemType,
   baze,
   tomorrowThemeSrc,
@@ -31,6 +32,7 @@ let
         moreutils
         mosh
         nixd
+        nix-index.packages.${system}.default
         nixfmt
         nmap
         nodejs

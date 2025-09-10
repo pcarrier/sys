@@ -10,6 +10,10 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-index = {
+      url = "github:nix-community/nix-index";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -40,6 +44,7 @@
       flake-utils,
       colmena,
       nixpkgs,
+      nix-index,
       nixos-wsl,
       home-manager,
       tomorrowTheme,
@@ -67,6 +72,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 nixos-wsl
                 home-manager
                 tomorrowTheme
@@ -86,6 +92,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 nixos-wsl
                 home-manager
                 tomorrowTheme
@@ -108,6 +115,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 home-manager
                 tomorrowTheme
                 baze
@@ -125,6 +133,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 home-manager
                 tomorrowTheme
                 baze
@@ -183,6 +192,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 home-manager
                 tomorrowTheme
                 baze
@@ -204,6 +214,7 @@
             {
               inherit
                 nixpkgs
+                nix-index
                 home-manager
                 tomorrowTheme
                 baze

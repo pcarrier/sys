@@ -9,6 +9,7 @@
     }:
     {
       nixpkgs,
+      nix-index,
       nixos-wsl,
       home-manager,
       tomorrowTheme,
@@ -29,7 +30,7 @@
           _module.args = {
             systemType = "wsl";
             desktop = false;
-            inherit trusted baze;
+            inherit trusted baze nix-index;
             tomorrowThemeSrc = tomorrowTheme;
           };
         }
@@ -49,6 +50,7 @@
     }:
     {
       nixpkgs,
+      nix-index,
       home-manager,
       tomorrowTheme,
       baze,
@@ -67,7 +69,12 @@
           networking.hostName = name;
           _module.args = {
             systemType = "bare";
-            inherit desktop trusted baze;
+            inherit
+              desktop
+              trusted
+              baze
+              nix-index
+              ;
             tomorrowThemeSrc = tomorrowTheme;
           };
         }
