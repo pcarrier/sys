@@ -31,6 +31,7 @@ let
         ldns
         moreutils
         mosh
+        mpv
         nixd
         nix-index.packages.${system}.default
         nixfmt
@@ -69,7 +70,6 @@ let
         packages = with pkgs; [
           brave
           kdePackages.krdc
-          mpv
           simplescreenrecorder
           xclip
         ];
