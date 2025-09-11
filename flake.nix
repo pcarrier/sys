@@ -130,6 +130,7 @@
               extraModules = [
                 ./feat/docker.nix
                 ./feat/rdp.nix
+                ./folks/joao.nix
               ];
             }
             {
