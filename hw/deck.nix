@@ -1,10 +1,12 @@
 {
-  boot.initrd.availableKernelModules = [
-    "nvme"
-    "xhci_pci"
-    "usbhid"
-  ];
-  boot.kernelModules = [ "kvm-amd" ];
+  boot = {
+    initrd.availableKernelModules = [
+      "nvme"
+      "xhci_pci"
+      "usbhid"
+    ];
+    kernelModules = [ "kvm-amd" ];
+  };
   fileSystems = {
     "/" = {
       device = "/dev/disk/by-label/root";

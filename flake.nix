@@ -108,7 +108,27 @@
               hardware = ./hw/amd1.nix;
               extraModules = [
                 ./feat/docker.nix
-                ./feat/kube.nix
+                ./feat/rdp.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                ;
+            };
+        komodo =
+          build.bare
+            {
+              name = "komodo";
+              system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
+              hardware = ./hw/nv1.nix;
+              extraModules = [
+                ./feat/docker.nix
                 ./feat/rdp.nix
               ];
             }

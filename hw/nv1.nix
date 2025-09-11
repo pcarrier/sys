@@ -1,13 +1,13 @@
 {
   boot = {
+    swraid.enable = true;
     initrd.availableKernelModules = [
       "nvme"
       "xhci_pci"
       "ahci"
       "usbhid"
     ];
-    kernelModules = [ "kvm-amd" ];
-    swraid.enable = true;
+    kernelModules = [ "kvm-intel" ];
   };
   fileSystems = {
     "/" = {
@@ -24,5 +24,10 @@
     };
   };
   networking.useDHCP = true;
-  hardware.cpu.amd.updateMicrocode = true;
+  hardware = {
+    cpu.intel.updateMicrocode = true;
+    graphics.enable = true;
+    nvidia.open = true;
+  };
+  services.xserver.videoDrivers = [ "nvidia" ];
 }
