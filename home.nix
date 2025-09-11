@@ -69,6 +69,7 @@ let
         packages = with pkgs; [
           brave
           kdePackages.krdc
+          mpv
           simplescreenrecorder
           xclip
         ];
