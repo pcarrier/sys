@@ -258,6 +258,9 @@ let
           gorilla = {
             forwardAgent = true;
           };
+          komodo = {
+            forwardAgent = true;
+          };
           monster = {
             forwardAgent = true;
           };
