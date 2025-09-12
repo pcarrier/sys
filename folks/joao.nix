@@ -15,7 +15,7 @@
       homeDirectory = "/home/joao";
       stateVersion = "25.11";
     };
-    packages = with pkgs; [
+    home.packages = with pkgs; [
       codex
       claude-code
       ripgrep
@@ -28,9 +28,9 @@
     programs = {
       zsh = {
         enable = true;
-        autosuggestions.enable = true;
+        autosuggestion.enable = true;
         syntaxHighlighting.enable = true;
-        ohMyZsh = {
+        oh-my-zsh = {
           enable = true;
           theme = "robbyrussell";
           plugins = [
