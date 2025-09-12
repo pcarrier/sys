@@ -15,11 +15,31 @@
       homeDirectory = "/home/joao";
       stateVersion = "25.11";
     };
+    packages = with pkgs; [
+      codex
+      claude-code
+      ripgrep
+      zellij
+      jq
+      lsof
+      htop
+      nload
+    ];
     programs = {
       zsh = {
         enable = true;
-        enableCompletion = true;
+        autosuggestions.enable = true;
         syntaxHighlighting.enable = true;
+        ohMyZsh = {
+          enable = true;
+          theme = "robbyrussell";
+          plugins = [
+            "git"
+            "sudo"
+            "docker"
+            "kubectl"
+          ];
+        };
       };
       direnv = {
         enable = true;
@@ -27,6 +47,21 @@
       };
       git = {
         enable = true;
+        package = pkgs.gitFull;
+        aliases = {
+          co = "checkout";
+          su = "status";
+          c = "commit";
+          cm = "commit -m";
+          p = "push";
+          po = "push origin";
+          pom = "push origin main";
+        };
+        lfs.enable = true;
+        extraConfig = {
+          diff.tool = "vimdiff";
+          core.editor = "vim";
+        };
       };
     };
   };
