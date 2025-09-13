@@ -1,3 +1,4 @@
+{ pkgs, ... }:
 {
   services = {
     nzbget = {
@@ -55,5 +56,10 @@
   networking.firewall.allowedTCPPorts = [
     80
     443
+  ];
+  home-manager.users.pcarrier.home.packages = with pkgs; [
+    icloudpd
+    immich-cli
+    immich-go
   ];
 }
