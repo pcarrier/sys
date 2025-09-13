@@ -149,7 +149,10 @@
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/amd1.nix;
-              extraModules = [ ./folks/joao.nix ];
+              extraModules = [
+                ./feat/docker.nix
+                ./folks/joao.nix
+              ];
             }
             {
               inherit
