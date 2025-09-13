@@ -1,3 +1,4 @@
+{ pkgs, ... }:
 {
   boot = {
     initrd.availableKernelModules = [
@@ -23,6 +24,12 @@
     };
   };
   networking.networkmanager.enable = true;
-  hardware.cpu.intel.updateMicrocode = true;
+  hardware = {
+    cpu.intel.updateMicrocode = true;
+    graphics = {
+      enable = true;
+      extraPackages = with pkgs; [ intel-media-driver ];
+    };
+  };
   services.hardware.bolt.enable = true;
 }

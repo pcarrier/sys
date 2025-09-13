@@ -12,6 +12,10 @@ in
   boot.kernelPackages = pkgs.linuxPackages_latest;
   zramSwap.enable = true;
   security = {
+    acme = {
+      acceptTerms = true;
+      defaults.email = "pc@rrier.fr";
+    };
     doas = {
       enable = true;
       wheelNeedsPassword = false;
