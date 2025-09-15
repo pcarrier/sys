@@ -366,6 +366,7 @@ let
         ];
         interactiveShellInit = "set fish_greeting";
         shellAliases = {
+          a = "codex -m gpt-5-high";
           C = "clear";
           c = "code";
           ca = "cargo";
