@@ -9,6 +9,7 @@
     }:
     {
       nixpkgs,
+      nixpkgs-master,
       nix-index,
       nixos-wsl,
       home-manager,
@@ -30,8 +31,14 @@
           _module.args = {
             systemType = "wsl";
             desktop = false;
-            inherit trusted baze nix-index;
-            tomorrowThemeSrc = tomorrowTheme;
+            inherit
+              system
+              trusted
+              baze
+              nix-index
+              nixpkgs-master
+              tomorrowTheme
+              ;
           };
         }
       ]
@@ -50,6 +57,7 @@
     }:
     {
       nixpkgs,
+      nixpkgs-master,
       nix-index,
       home-manager,
       tomorrowTheme,
@@ -70,12 +78,14 @@
           _module.args = {
             systemType = "bare";
             inherit
+              system
               desktop
               trusted
               baze
               nix-index
+              nixpkgs-master
+              tomorrowTheme
               ;
-            tomorrowThemeSrc = tomorrowTheme;
           };
         }
       ]

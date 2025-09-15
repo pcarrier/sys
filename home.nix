@@ -1,15 +1,18 @@
 {
   pkgs,
+  nixpkgs-master,
   lib,
   nix-index,
+  system,
   systemType,
   baze,
-  tomorrowThemeSrc,
+  tomorrowTheme,
   trusted ? false,
   desktop ? false,
   ...
 }:
 let
+  pkgs-master = import nixpkgs-master { inherit system; };
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -19,7 +22,7 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
-        codex
+        pkgs-master.codex
         dive
         fd
         fastfetch
@@ -163,7 +166,7 @@ let
           tomorrow = pkgs.vimUtils.buildVimPlugin {
             pname = "tomorrow-theme";
             version = "master";
-            src = "${tomorrowThemeSrc}/vim";
+            src = "${tomorrowTheme}/vim";
           };
         in
         {
@@ -366,7 +369,7 @@ let
         ];
         interactiveShellInit = "set fish_greeting";
         shellAliases = {
-          a = "codex -m gpt-5-high";
+          a = "codex --model gpt-5-codex --full-auto --search";
           C = "clear";
           c = "code";
           ca = "cargo";

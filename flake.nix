@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
     tomorrowTheme = {
       url = "github:chriskempson/tomorrow-theme";
@@ -29,21 +30,14 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
-    colmena = {
-      url = "github:zhaofengli/colmena";
-      inputs = {
-        flake-utils.follows = "flake-utils";
-        nixpkgs.follows = "nixpkgs";
-      };
-    };
   };
 
   outputs =
     {
       self,
       flake-utils,
-      colmena,
       nixpkgs,
+      nixpkgs-master,
       nix-index,
       nixos-wsl,
       home-manager,
@@ -56,7 +50,6 @@
       build = import ./build.nix;
     in
     {
-      colmenaHive = colmena.lib.makeHive self.outputs.colmena;
       nixosConfigurations = {
         chimp =
           build.wsl
@@ -72,6 +65,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 nixos-wsl
                 home-manager
@@ -92,6 +86,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 nixos-wsl
                 home-manager
@@ -114,6 +109,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 home-manager
                 tomorrowTheme
@@ -136,6 +132,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 home-manager
                 tomorrowTheme
@@ -157,6 +154,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 home-manager
                 tomorrowTheme
@@ -216,6 +214,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 home-manager
                 tomorrowTheme
@@ -238,6 +237,7 @@
             {
               inherit
                 nixpkgs
+                nixpkgs-master
                 nix-index
                 home-manager
                 tomorrowTheme
