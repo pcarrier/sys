@@ -2,6 +2,7 @@
 {
   programs.zsh.enable = true;
   users.users.joao = {
+    extraGroups = [ "wheel" ];
     isNormalUser = true;
     shell = pkgs.zsh;
     openssh.authorizedKeys.keys = [

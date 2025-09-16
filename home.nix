@@ -271,6 +271,7 @@ let
       };
       git = {
         enable = true;
+        package = pkgs.gitFull;
         userName = "Pierre Carrier";
         userEmail = "pc@rrier.fr";
         lfs.enable = true;
