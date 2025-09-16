@@ -359,16 +359,23 @@ let
           wd = "diff --word-diff --patience";
         };
       };
-      lazygit.enable = true;
+      lazygit = {
+        enable = true;
+        settings = {
+          git.overrideGpg = true;
+        };
+      };
       fish = {
         enable = true;
-        plugins = with pkgs.fishPlugins; [
-          {
-            name = "hydro";
-            src = hydro.src;
-          }
-        ];
-        interactiveShellInit = "set fish_greeting";
+        interactiveShellInit = ''
+          set fish_greeting
+
+          function __fish_postexec --on-event fish_postexec
+            set_color yellow
+            echo took $CMD_DURATION ms
+            set_color normal
+          end
+        '';
         shellAliases = {
           a = "codex --model gpt-5-codex --full-auto --search";
           C = "clear";
