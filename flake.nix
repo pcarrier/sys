@@ -149,6 +149,7 @@
               extraModules = [
                 ./feat/docker.nix
                 ./folks/joao.nix
+                ./folks/alex.nix
               ];
             }
             {
