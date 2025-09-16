@@ -51,6 +51,28 @@
     in
     {
       nixosConfigurations = {
+        baboon =
+          build.bare
+            {
+              name = "baboon";
+              system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
+              hardware = ./hw/amd1.nix;
+              extraModules = [
+                ./feat/docker.nix
+                ./folks/joao.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                ;
+            };
         chimp =
           build.wsl
             {
