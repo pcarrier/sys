@@ -1,11 +1,21 @@
 {
+  pkgs,
+  ...
+}:
+{
   boot = {
+    loader.timeout = 0;
+    kernelModules = [ "kvm-amd" ];
     initrd.availableKernelModules = [
       "nvme"
       "xhci_pci"
       "usbhid"
     ];
-    kernelModules = [ "kvm-amd" ];
+    plymouth = {
+      enable = true;
+      theme = "steamos";
+      themePackages = with pkgs; [ steamdeck-hw-theme ];
+    };
   };
   fileSystems = {
     "/" = {
