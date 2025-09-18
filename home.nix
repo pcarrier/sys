@@ -36,6 +36,7 @@ let
         moreutils
         mosh
         mpv
+        ncdu
         nixd
         nix-index.packages.${system}.default
         nixfmt
