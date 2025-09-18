@@ -63,15 +63,15 @@
       commands = {
         tank-to-tonk = {
           source = "tank";
-          target = "tonk";
+          target = "tonk/backups/tank";
         };
-        homw-to-tonk = {
+        home-to-tonk = {
           source = "tank/home";
-          target = "tonk";
+          target = "tonk/backups/home";
         };
         var-to-tonk = {
           source = "tank/var";
-          target = "tonk";
+          target = "tonk/backups/var";
         };
       };
     };
