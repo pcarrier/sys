@@ -393,7 +393,7 @@ let
           ks = "kubectl --namespace sandbox --context gke_twin-multiverse-sandbox_europe-west9_twin-multiverse-sandbox-paris";
           kpp = "kubectl --namespace prod --context gke_twin-multiverse-prod_europe-west9_twin-multiverse-prod-paris";
           kpi = "kubectl --namespace prod --context gke_twin-multiverse-prod_us-central1_twin-multiverse-prod-iowa";
-          kps = "kubectl --namespace sandbox --context gke_twin-multiverse-prod_asia-southeast1_twin-multiverse-prod-singapore";
+          kps = "kubectl --namespace prod --context gke_twin-multiverse-prod_asia-southeast1_twin-multiverse-prod-singapore";
         };
         functions = {
           T = {
