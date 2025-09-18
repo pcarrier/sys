@@ -32,6 +32,7 @@ let
         htop
         jq
         ldns
+        lsof
         moreutils
         mosh
         mpv
