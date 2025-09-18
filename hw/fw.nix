@@ -1,18 +1,40 @@
 { pkgs, ... }:
 {
   boot = {
-    initrd.availableKernelModules = [
-      "xhci_pci"
-      "thunderbolt"
-      "nvme"
-      "usbhid"
-    ];
+    initrd = {
+      availableKernelModules = [
+        "xhci_pci"
+        "thunderbolt"
+        "nvme"
+        "usbhid"
+        "sd_mod"
+      ];
+      services.udev.rules = ''
+        ACTION=="add", SUBSYSTEM=="thunderbolt", ATTR{authorized}=="0", ATTR{authorized}="1"
+      '';
+    };
     kernelModules = [ "kvm-intel" ];
+    zfs.extraPools = [
+      "tank"
+      "tonk"
+    ];
   };
   fileSystems = {
     "/" = {
-      device = "/dev/disk/by-label/root";
-      fsType = "btrfs";
+      device = "tank/root";
+      fsType = "zfs";
+    };
+    "/nix" = {
+      device = "tank/nix";
+      fsType = "zfs";
+    };
+    "/home" = {
+      device = "tank/home";
+      fsType = "zfs";
+    };
+    "/var" = {
+      device = "tank/var";
+      fsType = "zfs";
     };
     "/boot" = {
       device = "/dev/disk/by-label/boot";
@@ -23,7 +45,10 @@
       ];
     };
   };
-  networking.networkmanager.enable = true;
+  networking = {
+    networkmanager.enable = true;
+    hostId = "12345678";
+  };
   hardware = {
     cpu.intel.updateMicrocode = true;
     graphics = {
@@ -31,5 +56,52 @@
       extraPackages = with pkgs; [ intel-media-driver ];
     };
   };
-  services.hardware.bolt.enable = true;
+  services = {
+    logind.lidSwitch = "ignore";
+    syncoid = {
+      enable = true;
+      commands = {
+        tank-to-tonk = {
+          source = "tank";
+          target = "tonk";
+        };
+        homw-to-tonk = {
+          source = "tank/home";
+          target = "tonk";
+        };
+        var-to-tonk = {
+          source = "tank/var";
+          target = "tonk";
+        };
+      };
+    };
+    sanoid = {
+      enable = true;
+      templates = {
+        perso = {
+          hourly = 48;
+          daily = 30;
+          weekly = 5;
+          monthly = 12;
+          yearly = 10;
+          autosnap = true;
+          autoprune = true;
+        };
+      };
+      datasets = {
+        "tank" = {
+          useTemplate = [ "perso" ];
+        };
+        "tank/home" = {
+          useTemplate = [ "perso" ];
+        };
+        "tank/var" = {
+          useTemplate = [ "perso" ];
+        };
+        "tonk" = {
+          useTemplate = [ "perso" ];
+        };
+      };
+    };
+  };
 }

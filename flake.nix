@@ -194,44 +194,6 @@
               extraModules = [
                 ./feat/zfs.nix
                 ./feat/media.nix
-                {
-                  boot.zfs.extraPools = [
-                    "tank"
-                    "tonk"
-                  ];
-                  networking.hostId = "12345678";
-                  services = {
-                    syncoid = {
-                      enable = true;
-                      commands.tank-to-tonk = {
-                        source = "tank";
-                        target = "tonk/backups/tank";
-                      };
-                    };
-                    sanoid = {
-                      enable = true;
-                      templates = {
-                        perso = {
-                          hourly = 48;
-                          daily = 30;
-                          weekly = 5;
-                          monthly = 12;
-                          yearly = 10;
-                          autosnap = true;
-                          autoprune = true;
-                        };
-                      };
-                      datasets = {
-                        "tank" = {
-                          useTemplate = [ "perso" ];
-                        };
-                        "tonk" = {
-                          useTemplate = [ "perso" ];
-                        };
-                      };
-                    };
-                  };
-                }
               ];
             }
             {
