@@ -44,6 +44,7 @@ let
         nodejs
         pssh
         ripgrep
+        sysstat
         tokei
         tree
         yt-dlp
