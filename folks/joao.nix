@@ -46,6 +46,10 @@
         enable = true;
         enableZshIntegration = true;
       };
+      neovim = {
+        enable = true;
+        vimAlias = true;
+      };
       git = {
         enable = true;
         package = pkgs.gitFull;
