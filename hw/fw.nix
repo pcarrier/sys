@@ -57,7 +57,7 @@
     };
   };
   services = {
-    logind.lidSwitch = "ignore";
+    logind.settings.Login.HandleLidSwitch = "ignore";
     syncoid = {
       enable = true;
       commands = {
