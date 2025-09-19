@@ -26,6 +26,7 @@
       htop
       nload
     ];
+    services.lorri.enable = true;
     programs = {
       zsh = {
         enable = true;
