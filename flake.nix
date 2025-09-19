@@ -138,6 +138,26 @@
                 baze
                 ;
             };
+        hare =
+          build.bare
+            {
+              name = "hare";
+              system = "x86_64-linux";
+              hardware = ./hw/nas1.nix;
+              extraModules = [
+                ./feat/zfs.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                ;
+            };
         komodo =
           build.bare
             {
