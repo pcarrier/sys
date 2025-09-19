@@ -11,6 +11,10 @@
     };
     kernelModules = [ "kvm-intel" ];
   };
+  environment.systemPackages = with pkgs; [
+    mbuffer
+    lzop
+  ];
   fileSystems = {
     "/" = {
       device = "tunk/root";
