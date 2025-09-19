@@ -26,6 +26,7 @@
       htop
       nload
     ];
+    services.lorri.enable = true;
     programs = {
       zsh = {
         enable = true;
@@ -45,6 +46,10 @@
       direnv = {
         enable = true;
         enableZshIntegration = true;
+      };
+      neovim = {
+        enable = true;
+        vimAlias = true;
       };
       git = {
         enable = true;
