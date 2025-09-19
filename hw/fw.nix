@@ -73,6 +73,18 @@
           source = "tank/var";
           target = "tonk/backups/var";
         };
+        tank-to-tunk = {
+          source = "tank";
+          target = "root@hare:tunk/backups/tank";
+        };
+        home-to-tunk = {
+          source = "tank/home";
+          target = "root@hare:tunk/backups/home";
+        };
+        var-to-tunk = {
+          source = "tank/var";
+          target = "root@hare:tunk/backups/var";
+        };
       };
     };
     sanoid = {
