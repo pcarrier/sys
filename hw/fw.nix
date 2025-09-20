@@ -93,7 +93,7 @@
         perso = {
           hourly = 48;
           daily = 30;
-          weekly = 5;
+          weekly = 12;
           monthly = 12;
           yearly = 10;
           autosnap = true;
