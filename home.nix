@@ -44,6 +44,7 @@ let
         nodejs
         pssh
         ripgrep
+        ookla-speedtest
         sysstat
         tokei
         tree
