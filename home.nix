@@ -47,6 +47,7 @@ let
         ripgrep
         ookla-speedtest
         sysstat
+        tk
         tokei
         tree
         yt-dlp
