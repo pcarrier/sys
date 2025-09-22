@@ -28,6 +28,7 @@ let
         fastfetch
         ffmpeg
         file
+        fio
         gnuplot
         htop
         jq
