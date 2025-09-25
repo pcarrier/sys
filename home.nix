@@ -80,7 +80,7 @@ let
           kdePackages.krdc
           simplescreenrecorder
           xclip
-          zed
+          zed-editor
         ];
         sessionVariables.BROWSER = "brave";
       };
@@ -352,6 +352,7 @@ let
           dl = "aria2c -x 16 -s 16 -j 16";
           g = "git";
           lg = "lazygit";
+          m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
           n = "nh os switch";
           t = "tmux attach";
           v = "nvim";
