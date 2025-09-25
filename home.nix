@@ -54,6 +54,7 @@ let
         zoxide
       ];
     };
+    services.ssh-agent.enable = true;
   };
 
   systemConfigs = {
