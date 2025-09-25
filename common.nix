@@ -42,6 +42,7 @@ in
     allowUnsupportedSystem = true;
   };
   services = {
+    sysstat.enable = true;
     opensmtpd = {
       enable = true;
       serverConfiguration = ''
