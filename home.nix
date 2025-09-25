@@ -53,10 +53,6 @@ let
         yt-dlp
         zoxide
       ];
-      sessionVariables = {
-        EDITOR = "zed --wait";
-        VISUAL = "zed --wait";
-      };
     };
   };
 
