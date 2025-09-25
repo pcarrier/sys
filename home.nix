@@ -51,12 +51,11 @@ let
         tokei
         tree
         yt-dlp
-        wget # for remote vscode
         zoxide
       ];
       sessionVariables = {
-        EDITOR = "code --wait";
-        VISUAL = "code --wait";
+        EDITOR = "zed --wait";
+        VISUAL = "zed --wait";
       };
     };
   };
@@ -81,48 +80,11 @@ let
           kdePackages.krdc
           simplescreenrecorder
           xclip
+          zed
         ];
         sessionVariables.BROWSER = "brave";
       };
-      programs = {
-        vscode = {
-          enable = true;
-          profiles.default.extensions = with pkgs.vscode-extensions; [
-            denoland.vscode-deno
-            eamodio.gitlens
-            editorconfig.editorconfig
-            esbenp.prettier-vscode
-            github.copilot
-            github.vscode-github-actions
-            github.vscode-pull-request-github
-            golang.go
-            hashicorp.terraform
-            jnoortheen.nix-ide
-            mkhl.direnv
-            ms-azuretools.vscode-containers
-            ms-azuretools.vscode-docker
-            #ms-edgedevtools.vscode-edge-devtools
-            ms-kubernetes-tools.vscode-kubernetes-tools
-            ms-vscode-remote.remote-containers
-            ms-vscode-remote.remote-ssh
-            ms-vscode-remote.remote-ssh-edit
-            #ms-vscode-remote.remote-wsl
-            ms-vscode.live-server
-            ms-vscode.remote-explorer
-            ms-windows-ai-studio.windows-ai-studio
-            #nimsaem.nimvscode
-            oderwat.indent-rainbow
-            #openai.chatgpt
-            redhat.vscode-yaml
-            rust-lang.rust-analyzer
-            tamasfe.even-better-toml
-            usernamehw.errorlens
-          ];
-        };
-        fish.functions.pbcopy = {
-          body = "xclip -selection clipboard";
-        };
-      };
+      programs.fish.functions.pbcopy.body = "xclip -selection clipboard";
     };
   };
 
