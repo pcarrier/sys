@@ -79,7 +79,11 @@ let
           xclip
           zed-editor
         ];
-        sessionVariables.BROWSER = "brave";
+        sessionVariables = {
+          BROWSER = "brave";
+          EDITOR = "nvim";
+          VISUAL = "nvim";
+        };
       };
       programs.fish.functions.pbcopy.body = "xclip -selection clipboard";
     };
@@ -360,35 +364,32 @@ let
           kps = "kubectl --namespace prod --context gke_twin-multiverse-prod_asia-southeast1_twin-multiverse-prod-singapore";
         };
         functions = {
-          T = {
-            body = "$argv 2>&1 | ts";
-          };
-          cm = {
-            body = ''g cm -m "$argv"'';
-          };
-          nu = {
-            body = ''
-              set -l ref (git -C /src/sys rev-parse HEAD)
-              for host in $argv
-                echo === $host ===
-                ssh $host nh os switch github:pcarrier/sys/$ref
-              end
-            '';
-          };
-          nuke = {
-            body = ''
-              set -l ref (git -C /src/sys rev-parse HEAD)
-              for host in $argv
-                echo === $host ===
-                ssh root@$host nixos-rebuild switch github:pcarrier/sys#$ref
-              end
-            '';
-          };
-          rc = {
-            body = ''
-              cursor --folder-uri=vscode-remote://ssh-remote+$1(pwd)
-            '';
-          };
+          T.body = "$argv 2>&1 | ts";
+          cm.body = ''g cm -m "$argv"'';
+          mr.body = ''
+            rsync -avP --delete-after \
+            --exclude /.git \
+            --exclude .direnv \
+            --exclude target \
+            --exclude node_modules \
+            --exclude .terraform \
+            --exclude __pycache__ \
+            /src/monorepo/ gorilla:/src/monorepo/; and ssh gorilla "cd $PWD; and exec direnv exec . fish -lic '$argv'"
+          '';
+          nu.body = ''
+            set -l ref (git -C /src/sys rev-parse HEAD)
+            for host in $argv
+              echo === $host ===
+              ssh $host nh os switch github:pcarrier/sys/$ref
+            end
+          '';
+          nuke.body = ''
+            set -l ref (git -C /src/sys rev-parse HEAD)
+            for host in $argv
+              echo === $host ===
+              ssh root@$host nixos-rebuild switch github:pcarrier/sys#$ref
+            end
+          '';
         };
       };
       tmux = {
