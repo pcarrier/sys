@@ -25,6 +25,11 @@
       lsof
       htop
       nload
+      nil
+      protols
+      llvmPackages.clang-tools
+      ghostty
+      kitty
     ];
     services.lorri.enable = true;
     programs = {
