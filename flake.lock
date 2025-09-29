@@ -23,6 +23,21 @@
         "type": "github"
       }
     },
+    "crane": {
+      "locked": {
+        "lastModified": 1758758545,
+        "narHash": "sha256-NU5WaEdfwF6i8faJ2Yh+jcK9vVFrofLcwlD/mP65JrI=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "95d528a5f54eaba0d12102249ce42f4d01f4e364",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -80,11 +95,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1759106866,
-        "narHash": "sha256-GjLvAl7qxGxKtop6ghasxjQ1biTT7pA+WU45byzMl/4=",
+        "lastModified": 1759172751,
+        "narHash": "sha256-E8W8sRXfrvkFW26GuuiWq6QfReU7m5+cngwHuRo/3jc=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "619ae569293b6427d23cce4854eb4f3c33af3eec",
+        "rev": "12fa8548feefa9a10266ba65152fd1a787cdde8f",
         "type": "github"
       },
       "original": {
@@ -196,11 +211,11 @@
     },
     "nixpkgs-master": {
       "locked": {
-        "lastModified": 1759155593,
-        "narHash": "sha256-potIJyEY7ExgfiMzr44/KBODFednyzRUAE2vs4aThHs=",
+        "lastModified": 1759180843,
+        "narHash": "sha256-WJUGjvc42BRdgA1P5NP0+/p1MtCU6hJ6kgLxbquvpA8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "13ca7febc86978bdb67c0ae94f568b189ae84eef",
+        "rev": "3c40fcafe391b103ba17cabb21a710384cfbcb6a",
         "type": "github"
       },
       "original": {
@@ -208,6 +223,48 @@
         "ref": "master",
         "repo": "nixpkgs",
         "type": "github"
+      }
+    },
+    "process-compose-flake": {
+      "locked": {
+        "lastModified": 1758658658,
+        "narHash": "sha256-y5GSCqlGe/uZzlocCPZcjc7Gj+mTq7m0P6xPGx88+No=",
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "rev": "e968a94633788f5d9595d727f41c2baf0714be7b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "type": "github"
+      }
+    },
+    "proxied": {
+      "inputs": {
+        "crane": "crane",
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "process-compose-flake": "process-compose-flake",
+        "services-flake": "services-flake"
+      },
+      "locked": {
+        "lastModified": 1759241261,
+        "lfs": true,
+        "narHash": "sha256-muqqLW3Ww8PpAEy7DQ42HJvRcEyE/7Xcfyk4hShFH00=",
+        "ref": "refs/heads/main",
+        "rev": "a4388ed304d7c9dde1739196e3ec512581965aac",
+        "revCount": 2,
+        "type": "git",
+        "url": "https://github.com/xmit-co/proxied.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://github.com/xmit-co/proxied.git"
       }
     },
     "root": {
@@ -220,7 +277,23 @@
         "nixos-wsl": "nixos-wsl",
         "nixpkgs": "nixpkgs",
         "nixpkgs-master": "nixpkgs-master",
+        "proxied": "proxied",
         "tomorrowTheme": "tomorrowTheme"
+      }
+    },
+    "services-flake": {
+      "locked": {
+        "lastModified": 1759019632,
+        "narHash": "sha256-QGqn1VJ7pjBCu6Lz32ZKBvg5F8V3459XhiX/hdFN7oA=",
+        "owner": "juspay",
+        "repo": "services-flake",
+        "rev": "7549a594e44b139b1b8b58b7df28ba0256911180",
+        "type": "github"
+      },
+      "original": {
+        "owner": "juspay",
+        "repo": "services-flake",
+        "type": "github"
       }
     },
     "systems": {

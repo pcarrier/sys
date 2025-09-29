@@ -30,6 +30,13 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+    proxied = {
+      url = "git+https://github.com/xmit-co/proxied.git";
+      inputs = {
+        flake-utils.follows = "flake-utils";
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   outputs =
@@ -43,6 +50,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      proxied,
       jovian,
       ...
     }:
@@ -214,6 +222,9 @@
               extraModules = [
                 ./feat/zfs.nix
                 ./feat/media.nix
+                ./feat/proxied/ctrl.nix
+                ./feat/proxied/dns.nix
+                ./feat/proxied/proxying.nix
               ];
             }
             {
@@ -224,6 +235,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         sloth =
