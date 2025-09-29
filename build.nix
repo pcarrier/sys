@@ -15,6 +15,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      proxied,
       ...
     }:
     nixpkgs.lib.nixosSystem {
@@ -35,6 +36,7 @@
               system
               trusted
               baze
+              proxied
               nix-index
               nixpkgs-master
               tomorrowTheme
@@ -62,6 +64,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      proxied,
       ...
     }:
     nixpkgs.lib.nixosSystem {
@@ -82,6 +85,7 @@
               desktop
               trusted
               baze
+              proxied
               nix-index
               nixpkgs-master
               tomorrowTheme
