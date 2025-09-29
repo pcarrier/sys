@@ -29,7 +29,6 @@
       protols
       llvmPackages.clang-tools
       ghostty
-      kitty
     ];
     services.lorri.enable = true;
     programs = {
