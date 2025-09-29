@@ -10,11 +10,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1756667856,
-        "narHash": "sha256-m9hufOJLCOfFJ1/zPBVJbmYcixXJuxq8XNz/55VNLss=",
+        "lastModified": 1759160590,
+        "narHash": "sha256-JCE0cDPP3QFfM2qFDhHJpds08LKoaGMngYuzyz70+cQ=",
         "owner": "pcarrier",
         "repo": "baze",
-        "rev": "44195cc54493feb3dbea52ea68d814cac7e18b66",
+        "rev": "52ec915e0cc60b0e68b93b2132dd6acd7a872716",
         "type": "github"
       },
       "original": {
