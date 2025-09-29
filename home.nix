@@ -33,6 +33,7 @@ let
         htop
         jq
         ldns
+        lnav
         lsof
         moreutils
         mosh
