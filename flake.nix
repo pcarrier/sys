@@ -79,6 +79,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         chimp =
@@ -101,6 +102,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         dog =
@@ -122,6 +124,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         gorilla =
@@ -144,6 +147,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         hare =
@@ -164,6 +168,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         komodo =
@@ -187,6 +192,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         monster =
@@ -210,6 +216,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 ;
             };
         rabbit =
@@ -259,6 +266,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                proxied
                 jovian
                 ;
             };

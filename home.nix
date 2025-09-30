@@ -12,7 +12,10 @@
   ...
 }:
 let
-  pkgs-master = import nixpkgs-master { inherit system; };
+  pkgs-master = import nixpkgs-master {
+    inherit system;
+    config.allowUnfree = true;
+  };
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -22,6 +25,7 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
+        pkgs-master.claude-code
         pkgs-master.codex
         dive
         fd
