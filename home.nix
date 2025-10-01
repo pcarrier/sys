@@ -161,9 +161,6 @@ let
             vim.opt.termguicolors = true
 
             require('supermaven-nvim').setup({})
-            local lsp = require('lspconfig')
-            lsp.nixd.setup({})
-            lsp.rust_analyzer.setup({})
 
             vim.api.nvim_create_autocmd("BufWritePre", {
               callback = function(args)
@@ -354,7 +351,8 @@ let
           end
         '';
         shellAliases = {
-          a = "codex --model gpt-5-codex --full-auto --search";
+          a = "${pkgs-master.codex}/bin/codex --model gpt-5-codex --full-auto --search";
+          b = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           C = "clear";
           c = "code";
           ca = "cargo";
