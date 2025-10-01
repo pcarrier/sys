@@ -90,7 +90,6 @@
               emulated = [ "x86_64-linux" ];
               extraModules = [
                 ./feat/mail.nix
-                ./feat/docker.nix
               ];
             }
             {
