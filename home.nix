@@ -25,7 +25,6 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
-        pkgs-master.claude-code
         pkgs-master.codex
         dive
         fd
@@ -120,6 +119,10 @@ let
 
   programsConfig = {
     programs = {
+      claude-code = {
+        enable = true;
+        package = pkgs-master.claude-code;
+      };
       direnv.enable = true;
       eza = {
         enable = true;
