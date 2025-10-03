@@ -360,6 +360,7 @@ let
           g = "git";
           lg = "lazygit";
           m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
+          mk = "ssh -t komodo 'cd /src/monorepo; and exec fish -l'";
           n = "nh os switch";
           t = "tmux attach";
           v = "nvim";
@@ -381,6 +382,16 @@ let
             --exclude .terraform \
             --exclude __pycache__ \
             /src/monorepo/ gorilla:/src/monorepo/; and ssh gorilla "cd $PWD; and exec direnv exec . fish -lic '$argv'"
+          '';
+          mrk.body = ''
+            rsync -avP --delete-after \
+            --exclude /.git \
+            --exclude .direnv \
+            --exclude target \
+            --exclude node_modules \
+            --exclude .terraform \
+            --exclude __pycache__ \
+            /src/monorepo/ komodo:/src/monorepo/; and ssh gorilla "cd $PWD; and exec direnv exec . fish -lic '$argv'"
           '';
           nu.body = ''
             set -l ref (git -C /src/sys rev-parse HEAD)
