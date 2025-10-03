@@ -47,6 +47,7 @@ let
         nixfmt
         nmap
         nodejs
+        perf
         pssh
         ripgrep
         ookla-speedtest
