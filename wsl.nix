@@ -1,5 +1,6 @@
 {
   config,
+  pkgs,
   ...
 }:
 {
@@ -9,12 +10,6 @@
     startMenuLaunchers = true;
     useWindowsDriver = true;
     wrapBinSh = true;
-    extraBin = [
-      {
-        name = "bash";
-        src = config.wsl.binShExe;
-      }
-    ];
     defaultUser = "pcarrier";
   };
 }
