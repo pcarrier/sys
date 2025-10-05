@@ -58,6 +58,10 @@ let
         yt-dlp
         zoxide
       ];
+      sessionVariables = {
+        EDITOR = "zeditor --wait";
+        VISUAL = "zeditor --wait";
+      };
     };
     services.ssh-agent.enable = true;
   };
@@ -71,9 +75,7 @@ let
           "/mnt/c/Users/pierr/AppData/Local/Programs/Microsoft VS Code/bin"
         ];
       };
-      programs.fish.functions.pbcopy = {
-        body = "clip.exe";
-      };
+      programs.fish.functions.pbcopy.body = "clip.exe";
     };
     bare = {
       home = {
@@ -82,12 +84,9 @@ let
           kdePackages.krdc
           simplescreenrecorder
           xclip
-          zed-editor
         ];
         sessionVariables = {
           BROWSER = "brave";
-          EDITOR = "nvim";
-          VISUAL = "nvim";
         };
       };
       programs.fish.functions.pbcopy.body = "xclip -selection clipboard";
@@ -120,6 +119,10 @@ let
 
   programsConfig = {
     programs = {
+      zed-editor = {
+        enable = true;
+        installRemoteServer = true;
+      };
       claude-code = {
         enable = true;
         package = pkgs-master.claude-code;
