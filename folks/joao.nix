@@ -36,6 +36,9 @@
         enable = true;
         autosuggestion.enable = true;
         syntaxHighlighting.enable = true;
+        initContent = ''
+          	  PROMPT="(%m) $PROMPT"
+          	'';
         oh-my-zsh = {
           enable = true;
           theme = "robbyrussell";
