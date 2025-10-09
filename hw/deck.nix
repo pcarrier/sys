@@ -37,7 +37,7 @@
     steam = {
       enable = true;
       autoStart = true;
-      desktopSession = "plasma";
+      desktopSession = "cosmic";
       user = "pcarrier";
     };
     devices.steamdeck = {
@@ -45,5 +45,5 @@
       autoUpdate = true;
     };
   };
-  services.desktopManager.plasma6.enable = true;
+  services.desktopManager.cosmic.enable = true;
 }
