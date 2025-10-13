@@ -59,6 +59,29 @@
     in
     {
       nixosConfigurations = {
+        amoeba =
+          build.bare
+            {
+              name = "amoeba";
+              system = "aarch64-linux";
+              emulated = [ "x86_64-linux" ];
+              trusted = true;
+              desktop = true;
+              hardware = ./hw/rp5.nix;
+              extraModules = [
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                ;
+            };
         baboon =
           build.bare
             {

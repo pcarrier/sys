@@ -100,6 +100,14 @@ let
       spotify
       zoom-us
     ];
+    wayland.windowManager.swasy = {
+      enable = true;
+      wrapperFeatures.gtk = true;
+      config = rec {
+        modifier = "Mod4";
+        terminal = "${pkgs.alacritty}/bin/alacritty";
+      };
+    };
   };
 
   trustedConfig = lib.mkIf trusted {
