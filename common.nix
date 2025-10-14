@@ -25,7 +25,6 @@ in
       wheelNeedsPassword = false;
     };
   };
-  time.timeZone = "UTC";
   nix = {
     settings = {
       builders-use-substitutes = true;
