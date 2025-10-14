@@ -63,6 +63,7 @@ let
         VISUAL = "zeditor --wait";
       };
     };
+    dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
     services.ssh-agent.enable = true;
   };
 
@@ -96,17 +97,34 @@ let
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
       _1password-gui
+      blueman
+      brightnessctl
+      legcord
+      pavucontrol
       slack
       spotify
+      xwayland-satellite
       zoom-us
     ];
-    wayland.windowManager.swasy = {
-      enable = true;
-      wrapperFeatures.gtk = true;
-      config = rec {
-        modifier = "Mod4";
-        terminal = "${pkgs.alacritty}/bin/alacritty";
+    programs = {
+      alacritty = {
+        enable = true;
+        theme = "tomorrow_night_bright";
+        settings = {
+          font = {
+            normal.family = "PragmataPro Mono Liga";
+            size = 9;
+          };
+        };
       };
+      fuzzel.enable = true;
+      swaylock.enable = true;
+      waybar.enable = true;
+    };
+    services = {
+      mako.enable = true;
+      swayidle.enable = true;
+      polkit-gnome.enable = true;
     };
   };
 
@@ -381,6 +399,7 @@ let
           kpp = "kubectl --namespace prod --context gke_twin-multiverse-prod_europe-west9_twin-multiverse-prod-paris";
           kpi = "kubectl --namespace prod --context gke_twin-multiverse-prod_us-central1_twin-multiverse-prod-iowa";
           kps = "kubectl --namespace prod --context gke_twin-multiverse-prod_asia-southeast1_twin-multiverse-prod-singapore";
+          zed = "zeditor";
         };
         functions = {
           T.body = "$argv 2>&1 | ts";
