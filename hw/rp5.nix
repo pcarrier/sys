@@ -1,8 +1,4 @@
 {
-  pkgs,
-  ...
-}:
-{
   boot = {
     loader.timeout = 0;
     initrd.availableKernelModules = [
@@ -24,12 +20,13 @@
     };
   };
   networking.networkmanager.enable = true;
+  programs.niri.enable = true;
   security.polkit.enable = true;
   services.greetd = {
     enable = true;
     settings = rec {
       initial_session = {
-        command = "sway";
+        command = "niri-session";
         user = "pcarrier";
       };
       default_session = initial_session;

@@ -14,9 +14,11 @@
       settings = {
         tank = {
           path = "/tank";
+          readOnly = false;
         };
         tonk = {
           path = "/tonk";
+          readOnly = false;
         };
       };
     };

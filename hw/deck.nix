@@ -42,7 +42,7 @@
     steam = {
       enable = true;
       autoStart = true;
-      desktopSession = "cosmic";
+      desktopSession = "niri";
       user = "pcarrier";
     };
     devices.steamdeck = {
@@ -50,5 +50,5 @@
       autoUpdate = true;
     };
   };
-  services.desktopManager.cosmic.enable = true;
+  programs.niri.enable = true;
 }
