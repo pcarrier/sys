@@ -118,8 +118,20 @@ let
         };
       };
       fuzzel.enable = true;
-      swaylock.enable = true;
-      waybar.enable = true;
+      swaylock = {
+        enable = true;
+        settings = {
+          color = "000000";
+        };
+      };
+      waybar = {
+        enable = true;
+        style = ''
+          window#waybar {
+            background: none;
+          }
+        '';
+      };
     };
     services = {
       mako.enable = true;
