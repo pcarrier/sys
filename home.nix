@@ -127,6 +127,9 @@ let
       waybar = {
         enable = true;
         style = ''
+          * {
+            font-family: "PragmataPro Liga";
+          }
           window#waybar {
             background: none;
           }
