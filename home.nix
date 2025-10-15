@@ -63,7 +63,27 @@ let
         VISUAL = "zeditor --wait";
       };
     };
-    dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
+    dconf.settings."org/gnome/desktop/interface" = {
+      color-scheme = "prefer-dark";
+    };
+    fonts.fontconfig = {
+      enable = true;
+      antialiasing = true;
+      hinting = "full";
+      subpixelRendering = "rgb";
+      defaultFonts = {
+        monospace = [ "PragmataPro Mono Liga" ];
+        sansSerif = [ "PragmataPro Liga" ];
+      };
+    };
+    gtk = {
+      enable = true;
+      colorScheme = "dark";
+      font = {
+        name = "PragmataPro Liga";
+        size = 8;
+      };
+    };
     services.ssh-agent.enable = true;
   };
 
@@ -99,7 +119,8 @@ let
       pavucontrol
       slack
       spotify
-      xdg-desktop-portal-gtk nautilus
+      xdg-desktop-portal-gtk
+      nautilus
       xdg-desktop-portal-gnome
       xwayland-satellite
       zoom-us
