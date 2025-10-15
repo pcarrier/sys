@@ -71,7 +71,6 @@ let
       enable = true;
       antialiasing = true;
       hinting = "full";
-      subpixelRendering = "rgb";
       defaultFonts = {
         monospace = [ "PragmataPro Mono Liga" ];
         sansSerif = [ "PragmataPro Liga" ];
@@ -127,7 +126,7 @@ let
       legcord
       lxqt.xdg-desktop-portal-lxqt
       pavucontrol
-      slack
+      slacky
       spotify
       xwayland-satellite
       zoom-us

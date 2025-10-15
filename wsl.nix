@@ -1,9 +1,4 @@
 {
-  config,
-  pkgs,
-  ...
-}:
-{
   wsl = {
     enable = true;
     interop.register = true;

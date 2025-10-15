@@ -9,7 +9,6 @@ let
 in
 {
   hardware.enableRedistributableFirmware = true;
-  boot.kernelPackages = pkgs.linuxPackages_latest;
   zramSwap.enable = true;
   security = {
     acme = {
