@@ -32,6 +32,7 @@
   networking.networkmanager.enable = true;
   programs.niri.enable = true;
   security.polkit.enable = true;
+  hardware.bluetooth.enable = true;
   services = {
     greetd = {
       enable = true;
