@@ -24,6 +24,11 @@
       ];
     };
   };
+  swapDevices = [
+    {
+      device = "/dev/disk/by-label/swap";
+    }
+  ];
   networking.networkmanager.enable = true;
   programs.niri.enable = true;
   security.polkit.enable = true;
