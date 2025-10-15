@@ -9,6 +9,11 @@
     "/" = {
       device = "/dev/disk/by-label/root";
       fsType = "btrfs";
+      options = [
+        "noatime"
+        "compress=zstd"
+        "ssd"
+      ];
     };
     "/boot" = {
       device = "/dev/disk/by-label/boot";
