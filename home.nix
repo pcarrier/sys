@@ -56,6 +56,7 @@ let
         tk
         tokei
         tree
+        unzip
         yt-dlp
         zoxide
       ];
