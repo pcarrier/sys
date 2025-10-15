@@ -103,6 +103,8 @@ let
       pavucontrol
       slack
       spotify
+      xdg-desktop-portal-gtk nautilus
+      xdg-desktop-portal-gnome
       xwayland-satellite
       zoom-us
     ];
