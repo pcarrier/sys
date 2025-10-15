@@ -125,12 +125,10 @@ let
       blueman
       brightnessctl
       legcord
+      lxqt.xdg-desktop-portal-lxqt
       pavucontrol
       slack
       spotify
-      xdg-desktop-portal-gtk
-      nautilus
-      xdg-desktop-portal-gnome
       xwayland-satellite
       zoom-us
     ];
@@ -171,6 +169,10 @@ let
       playerctld.enable = true;
       polkit-gnome.enable = true;
     };
+    xdg.configFile."xdg-desktop-portal/portals.conf".text = ''
+      [preferred]
+      default=lxqt
+    '';
   };
 
   trustedConfig = lib.mkIf trusted {
