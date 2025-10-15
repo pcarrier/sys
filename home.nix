@@ -164,6 +164,7 @@ let
       };
     };
     services = {
+      kanshi.enable = true;
       # mako.enable = true;
       # swayidle.enable = true;
       playerctld.enable = true;
