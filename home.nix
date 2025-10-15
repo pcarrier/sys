@@ -76,21 +76,17 @@ let
           "/mnt/c/Users/pierr/AppData/Local/Programs/Microsoft VS Code/bin"
         ];
       };
-      programs.fish.functions.pbcopy.body = "clip.exe";
     };
     bare = {
       home = {
         packages = with pkgs; [
           brave
           kdePackages.krdc
-          simplescreenrecorder
-          xclip
         ];
         sessionVariables = {
           BROWSER = "brave";
         };
       };
-      programs.fish.functions.pbcopy.body = "xclip -selection clipboard";
     };
   };
 
