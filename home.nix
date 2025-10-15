@@ -36,6 +36,7 @@ let
         htop
         jq
         ldns
+        libarchive
         lnav
         lsof
         moreutils
@@ -56,7 +57,6 @@ let
         tk
         tokei
         tree
-        unzip
         yt-dlp
         zoxide
       ];
@@ -127,6 +127,7 @@ let
       legcord
       lxqt.xdg-desktop-portal-lxqt
       pavucontrol
+      signal-desktop
       slacky
       spotify
       xwayland-satellite
@@ -163,9 +164,8 @@ let
       };
     };
     services = {
-      # No notifications :)
       # mako.enable = true;
-      swayidle.enable = true;
+      # swayidle.enable = true;
       playerctld.enable = true;
       polkit-gnome.enable = true;
     };
