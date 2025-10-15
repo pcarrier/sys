@@ -165,7 +165,8 @@ let
       };
     };
     services = {
-      mako.enable = true;
+      # No notifications :)
+      # mako.enable = true;
       swayidle.enable = true;
       playerctld.enable = true;
       polkit-gnome.enable = true;
