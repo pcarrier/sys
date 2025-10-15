@@ -42,6 +42,7 @@ let
         mosh
         mpv
         ncdu
+        nil
         nixd
         nix-index.packages.${system}.default
         nixfmt
@@ -82,6 +83,14 @@ let
       font = {
         name = "PragmataPro Liga";
         size = 8;
+      };
+      theme = {
+        name = "Flat-Remix-GTK-Orange-Darkest-Solid";
+        package = pkgs.flat-remix-gtk;
+      };
+      iconTheme = {
+        name = "Flat-Remix-Orange-Dark";
+        package = pkgs.flat-remix-icon-theme;
       };
     };
     services.ssh-agent.enable = true;
