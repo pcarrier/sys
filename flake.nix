@@ -194,6 +194,28 @@
                 proxied
                 ;
             };
+        hound =
+          build.bare
+            {
+              name = "hound";
+              trusted = true;
+              desktop = true;
+              system = "x86_64-linux";
+              emulated = [ "aarch64-linux" ];
+              hardware = ./hw/tower.nix;
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                jovian
+                ;
+            };
         komodo =
           build.bare
             {
