@@ -71,6 +71,7 @@ let
     fonts.fontconfig = {
       enable = true;
       antialiasing = true;
+      subpixelRendering = "none";
       hinting = "full";
       defaultFonts = {
         monospace = [ "PragmataPro Mono Liga" ];
@@ -124,12 +125,13 @@ let
       _1password-gui
       blueman
       brightnessctl
+      element-desktop
       legcord
       lxqt.xdg-desktop-portal-lxqt
       pavucontrol
       signal-desktop
       slacky
-      spotify
+      spotify-qt
       xwayland-satellite
       zoom-us
     ];
@@ -435,8 +437,8 @@ let
           end
         '';
         shellAliases = {
-          a = "${pkgs-master.codex}/bin/codex --model gpt-5-codex --full-auto --search";
-          b = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
+          a = "${pkgs.codex}/bin/codex --model gpt-5-codex --full-auto --search";
+          b = "${pkgs.claude-code}/bin/claude --dangerously-skip-permissions";
           C = "clear";
           c = "code";
           ca = "cargo";

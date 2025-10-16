@@ -69,7 +69,7 @@
               desktop = true;
               hardware = ./hw/rp5.nix;
               extraModules = [
-                ./hw/rp5k.nix
+                ./feat/delegate.nix
               ];
             }
             {
