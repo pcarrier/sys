@@ -203,6 +203,9 @@
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/tower.nix;
+              extraModules = [
+                ./feat/docker.nix
+              ];
             }
             {
               inherit
