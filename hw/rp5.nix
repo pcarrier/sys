@@ -1,10 +1,33 @@
+{ pkgs, ... }:
 {
   boot = {
     loader.timeout = 0;
     initrd.availableKernelModules = [
       "sd_mod"
     ];
+    kernelPackages = pkgs.linuxPackagesFor (
+      pkgs.linux_6_17.override {
+        argsOverride = {
+          src = pkgs.fetchFromGitHub {
+            owner = "pcarrier";
+            repo = "linux";
+            rev = "rp5";
+            sha256 = "sha256-4+Hhu3dElZ2N7+OWJHhLYc1zGsDY56RcHZhqCj9NJkw=";
+          };
+          version = "6.17.3-rp5-1";
+          modDirVersion = "6.17.3-rp5-1";
+
+          extraConfig = ''
+            INPUT_QCOM_SPMI_HAPTICS y
+            LEDS_HTR3212 y
+            CHARGER_QCOM_SMB5 y
+            BATTERY_QCOM_FG y
+          '';
+        };
+      }
+    );
   };
+
   fileSystems = {
     "/" = {
       device = "/dev/disk/by-label/root";
@@ -33,6 +56,11 @@
   programs.niri.enable = true;
   security.polkit.enable = true;
   hardware.bluetooth.enable = true;
+  powerManagement.enable = true;
+  programs.sway = {
+    enable = true;
+    wrapperFeatures.gtk = true;
+  };
   services = {
     logind.settings.Login = {
       HandlePowerKey = "ignore";
@@ -44,7 +72,8 @@
       enable = true;
       settings = rec {
         initial_session = {
-          command = "niri-session";
+          #command = "niri-session";
+          command = "sway";
           user = "pcarrier";
         };
         default_session = initial_session;
