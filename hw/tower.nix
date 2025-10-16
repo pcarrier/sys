@@ -36,6 +36,7 @@
     nvidia.open = true;
   };
   services = {
+    xserver.videoDrivers = [ "nvidia" ];
     greetd = {
       enable = true;
       settings = rec {
