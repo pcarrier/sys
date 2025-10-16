@@ -34,11 +34,11 @@
   security.polkit.enable = true;
   hardware.bluetooth.enable = true;
   services = {
-    logind = {
-      powerKey = "ignore";
-      suspendKey = "ignore";
-      hibernateKey = "ignore";
-      lidSwitch = "ignore";
+    logind.settings.Login = {
+      HandlePowerKey = "ignore";
+      HandleSuspendKey = "ignore";
+      HandleHibernateKey = "ignore";
+      HandleLidSwitch = "ignore";
     };
     greetd = {
       enable = true;

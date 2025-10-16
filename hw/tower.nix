@@ -36,12 +36,6 @@
     nvidia.open = true;
   };
   services = {
-    logind = {
-      powerKey = "ignore";
-      suspendKey = "ignore";
-      hibernateKey = "ignore";
-      lidSwitch = "ignore";
-    };
     greetd = {
       enable = true;
       settings = rec {
