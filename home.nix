@@ -25,7 +25,7 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
-        pkgs-master.codex
+        codex
         dive
         fd
         fastfetch
