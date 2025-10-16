@@ -164,9 +164,15 @@ let
       };
     };
     services = {
-      kanshi.enable = true;
-      # mako.enable = true;
-      # swayidle.enable = true;
+      mako = {
+        enable = true;
+        settings = {
+          font = "PragmataPro Liga 9";
+          default-timeout = 1;
+          ignore-timeout = true;
+          icons = true;
+        };
+      };
       playerctld.enable = true;
       polkit-gnome.enable = true;
     };
