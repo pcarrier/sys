@@ -120,7 +120,7 @@ let
           pavucontrol
           signal-desktop
           slacky
-          spotify-qt
+          spotify
           xwayland-satellite
         ];
         sessionVariables = {
