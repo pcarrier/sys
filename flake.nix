@@ -73,9 +73,6 @@
               trusted = true;
               desktop = true;
               hardware = ./hw/rp5.nix;
-              extraModules = [
-                ./feat/delegate.nix
-              ];
             }
             {
               inherit
