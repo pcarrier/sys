@@ -38,6 +38,11 @@
       };
     };
   };
+  
+  nixConfig = {
+    extra-substituters = [ "https://pcarrier.cachix.org" ];
+    extra-trusted-public-keys = [ "pcarrier.cachix.org-1:7uUV/fKw5Byvc6KV6PsB8NJI6oDOO5JIFUV/B3LyR1s=" ];
+  };
 
   outputs =
     {
