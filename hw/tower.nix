@@ -36,12 +36,13 @@
     nvidia.open = true;
   };
   services = {
+    desktopManager.plasma6.enable = true;
     xserver.videoDrivers = [ "nvidia" ];
     greetd = {
       enable = true;
       settings = rec {
         initial_session = {
-          command = "niri-session";
+          command = "startplasma-wayland";
           user = "pcarrier";
         };
         default_session = initial_session;
