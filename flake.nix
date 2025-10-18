@@ -69,7 +69,6 @@
             {
               name = "amoeba";
               system = "aarch64-linux";
-              emulated = [ "x86_64-linux" ];
               trusted = true;
               desktop = true;
               hardware = ./hw/rp5.nix;

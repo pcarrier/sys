@@ -60,10 +60,6 @@ let
         yt-dlp
         zoxide
       ];
-      sessionVariables = {
-        EDITOR = "zeditor --wait";
-        VISUAL = "zeditor --wait";
-      };
     };
     dconf.settings."org/gnome/desktop/interface" = {
       color-scheme = "prefer-dark";
@@ -101,10 +97,11 @@ let
     wsl = {
       home = {
         packages = with pkgs; [ wslu ];
-        sessionVariables.BROWSER = "wslview";
-        sessionPath = [
-          "/mnt/c/Users/pierr/AppData/Local/Programs/Microsoft VS Code/bin"
-        ];
+        sessionVariables = {
+          BROWSER = "wslview";
+          EDITOR = "nvim";
+          VISUAL = "nvim";
+        };
       };
     };
     bare = {
@@ -125,6 +122,8 @@ let
         ];
         sessionVariables = {
           BROWSER = "brave";
+          EDITOR = "zeditor --wait";
+          VISUAL = "zeditor --wait";
         };
       };
     };

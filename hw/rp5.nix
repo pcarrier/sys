@@ -12,15 +12,16 @@
             owner = "pcarrier";
             repo = "linux";
             rev = "rp5";
-            sha256 = "sha256-SyAyyH7C+0dlzZhnyxaWUAKezLM6YWP2QIOiks18meI=";
+            sha256 = "sha256-aawxHSfbkveKu01is9IKn02VdCpx7XqZ0lX1hotgRhE=";
           };
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
           extraConfig = ''
-            INPUT_QCOM_SPMI_HAPTICS y
-            LEDS_HTR3212 y
-            CHARGER_QCOM_SMB5 y
-            BATTERY_QCOM_FG y
+            BATTERY_QCOM_FG m
+            CHARGER_QCOM_SMB5 m
+            DRM_PANEL_DDIC_CH13726A m
+            INPUT_QCOM_SPMI_HAPTICS m
+            LEDS_HTR3212 m
           '';
         };
       }
