@@ -8,6 +8,7 @@ let
   ];
 in
 {
+  documentation.nixos.enable = false;
   hardware.enableRedistributableFirmware = true;
   zramSwap.enable = true;
   security = {
