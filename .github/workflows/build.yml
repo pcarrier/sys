@@ -6,6 +6,7 @@ jobs:
   x64:
     runs-on: ubuntu-24.04
     steps:
+      - uses: jlumbroso/free-disk-space@main
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: cachix/cachix-action@v16
@@ -19,6 +20,7 @@ jobs:
   arm64:
     runs-on: ubuntu-24.04-arm
     steps:
+      - uses: jlumbroso/free-disk-space@main
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: cachix/cachix-action@v16
