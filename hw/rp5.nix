@@ -15,7 +15,7 @@
             sha256 = "sha256-4+Hhu3dElZ2N7+OWJHhLYc1zGsDY56RcHZhqCj9NJkw=";
           };
           version = "6.17.3-rp5-1";
-          modDirVersion = "6.17.3-rp5-1";
+          modDirVersion = "6.17.3";
 
           extraConfig = ''
             INPUT_QCOM_SPMI_HAPTICS y
