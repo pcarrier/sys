@@ -27,7 +27,6 @@
       }
     );
   };
-
   fileSystems = {
     "/" = {
       device = "/dev/disk/by-label/root";
@@ -55,7 +54,14 @@
   networking.networkmanager.enable = true;
   programs.niri.enable = true;
   security.polkit.enable = true;
-  hardware.bluetooth.enable = true;
+  hardware = {
+    bluetooth.enable = true;
+    fancontrol = {
+      enable = true;
+      config = ''
+      '';
+    };
+  };
   powerManagement.enable = true;
   programs.sway = {
     enable = true;
