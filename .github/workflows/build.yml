@@ -16,7 +16,7 @@ jobs:
       - run: |
           nix build $(for h in baboon dog gorilla hare hound komodo monster rabbit sloth; do
             echo .#nixosConfigurations.$h.config.system.build.toplevel
-          done)
+          done) --accept-flake-config
   arm64:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -30,4 +30,4 @@ jobs:
       - run: |
           nix build $(for h in chimp amoeba; do
             echo .#nixosConfigurations.$h.config.system.build.toplevel
-          done)
+          done) --accept-flake-config
