@@ -16,7 +16,6 @@
           };
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
-
           extraConfig = ''
             INPUT_QCOM_SPMI_HAPTICS y
             LEDS_HTR3212 y
@@ -52,7 +51,6 @@
     }
   ];
   networking.networkmanager.enable = true;
-  programs.niri.enable = true;
   security.polkit.enable = true;
   hardware = {
     bluetooth.enable = true;
@@ -63,6 +61,7 @@
     };
   };
   powerManagement.enable = true;
+  programs.niri.enable = true;
   programs.sway = {
     enable = true;
     wrapperFeatures.gtk = true;
