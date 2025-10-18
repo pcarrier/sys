@@ -263,6 +263,7 @@
         "url": "https://github.com/xmit-co/proxied.git"
       },
       "original": {
+        "lfs": true,
         "type": "git",
         "url": "https://github.com/xmit-co/proxied.git"
       }

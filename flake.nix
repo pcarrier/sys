@@ -31,7 +31,7 @@
       };
     };
     proxied = {
-      url = "git+https://github.com/xmit-co/proxied.git";
+      url = "git+https://github.com/xmit-co/proxied.git?lfs=1";
       inputs = {
         flake-utils.follows = "flake-utils";
         nixpkgs.follows = "nixpkgs";
