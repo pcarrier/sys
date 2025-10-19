@@ -12,7 +12,7 @@
             owner = "pcarrier";
             repo = "linux";
             rev = "rp5";
-            sha256 = "sha256-aa4oYGkeMs16R2XfFC//ps7LnSmi2Xd+YsXeFw+8HW4=";
+            sha256 = "sha256-di5tKfuvIAksw+aBySecekqyiaxowEbOiF1O7R4bWQA=";
           };
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
