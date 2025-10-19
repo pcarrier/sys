@@ -177,6 +177,7 @@ let
       };
       playerctld.enable = true;
       polkit-gnome.enable = true;
+      cliphist.enable = true;
     };
     xdg.portal = {
       enable = true;
