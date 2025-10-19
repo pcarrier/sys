@@ -75,4 +75,17 @@
     };
     automatic-timezoned.enable = true;
   };
+  system.replaceDependencies.replacements = [
+    {
+      original = pkgs.alsa-ucm-conf;
+      replacement = pkgs.alsa-ucm-conf.overrideAttrs (old: {
+        src = pkgs.fetchFromGitHub {
+          owner = "RetroidPocket";
+          repo = "alsa-ucm-conf";
+          rev = "30989bd";
+          sha256 = "sha256-cFYEsavUeD6ZyZ/UqyjZnOcSJuOaSBe6sqEH2wOQddc=";
+        };
+      });
+    }
+  ];
 }
