@@ -17,13 +17,13 @@
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
           extraConfig = ''
-            BATTERY_QCOM_FG y
-            CHARGER_QCOM_SMB5 y
+            BATTERY_QCOM_FG m
+            CHARGER_QCOM_SMB5 m
             DRM_PANEL_DDIC_CH13726A m
-            INPUT_PM8941_PWRKEY y
-            INPUT_QCOM_SPMI_HAPTICS y
-            LEDS_HTR3212 y
-            RTC_DRV_PM8XXX y
+            INPUT_PM8941_PWRKEY m
+            INPUT_QCOM_SPMI_HAPTICS m
+            LEDS_HTR3212 m
+            RTC_DRV_PM8XXX m
           '';
         };
       }
@@ -59,8 +59,7 @@
     bluetooth.enable = true;
     fancontrol = {
       enable = true;
-      config = ''
-      '';
+      config = '''';
     };
   };
   powerManagement.enable = true;

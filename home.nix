@@ -107,19 +107,11 @@ let
     bare = {
       home = {
         packages = with pkgs; [
-          _1password-gui
           blueman
           brave
           brightnessctl
-          element-desktop
-          fuchsia-cursor
           kdePackages.krdc
-          legcord
           pavucontrol
-          signal-desktop
-          slacky
-          spotify
-          xwayland-satellite
         ];
         sessionVariables = {
           BROWSER = "brave";
@@ -132,6 +124,12 @@ let
 
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
+      anyrun
+      fuchsia-cursor
+      xwayland-satellite
+      legcord
+      slacky
+      spotify
     ];
     programs = {
       alacritty = {
@@ -182,11 +180,19 @@ let
         default = "lxqt";
         "org.freedesktop.impl.portal.ScreenCast" = "gnome";
       };
-      extraPortals = [ pkgs.xdg-desktop-portal-gnome pkgs.lxqt.xdg-desktop-portal-lxqt ];
+      extraPortals = [
+        pkgs.xdg-desktop-portal-gnome
+        pkgs.lxqt.xdg-desktop-portal-lxqt
+      ];
     };
   };
 
   trustedConfig = lib.mkIf trusted {
+    home.packages = with pkgs; [
+      _1password-gui
+      element-desktop
+      signal-desktop
+    ];
     programs = {
       keychain = {
         enable = true;
