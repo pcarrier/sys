@@ -16,6 +16,7 @@ let
     inherit system;
     config.allowUnfree = true;
   };
+
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -91,6 +92,9 @@ let
       };
     };
     services.ssh-agent.enable = true;
+    home.sessionVariables = {
+      ZED_WINDOW_DECORATIONS = "server";
+    };
   };
 
   systemConfigs = {
