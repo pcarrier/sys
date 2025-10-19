@@ -83,11 +83,11 @@ let
         size = 8;
       };
       theme = {
-        name = "Flat-Remix-GTK-Orange-Darkest-Solid";
+        name = "Flat-Remix-GTK-Red-Darkest-Solid";
         package = pkgs.flat-remix-gtk;
       };
       iconTheme = {
-        name = "Flat-Remix-Orange-Dark";
+        name = "Flat-Remix-Red-Dark";
         package = pkgs.flat-remix-icon-theme;
       };
     };
