@@ -146,7 +146,15 @@ let
           };
         };
       };
-      fuzzel.enable = true;
+      fuzzel = {
+        enable = true;
+        settings = {
+          colors = {
+            background = "#000000";
+            text = "#ffffff";
+          };
+        };
+      };
       swaylock = {
         enable = true;
         settings = {
