@@ -91,10 +91,12 @@ let
         package = pkgs.flat-remix-icon-theme;
       };
     };
-    services.ssh-agent.enable = true;
-    home.sessionVariables = {
-      ZED_WINDOW_DECORATIONS = "server";
+    qt = {
+      enable = true;
+      platformTheme.name = "gtk3";
     };
+    services.ssh-agent.enable = true;
+    home.sessionVariables.ZED_WINDOW_DECORATIONS = "server";
   };
 
   systemConfigs = {
@@ -114,6 +116,7 @@ let
           blueman
           brave
           brightnessctl
+          drm_info
           kdePackages.krdc
           pavucontrol
         ];
@@ -128,8 +131,6 @@ let
 
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
-      anyrun
-      fuchsia-cursor
       xwayland-satellite
       legcord
       slacky
@@ -156,6 +157,7 @@ let
             input = "ffffffff";
             prompt = "ffffffff";
             selection = "ff0000ff";
+            selection-match = "ffffffff";
             selection-text = "000000ff";
             text = "ffffffff";
           };
@@ -190,19 +192,24 @@ let
         };
       };
       playerctld.enable = true;
-      polkit-gnome.enable = true;
       cliphist.enable = true;
     };
     xdg.portal = {
       enable = true;
       config.common = {
-        default = "lxqt";
+        default = "gtk";
         "org.freedesktop.impl.portal.ScreenCast" = "gnome";
       };
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gnome
-        pkgs.lxqt.xdg-desktop-portal-lxqt
+      extraPortals = with pkgs; [
+        xdg-desktop-portal-gnome
+        xdg-desktop-portal-gtk
       ];
+    };
+    home.pointerCursor = {
+      enable = true;
+      package = (pkgs.fuchsia-cursor.override { themeVariants = [ "Fuchsia-Red" ]; });
+      name = "Fuchsia-Red";
+      size = 24;
     };
   };
 

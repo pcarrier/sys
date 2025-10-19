@@ -11,21 +11,22 @@
           src = pkgs.fetchFromGitHub {
             owner = "pcarrier";
             repo = "linux";
-            rev = "rp5";
-            sha256 = "sha256-di5tKfuvIAksw+aBySecekqyiaxowEbOiF1O7R4bWQA=";
+            rev = "rp5b";
+            sha256 = "sha256-/Jz94waypNkXSURsxpYw/3lZTZf9c9dQxK2tgEi6Qvw=";
           };
-          version = "6.17.3-rp5-1";
-          modDirVersion = "6.17.3";
+          version = "6.17.4-rp5b";
+          modDirVersion = "6.17.4";
           extraConfig = ''
             ARCH_QCOM y
-            BATTERY_QCOM_FG y
-            CHARGER_QCOM_SMB5 y
+            BATTERY_QCOM_FG m
+            CHARGER_QCOM_SMB5 m
             DRM_PANEL_DDIC_CH13726A m
-            INPUT_PM8941_PWRKEY y
-            INPUT_QCOM_SPMI_HAPTICS y
-            JOYSTICK_RETROID y
-            LEDS_HTR3212 y
-            RTC_DRV_PM8XXX y
+            INPUT_PM8941_PWRKEY m
+            INPUT_QCOM_SPMI_HAPTICS m
+            JOYSTICK_RETROID m
+            LEDS_HTR3212 m
+            RTC_DRV_PM8XXX m
+            SND_SOC_SM8250 m
           '';
         };
       }
@@ -57,19 +58,11 @@
   ];
   networking.networkmanager.enable = true;
   security.polkit.enable = true;
-  hardware = {
-    bluetooth.enable = true;
-#    fancontrol = {
-#      enable = true;
-#      config = '''';
-#    };
-  };
+  hardware.bluetooth.enable = true;
   powerManagement.enable = true;
   programs.niri.enable = true;
   services = {
-    logind.settings.Login.HandleSuspendKey = "ignore";
-    logind.settings.Login.HandleHibernateKey = "ignore";
-    logind.settings.Login.HandlePowerKey = "ignore";
+    logind.settings.Login.HandlePowerKey = "suspend";
     greetd = {
       enable = true;
       settings = rec {
