@@ -149,8 +149,14 @@ let
       fuzzel = {
         enable = true;
         settings = {
+          main.dpi-aware = "no";
           colors = {
             background = "000000a0";
+            border = "ff0000a0";
+            input = "ffffffff";
+            prompt = "ffffffff";
+            selection = "ff0000ff";
+            selection-text = "000000ff";
             text = "ffffffff";
           };
         };
