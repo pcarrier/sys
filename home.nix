@@ -112,6 +112,7 @@ let
           brave
           brightnessctl
           element-desktop
+          fuchsia-cursor
           kdePackages.krdc
           legcord
           pavucontrol
