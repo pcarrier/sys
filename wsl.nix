@@ -5,6 +5,7 @@
     startMenuLaunchers = true;
     useWindowsDriver = true;
     wrapBinSh = true;
+    usbip.enable = true;
     defaultUser = "pcarrier";
   };
 }

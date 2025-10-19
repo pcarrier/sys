@@ -12,7 +12,7 @@
             owner = "pcarrier";
             repo = "linux";
             rev = "rp5";
-            sha256 = "sha256-aawxHSfbkveKu01is9IKn02VdCpx7XqZ0lX1hotgRhE=";
+            sha256 = "sha256-jf9+8BUUMUFvxNq26HSfq3a/YAq+cSD25Vvv6ktqXoQ=";
           };
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
@@ -22,6 +22,7 @@
             DRM_PANEL_DDIC_CH13726A m
             INPUT_PM8941_PWRKEY m
             INPUT_QCOM_SPMI_HAPTICS m
+            JOYSTICK_RETROID m
             LEDS_HTR3212 m
             RTC_DRV_PM8XXX m
           '';
