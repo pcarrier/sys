@@ -12,7 +12,7 @@
             owner = "pcarrier";
             repo = "linux";
             rev = "rp5";
-            sha256 = "sha256-jf9+8BUUMUFvxNq26HSfq3a/YAq+cSD25Vvv6ktqXoQ=";
+            sha256 = "sha256-aa4oYGkeMs16R2XfFC//ps7LnSmi2Xd+YsXeFw+8HW4=";
           };
           version = "6.17.3-rp5-1";
           modDirVersion = "6.17.3";
@@ -58,10 +58,10 @@
   security.polkit.enable = true;
   hardware = {
     bluetooth.enable = true;
-    fancontrol = {
-      enable = true;
-      config = '''';
-    };
+#    fancontrol = {
+#      enable = true;
+#      config = '''';
+#    };
   };
   powerManagement.enable = true;
   programs.niri.enable = true;
