@@ -66,29 +66,6 @@
     in
     {
       nixosConfigurations = {
-        amoeba =
-          build.bare
-            {
-              name = "amoeba";
-              system = "aarch64-linux";
-              trusted = true;
-              desktop = true;
-              hardware = ./hw/rp5.nix;
-              extraModules = [
-                ./feat/autogui.nix
-              ];
-            }
-            {
-              inherit
-                nixpkgs
-                nixpkgs-master
-                nix-index
-                home-manager
-                tomorrowTheme
-                baze
-                proxied
-                ;
-            };
         chimp =
           build.wsl
             {
@@ -166,6 +143,7 @@
               hardware = ./hw/fw.nix;
               extraModules = [
                 ./feat/autogui.nix
+                ./feat/print.nix
                 ./feat/docker.nix
               ];
             }
@@ -235,6 +213,7 @@
               hardware = ./hw/tower.nix;
               extraModules = [
                 ./feat/autogui.nix
+                ./feat/print.nix
                 ./feat/docker.nix
               ];
             }
@@ -335,6 +314,7 @@
               hardware = ./hw/deck.nix;
               extraModules = [
                 ./feat/autogui.nix
+                ./feat/print.nix
                 jovian.nixosModules.default
               ];
             }
