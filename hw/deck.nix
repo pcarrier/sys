@@ -11,11 +11,6 @@
       "xhci_pci"
       "usbhid"
     ];
-    plymouth = {
-      enable = true;
-      theme = "steamos";
-      themePackages = with pkgs; [ steamdeck-hw-theme ];
-    };
   };
   fileSystems = {
     "/" = {
