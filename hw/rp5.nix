@@ -60,19 +60,8 @@
   security.polkit.enable = true;
   hardware.bluetooth.enable = true;
   powerManagement.enable = true;
-  programs.niri.enable = true;
   services = {
     logind.settings.Login.HandlePowerKey = "suspend";
-    greetd = {
-      enable = true;
-      settings = rec {
-        initial_session = {
-          command = "niri-session";
-          user = "pcarrier";
-        };
-        default_session = initial_session;
-      };
-    };
     automatic-timezoned.enable = true;
   };
   system.replaceDependencies.replacements = [

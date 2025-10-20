@@ -27,7 +27,6 @@
     };
   };
   networking.networkmanager.enable = true;
-  programs.niri.enable = true;
   security.polkit.enable = true;
   hardware = {
     bluetooth.enable = true;
@@ -37,16 +36,6 @@
   };
   services = {
     xserver.videoDrivers = [ "nvidia" ];
-    greetd = {
-      enable = true;
-      settings = rec {
-        initial_session = {
-          command = "niri-session";
-          user = "pcarrier";
-        };
-        default_session = initial_session;
-      };
-    };
     automatic-timezoned.enable = true;
   };
 }

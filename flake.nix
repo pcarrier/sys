@@ -74,6 +74,9 @@
               trusted = true;
               desktop = true;
               hardware = ./hw/rp5.nix;
+              extraModules = [
+                ./feat/autogui.nix
+              ];
             }
             {
               inherit
@@ -124,6 +127,31 @@
                 nixpkgs-master
                 nix-index
                 nixos-wsl
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                ;
+            };
+        lynx =
+          build.bare
+            {
+              name = "lynx";
+              system = "x86_64-linux";
+              trusted = true;
+              desktop = true;
+              emulated = [ "aarch64-linux" ];
+              hardware = ./hw/fw.nix;
+              extraModules = [
+                ./feat/autogui.nix
+                ./feat/docker.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
                 home-manager
                 tomorrowTheme
                 baze
@@ -184,6 +212,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/tower.nix;
               extraModules = [
+                ./feat/autogui.nix
                 ./feat/docker.nix
               ];
             }
@@ -253,7 +282,7 @@
               name = "rabbit";
               system = "x86_64-linux";
               emulated = [ "aarch64-linux" ];
-              hardware = ./hw/fw.nix;
+              hardware = ./hw/zfw.nix;
               extraModules = [
                 ./feat/zfs.nix
                 ./feat/media.nix
@@ -283,6 +312,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/deck.nix;
               extraModules = [
+                ./feat/autogui.nix
                 jovian.nixosModules.default
               ];
             }

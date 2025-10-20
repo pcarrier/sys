@@ -17,6 +17,18 @@ let
     config.allowUnfree = true;
   };
 
+  clip = pkgs.stdenv.mkDerivation {
+    name = "clip";
+    src = pkgs.fetchurl {
+      url = "https://raw.githubusercontent.com/sentriz/cliphist/refs/heads/efb61cb/contrib/cliphist-fuzzel-img";
+      sha256 = "sha256-NgQ87yZCusF/FYprJJ+fvkA3VdrvHp4LyylQ0ajBvjU=";
+    };
+    phases = [ "installPhase" ];
+    installPhase = ''
+      install -Dm755 $src $out/bin/clip
+    '';
+  };
+
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -27,6 +39,7 @@ let
         baze.packages.${system}.default
         bubblewrap
         codex
+        dconf # for https://github.com/nix-community/home-manager/issues/3113
         dive
         fd
         fastfetch
@@ -52,8 +65,10 @@ let
         nodejs
         perf
         pssh
+        rclone
         ripgrep
         ookla-speedtest
+        sshfs
         sysstat
         tk
         tokei
@@ -117,7 +132,7 @@ let
           brave
           brightnessctl
           drm_info
-          kdePackages.krdc
+          obs-studio
           pavucontrol
         ];
         sessionVariables = {
@@ -131,10 +146,12 @@ let
 
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
-      xwayland-satellite
+      clip
       legcord
+      pcmanfm
       slacky
       spotify
+      xwayland-satellite
     ];
     programs = {
       alacritty = {
@@ -143,7 +160,7 @@ let
         settings = {
           font = {
             normal.family = "PragmataPro Mono Liga";
-            size = 9;
+            size = 8;
           };
         };
       };
