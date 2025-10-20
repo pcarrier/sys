@@ -192,8 +192,28 @@ let
         style = ''
           * {
             font-family: "PragmataPro Liga";
+            font-size: 8pt;
           }
         '';
+        settings = {
+          mainBar = {
+            modules-left = [
+              "tray"
+              "cpu"
+              "memory"
+              "temperature"
+            ];
+            modules-center = [ "niri/window" ];
+            modules-right = [
+              "network"
+              "wireplumber"
+              "battery"
+              "clock"
+            ];
+            clock.format = "{:%F %T}";
+            network.format = "{essid} {signaldBm}";
+          };
+        };
       };
     };
     services = {
