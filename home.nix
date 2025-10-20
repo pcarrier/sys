@@ -257,6 +257,10 @@ let
         installRemoteServer = true;
       };
       claude-code.enable = true;
+      delta = {
+        enable = true;
+        enableGitIntegration = true;
+      };
       direnv.enable = true;
       eza = {
         enable = true;
@@ -380,11 +384,12 @@ let
       git = {
         enable = true;
         package = pkgs.gitFull;
-        userName = "Pierre Carrier";
-        userEmail = "pc@rrier.fr";
         lfs.enable = true;
-        delta.enable = true;
-        extraConfig = {
+        settings = {
+          user = {
+            name = "Pierre Carrier";
+            email = "pc@rrier.fr";
+          };
           pull.rebase = true;
           init.defaultBranch = "main";
           github.user = "pcarrier";
@@ -429,42 +434,42 @@ let
             autocorrect = "prompt";
             format = "web";
           };
-        };
-        aliases = {
-          aamend = "commit -av --amend --no-edit";
-          amend = "commit -av --amend";
-          b = "branch -v";
-          bl = "blame -C -C -C";
-          bu = "bundle";
-          cl = "clone";
-          cm = "commit -av";
-          co = "checkout";
-          cp = "cherry-pick";
-          cu = "rebase master";
-          d = "diff --patience";
-          dc = "describe --contains";
-          ds = "diff --staged --patience";
-          dsc = "describe";
-          dw = "diff --color-words --patience";
-          ec = "config --global -e";
-          fp = "push --force-with-lease";
-          k = "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
-          kk = "log --no-merges --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
-          nr = "name-rev --name-only --refs=refs/heads/*";
-          nri = "name-rev --refs=refs/heads/* --stdin";
-          pl = "pull";
-          p = "push";
-          pr = "!gh pr create -w";
-          pulla = "pull --all";
-          pusha = "push --all";
-          ra = "rebase --abort";
-          rc = "rebase --continue";
-          ri = "rebase --interactive";
-          sl = "shortlog -sn";
-          ss = "status -sbuno";
-          sss = "status -sb";
-          st = "status";
-          wd = "diff --word-diff --patience";
+          alias = {
+            aamend = "commit -av --amend --no-edit";
+            amend = "commit -av --amend";
+            b = "branch -v";
+            bl = "blame -C -C -C";
+            bu = "bundle";
+            cl = "clone";
+            cm = "commit -av";
+            co = "checkout";
+            cp = "cherry-pick";
+            cu = "rebase master";
+            d = "diff --patience";
+            dc = "describe --contains";
+            ds = "diff --staged --patience";
+            dsc = "describe";
+            dw = "diff --color-words --patience";
+            ec = "config --global -e";
+            fp = "push --force-with-lease";
+            k = "log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
+            kk = "log --no-merges --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative";
+            nr = "name-rev --name-only --refs=refs/heads/*";
+            nri = "name-rev --refs=refs/heads/* --stdin";
+            pl = "pull";
+            p = "push";
+            pr = "!gh pr create -w";
+            pulla = "pull --all";
+            pusha = "push --all";
+            ra = "rebase --abort";
+            rc = "rebase --continue";
+            ri = "rebase --interactive";
+            sl = "shortlog -sn";
+            ss = "status -sbuno";
+            sss = "status -sb";
+            st = "status";
+            wd = "diff --word-diff --patience";
+          };
         };
       };
       lazygit = {
