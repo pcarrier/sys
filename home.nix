@@ -152,6 +152,7 @@ let
       slacky
       spotify
       xwayland-satellite
+      zoom-us
     ];
     programs = {
       alacritty = {
