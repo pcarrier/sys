@@ -131,9 +131,10 @@ let
           blueman
           brave
           brightnessctl
+          coppwr
           drm_info
           obs-studio
-          pavucontrol
+          lxqt.pavucontrol-qt
         ];
         sessionVariables = {
           BROWSER = "brave";

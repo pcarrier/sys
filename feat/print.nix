@@ -1,6 +1,10 @@
+{ pkgs, ... }:
 {
   services = {
-    printing.enable = true;
+    printing = {
+      enable = true;
+      drivers = [ pkgs.brlaser ];
+    };
     avahi = {
       enable = true;
       nssmdns4 = true;
