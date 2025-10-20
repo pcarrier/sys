@@ -150,7 +150,7 @@ let
       legcord
       pcmanfm
       slacky
-      spotify
+      spotify-qt
       xwayland-satellite
       zoom-us
     ];
@@ -197,6 +197,7 @@ let
         '';
         settings = {
           mainBar = {
+            spacing = 16;
             modules-left = [
               "tray"
               "cpu"
@@ -227,6 +228,7 @@ let
       };
       playerctld.enable = true;
       cliphist.enable = true;
+      librespot.enable = true;
     };
     xdg.portal = {
       enable = true;
