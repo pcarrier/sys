@@ -150,7 +150,7 @@ let
       legcord
       pcmanfm
       slacky
-      spotify-qt
+      spotify
       xwayland-satellite
       zoom-us
     ];
@@ -228,7 +228,6 @@ let
       };
       playerctld.enable = true;
       cliphist.enable = true;
-      librespot.enable = true;
     };
     xdg.portal = {
       enable = true;
