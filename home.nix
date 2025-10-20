@@ -193,9 +193,6 @@ let
           * {
             font-family: "PragmataPro Liga";
           }
-          window#waybar {
-            background: none;
-          }
         '';
       };
     };
