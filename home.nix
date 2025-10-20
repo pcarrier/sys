@@ -20,7 +20,7 @@ let
   clip = pkgs.stdenv.mkDerivation {
     name = "clip";
     src = pkgs.fetchurl {
-      url = "https://raw.githubusercontent.com/sentriz/cliphist/refs/heads/efb61cb/contrib/cliphist-fuzzel-img";
+      url = "https://raw.githubusercontent.com/sentriz/cliphist/refs/heads/master/contrib/cliphist-fuzzel-img";
       sha256 = "sha256-NgQ87yZCusF/FYprJJ+fvkA3VdrvHp4LyylQ0ajBvjU=";
     };
     phases = [ "installPhase" ];
@@ -204,7 +204,6 @@ let
         settings = {
           font = "PragmataPro Liga 9";
           default-timeout = 1;
-          ignore-timeout = true;
           icons = true;
         };
       };
@@ -256,10 +255,7 @@ let
         enable = true;
         installRemoteServer = true;
       };
-      claude-code = {
-        enable = true;
-        package = pkgs-master.claude-code;
-      };
+      claude-code.enable = true;
       direnv.enable = true;
       eza = {
         enable = true;
