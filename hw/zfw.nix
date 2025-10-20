@@ -56,6 +56,7 @@
       extraPackages = with pkgs; [ intel-media-driver ];
     };
   };
+  powerManagement.enable = true;
   services = {
     logind.settings.Login.HandleLidSwitch = "ignore";
     syncoid = {
