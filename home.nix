@@ -61,6 +61,7 @@ let
         yt-dlp
         zoxide
       ];
+      sessionVariables.ZED_WINDOW_DECORATIONS = "server";
     };
     dconf.settings."org/gnome/desktop/interface" = {
       color-scheme = "prefer-dark";
@@ -96,7 +97,6 @@ let
       platformTheme.name = "gtk3";
     };
     services.ssh-agent.enable = true;
-    home.sessionVariables.ZED_WINDOW_DECORATIONS = "server";
   };
 
   systemConfigs = {

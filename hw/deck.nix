@@ -21,6 +21,11 @@
     "/" = {
       device = "/dev/disk/by-label/root";
       fsType = "btrfs";
+      options = [
+        "noatime"
+        "compress=zstd"
+        "ssd"
+      ];
     };
     "/boot" = {
       device = "/dev/disk/by-label/boot";
@@ -31,17 +36,12 @@
       ];
     };
   };
-  networking.networkmanager = {
-    enable = true;
-    plugins = with pkgs; [
-      networkmanager-openvpn
-    ];
-  };
+  networking.networkmanager.enable = true;
   hardware.cpu.amd.updateMicrocode = true;
   jovian = {
     steam = {
-      enable = true;
-      autoStart = true;
+      enable = false;
+      autoStart = false;
       desktopSession = "niri";
       user = "pcarrier";
     };
@@ -51,5 +51,18 @@
     };
   };
   programs.niri.enable = true;
-  services.automatic-timezoned.enable = true;
+  services = {
+    logind.settings.Login.HandlePowerKey = "suspend";
+    greetd = {
+      enable = true;
+      settings = rec {
+        initial_session = {
+          command = "niri-session";
+          user = "pcarrier";
+        };
+        default_session = initial_session;
+      };
+    };
+    automatic-timezoned.enable = true;
+  };
 }

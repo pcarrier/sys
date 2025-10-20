@@ -10,7 +10,7 @@ in
 {
   documentation.nixos.enable = false;
   hardware.enableRedistributableFirmware = true;
-  zramSwap.enable = true;
+  # zramSwap.enable = true;
   security = {
     acme = {
       acceptTerms = true;
