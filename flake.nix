@@ -111,6 +111,28 @@
                 proxied
                 ;
             };
+        cobb =
+          build.bare
+            {
+              name = "cobb";
+              system = "x86_64-linux";
+              hardware = ./hw/amd1.nix;
+              extraModules = [
+                ./folks/joao.nix
+                ./folks/alex.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                ;
+            };
         dog =
           build.wsl
             {

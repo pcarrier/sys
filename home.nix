@@ -210,7 +210,7 @@ let
               "battery"
               "clock"
             ];
-            clock.format = "{:%F %T}";
+            clock.format = "{:%F %H:%M}";
             network.format = "{essid} {signaldBm}";
           };
         };
