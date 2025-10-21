@@ -153,6 +153,7 @@ let
       slacky
       spotify
       xwayland-satellite
+      wl-clipboard-rs
       zoom-us
     ];
     programs = {
