@@ -225,6 +225,8 @@ let
           font = "PragmataPro Liga 9";
           default-timeout = 1;
           icons = true;
+          background-color = "#000000a0";
+          border-color = "#ff0000";
         };
       };
       playerctld.enable = true;
