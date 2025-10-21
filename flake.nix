@@ -144,6 +144,7 @@
               extraModules = [
                 ./feat/autogui.nix
                 ./feat/print.nix
+                ./feat/waydroid.nix
                 ./feat/docker.nix
               ];
             }
