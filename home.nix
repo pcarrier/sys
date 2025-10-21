@@ -228,6 +228,7 @@ let
           icons = true;
           background-color = "#000000a0";
           border-color = "#ff0000";
+          border-size = 1;
         };
       };
       playerctld.enable = true;
