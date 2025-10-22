@@ -132,6 +132,29 @@
                 proxied
                 ;
             };
+        kitten =
+          build.bare
+            {
+              name = "kitten";
+              system = "aarch64-linux";
+              trusted = true;
+              desktop = true;
+              hardware = ./hw/macvm.nix;
+              extraModules = [
+                ./feat/autogui.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                ;
+            };
         lynx =
           build.bare
             {
