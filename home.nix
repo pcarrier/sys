@@ -47,7 +47,6 @@ let
         file
         fio
         gnuplot
-        htop
         jq
         ldns
         libarchive
