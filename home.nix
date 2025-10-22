@@ -237,12 +237,12 @@ let
       enable = true;
       config.common = {
         default = "gtk";
-        "org.freedesktop.impl.portal.Screenshot" = "wlr";
-        "org.freedesktop.impl.portal.ScreenCast" = "wlr";
+        "org.freedesktop.impl.portal.Screenshot" = "gnome";
+        "org.freedesktop.impl.portal.ScreenCast" = "gnome";
       };
       extraPortals = with pkgs; [
         xdg-desktop-portal-gtk
-        xdg-desktop-portal-wlr
+        xdg-desktop-portal-gnome
       ];
     };
     home.pointerCursor = {
