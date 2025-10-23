@@ -141,7 +141,7 @@
               desktop = true;
               hardware = ./hw/macvm.nix;
               extraModules = [
-                ./feat/autogui.nix
+                ./feat/autoniri.nix
               ];
             }
             {
@@ -165,7 +165,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/fw.nix;
               extraModules = [
-                ./feat/autogui.nix
+                ./feat/autoniri.nix
                 ./feat/print.nix
                 ./feat/docker.nix
               ];
@@ -235,7 +235,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/tower.nix;
               extraModules = [
-                ./feat/autogui.nix
+                ./feat/autoniri.nix
                 ./feat/print.nix
                 ./feat/docker.nix
               ];
@@ -338,7 +338,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/deck.nix;
               extraModules = [
-                ./feat/autogui.nix
+                ./feat/autoniri.nix
                 ./feat/print.nix
                 jovian.nixosModules.default
               ];
