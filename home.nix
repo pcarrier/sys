@@ -173,6 +173,8 @@ let
           main = {
             dpi-aware = false;
             show-actions = true;
+            horizontal-pad = 0;
+            vertical-pad = 0;
           };
           border.radius = 0;
           colors = {
