@@ -12,6 +12,7 @@ input {
     }
     touchpad {
         tap
+        natural-scroll
     }
 }
 output "BOE NE135A1M-NY1 Unknown" {
