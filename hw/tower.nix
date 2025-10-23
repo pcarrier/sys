@@ -2,9 +2,6 @@
   boot = {
     initrd.availableKernelModules = [
       "nvme"
-      "xhci_pci"
-      "ahci"
-      "usbhid"
     ];
   };
   fileSystems = {
@@ -31,11 +28,10 @@
   hardware = {
     bluetooth.enable = true;
     cpu.amd.updateMicrocode = true;
-    graphics.enable = true;
-    nvidia.open = true;
+    graphics = {
+      enable = true;
+      enable32Bit = true;
+    };
   };
-  services = {
-    xserver.videoDrivers = [ "nvidia" ];
-    automatic-timezoned.enable = true;
-  };
+  services.automatic-timezoned.enable = true;
 }
