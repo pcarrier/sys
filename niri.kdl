@@ -11,20 +11,19 @@ input {
             accel-profile "flat"
     }
 }
-output "eDP-1" {
-    scale 1
+output "BOE NE135A1M-NY1 Unknown" {
+    scale 1.5
     backdrop-color "#000000"
-    position x=0 y=2160
-}
-output "LG Electronics LG ULTRAGEAR+ 504NTNHBM223" {
-    scale 1
-    backdrop-color "#000000"
-    position x=3840 y=0
 }
 output "LG Electronics LG ULTRAGEAR+ 504NTUWBM222" {
     scale 1
     backdrop-color "#000000"
     position x=0 y=0
+}
+output "LG Electronics LG ULTRAGEAR+ 504NTNHBM223" {
+    scale 1
+    backdrop-color "#000000"
+    position x=3840 y=0
 }
 layout {
     background-color "#000000"
