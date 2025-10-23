@@ -170,7 +170,11 @@ let
       fuzzel = {
         enable = true;
         settings = {
-          main.dpi-aware = "no";
+          main = {
+            dpi-aware = false;
+            show-actions = true;
+          };
+          border.radius = 0;
           colors = {
             background = "000000a0";
             border = "ff0000a0";
