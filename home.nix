@@ -283,6 +283,13 @@ let
       zed-editor = {
         enable = true;
         installRemoteServer = true;
+        userSettings = builtins.fromJSON (builtins.readFile ./zed-settings.json);
+        extensions = [
+          "html"
+          "nix"
+          "terraform"
+          "tomorrow-theme"
+        ];
       };
       claude-code.enable = true;
       delta = {
