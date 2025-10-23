@@ -233,17 +233,22 @@ let
       playerctld.enable = true;
       cliphist.enable = true;
     };
-    xdg.portal = {
-      enable = true;
-      config.common = {
-        default = "gtk";
-        "org.freedesktop.impl.portal.Screenshot" = "gnome";
-        "org.freedesktop.impl.portal.ScreenCast" = "gnome";
+    xdg = {
+      portal = {
+        enable = true;
+        config.common = {
+          default = "gtk";
+          "org.freedesktop.impl.portal.Screenshot" = "gnome";
+          "org.freedesktop.impl.portal.ScreenCast" = "gnome";
+        };
+        extraPortals = with pkgs; [
+          xdg-desktop-portal-gtk
+          xdg-desktop-portal-gnome
+        ];
       };
-      extraPortals = with pkgs; [
-        xdg-desktop-portal-gtk
-        xdg-desktop-portal-gnome
-      ];
+      configFile = {
+        "niri/config.kdl".source = ./niri.kdl;
+      };
     };
     home.pointerCursor = {
       enable = true;
