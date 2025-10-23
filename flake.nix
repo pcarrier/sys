@@ -165,7 +165,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/fw.nix;
               extraModules = [
-                ./feat/autoniri.nix
+                ./feat/autosway.nix
                 ./feat/print.nix
                 ./feat/docker.nix
               ];
