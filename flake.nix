@@ -263,6 +263,7 @@
                 ./feat/docker.nix
                 ./feat/rdp.nix
                 ./folks/joao.nix
+                ./folks/bkolobara.nix
               ];
             }
             {
@@ -287,6 +288,7 @@
                 ./feat/docker.nix
                 ./folks/joao.nix
                 ./folks/alex.nix
+                ./folks/bkolobara.nix
               ];
             }
             {
