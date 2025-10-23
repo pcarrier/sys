@@ -132,6 +132,7 @@ let
           brightnessctl
           coppwr
           drm_info
+          firefox
           obs-studio
           lxqt.pavucontrol-qt
         ];
@@ -285,10 +286,17 @@ let
         installRemoteServer = true;
         userSettings = builtins.fromJSON (builtins.readFile ./zed-settings.json);
         extensions = [
+          "css"
+          "dockerfile"
+          "git-firefly"
           "html"
           "nix"
+          "proto"
+          "svelte"
           "terraform"
+          "toml"
           "tomorrow-theme"
+          "zig"
         ];
       };
       claude-code.enable = true;
