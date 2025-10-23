@@ -8,7 +8,10 @@ input {
         }
     }
     mouse {
-            accel-profile "flat"
+       accel-profile "flat"
+    }
+    touchpad {
+        tap
     }
 }
 output "BOE NE135A1M-NY1 Unknown" {
