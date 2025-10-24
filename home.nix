@@ -77,10 +77,7 @@ let
       ];
       sessionVariables.ZED_WINDOW_DECORATIONS = "server";
     };
-    dconf.settings."org/gnome/desktop/interface" = {
-      color-scheme = "prefer-dark";
-      gtk-key-theme = "Default";
-    };
+    dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
     fonts.fontconfig = {
       enable = true;
       antialiasing = true;
@@ -91,7 +88,7 @@ let
         sansSerif = [ "PragmataPro Liga" ];
       };
     };
-    gtk = rec {
+    gtk = {
       enable = true;
       colorScheme = "dark";
       font = {
@@ -106,12 +103,6 @@ let
         name = "Flat-Remix-Red-Dark";
         package = pkgs.flat-remix-icon-theme;
       };
-      gtk3.extraCss = ''
-        * {
-            border-radius: 0;
-        }
-      '';
-      gtk4.extraCss = gtk3.extraCss;
     };
     qt = {
       enable = true;
