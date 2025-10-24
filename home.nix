@@ -90,7 +90,7 @@ let
         sansSerif = [ "PragmataPro Liga" ];
       };
     };
-    gtk = {
+    gtk = rec {
       enable = true;
       colorScheme = "dark";
       font = {
@@ -105,6 +105,12 @@ let
         name = "Flat-Remix-Red-Dark";
         package = pkgs.flat-remix-icon-theme;
       };
+      gtk3.extraCss = ''
+        * {
+            border-radius: 0;
+        }
+      '';
+      gtk4.extraCss = gtk3.extraCss;
     };
     qt = {
       enable = true;
@@ -297,7 +303,7 @@ let
           "git-firefly"
           "html"
           "nix"
-          "proto"
+          "protod"
           "svelte"
           "terraform"
           "toml"
