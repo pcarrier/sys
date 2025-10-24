@@ -66,6 +66,32 @@
     in
     {
       nixosConfigurations = {
+        amoeba =
+          build.bare
+            {
+              name = "hound";
+              trusted = true;
+              desktop = true;
+              system = "aarch64-linux";
+              emulated = [ "x86_64-linux" ];
+              hardware = ./hw/dodge.nix;
+              extraModules = [
+                ./feat/autoniri.nix
+                ./feat/print.nix
+              ];
+            }
+            {
+              inherit
+                nixpkgs
+                nixpkgs-master
+                nix-index
+                home-manager
+                tomorrowTheme
+                baze
+                proxied
+                jovian
+                ;
+            };
         chimp =
           build.wsl
             {

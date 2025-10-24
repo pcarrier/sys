@@ -293,6 +293,7 @@ let
           "dockerfile"
           "git-firefly"
           "html"
+          "kotlin"
           "nix"
           "protod"
           "svelte"
