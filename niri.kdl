@@ -40,7 +40,7 @@ layout {
         color "#ff0000"
     }
     default-column-width { proportion 0.25; }
-    preset-window-heights {
+    preset-column-widths {
         proportion 0.25
         proportion 0.5
         proportion 0.75
