@@ -166,6 +166,7 @@
               hardware = ./hw/fw.nix;
               extraModules = [
                 ./feat/autoniri.nix
+                ./feat/steam.nix
                 ./feat/print.nix
                 ./feat/docker.nix
               ];
@@ -211,6 +212,7 @@
               system = "x86_64-linux";
               hardware = ./hw/nas1.nix;
               extraModules = [
+                ./feat/mail.nix
                 ./feat/zfs.nix
               ];
             }
@@ -236,6 +238,7 @@
               hardware = ./hw/tower.nix;
               extraModules = [
                 ./feat/autoniri.nix
+                ./feat/steam.nix
                 ./feat/print.nix
                 ./feat/docker.nix
               ];
@@ -310,6 +313,7 @@
               emulated = [ "aarch64-linux" ];
               hardware = ./hw/zfw.nix;
               extraModules = [
+                ./feat/mail.nix
                 ./feat/zfs.nix
                 ./feat/media.nix
                 ./feat/proxied/ctrl.nix
