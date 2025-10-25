@@ -358,29 +358,6 @@
                 proxied
                 ;
             };
-        shrimp =
-          build.bare
-            {
-              name = "shrimp";
-              system = "aarch64-linux";
-              trusted = true;
-              desktop = true;
-              hardware = ./hw/vbox.nix;
-              extraModules = [
-                ./feat/autoniri.nix
-              ];
-            }
-            {
-              inherit
-                nixpkgs
-                nixpkgs-master
-                nix-index
-                home-manager
-                tomorrowTheme
-                baze
-                proxied
-                ;
-            };
         sloth =
           build.bare
             {
