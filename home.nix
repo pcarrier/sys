@@ -145,7 +145,6 @@ let
 
   desktopConfig = lib.mkIf desktop {
     home.packages = with pkgs; [
-      android-studio-full
       clip
       jetbrains.idea-ultimate
       legcord
