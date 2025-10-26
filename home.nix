@@ -59,6 +59,7 @@ let
         nil
         nixd
         nix-index.packages.${system}.default
+        nixos-shell
         nixfmt
         nmap
         nodejs
