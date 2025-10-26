@@ -1,6 +1,7 @@
 { pkgs, ... }:
 {
   boot = {
+    kernelPackages = pkgs.zfs.latestCompatibleLinuxPackages;
     initrd = {
       availableKernelModules = [
         "xhci_pci"
