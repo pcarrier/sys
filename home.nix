@@ -145,17 +145,19 @@ let
   };
 
   desktopConfig = lib.mkIf desktop {
-    home.packages = with pkgs; [
-      clip
-      jetbrains.idea-ultimate
-      legcord
-      pcmanfm
-      slacky
-      spotify
-      xwayland-satellite
-      wl-clipboard-rs
-      zoom-us
-    ];
+    home.packages =
+      with pkgs;
+      [
+        clip
+        jetbrains.idea-ultimate
+        legcord
+        pcmanfm
+        spotify
+        xwayland-satellite
+        wl-clipboard-rs
+        zoom-us
+      ]
+      ++ (if system == "x86_64-linux" then [ slack ] else [ slacky ]);
     programs = {
       alacritty = {
         enable = true;
