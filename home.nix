@@ -382,9 +382,9 @@ let
           "*" = {
             addKeysToAgent = "yes";
             compression = true;
-            controlMaster = "auto";
-            controlPath = "~/.ssh/control-%r@%h:%p";
-            controlPersist = "1h";
+            #controlMaster = "auto";
+            #controlPath = "~/.ssh/control-%r@%h:%p";
+            #controlPersist = "1h";
             serverAliveInterval = 60;
           };
           ident = {
