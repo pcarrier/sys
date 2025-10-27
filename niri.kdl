@@ -29,6 +29,10 @@ output "LG Electronics LG ULTRAGEAR+ 504NTNHBM223" {
     backdrop-color "#000000"
     position x=3840 y=0
 }
+output "Dell Inc. DELL S2722QC 2FH5J24" {
+    scale 1
+    backdrop-color "#000000"
+}
 layout {
     background-color "#000000"
     gaps 0
