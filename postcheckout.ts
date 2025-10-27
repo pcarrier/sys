@@ -61,6 +61,10 @@ async function main() {
     return;
   }
 
+  if (Deno.args[2] !== '1') {
+    return;
+  }
+
   const next = Deno.readTextFileSync(`${gitDir}/HEAD`).trim();
 
   if (!next.startsWith(REF_PREFIX)) {
