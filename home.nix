@@ -174,6 +174,7 @@ let
         settings = {
           main = {
             dpi-aware = false;
+            font = "PragmataPro Mono Liga:size=8";
             show-actions = true;
             horizontal-pad = 0;
             vertical-pad = 0;
@@ -231,7 +232,7 @@ let
       mako = {
         enable = true;
         settings = {
-          font = "PragmataPro Liga 9";
+          font = "PragmataPro Liga 8";
           default-timeout = 1;
           background-color = "#000000a0";
           border-color = "#ff0000";
