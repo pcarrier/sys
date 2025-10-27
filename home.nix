@@ -235,18 +235,9 @@ let
       };
     };
     services = {
-      mako = {
-        enable = true;
-        settings = {
-          font = "PragmataPro Liga 8";
-          default-timeout = 1;
-          background-color = "#000000a0";
-          border-color = "#ff0000";
-          border-size = 1;
-        };
-      };
-      playerctld.enable = true;
       cliphist.enable = true;
+      playerctld.enable = true;
+      swaync.enable = true;
     };
     xdg = {
       portal = {
