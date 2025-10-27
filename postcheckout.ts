@@ -69,7 +69,7 @@ async function main() {
 
   const search = next.substring(REF_PREFIX.length);
 
-  const remoteUrl = await git([\remote\, \get-url\, \origin\]);
+  const remoteUrl = await git(['remote', 'get-url', 'origin']);
 
   if (!remoteUrl.startsWith(URL_PREFIX)) {
     return;
