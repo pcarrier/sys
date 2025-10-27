@@ -29,6 +29,10 @@ let
     '';
   };
 
+  postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
+    SELF="''${BASH_SOURCE[0]}" exec ${pkgs.deno}/bin/deno run -A ${./postcheckout.ts} "$@"
+  '';
+
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -47,6 +51,7 @@ let
         file
         fio
         gnuplot
+        jo
         jq
         ldns
         libarchive
@@ -75,6 +80,7 @@ let
         tree
         yt-dlp
         zoxide
+        postcheckout
       ];
       sessionVariables.ZED_WINDOW_DECORATIONS = "server";
     };
