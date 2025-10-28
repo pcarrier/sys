@@ -237,7 +237,18 @@ let
     services = {
       cliphist.enable = true;
       playerctld.enable = true;
-      swaync.enable = true;
+      swaync = {
+        enable = true;
+        settings = {
+          widgets = [
+            "volume"
+            "mpris"
+            "title"
+            "dnd"
+            "notifications"
+          ];
+        };
+      };
     };
     xdg = {
       portal = {
