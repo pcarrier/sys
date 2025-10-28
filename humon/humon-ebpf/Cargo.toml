@@ -1,0 +1,29 @@
+[package]
+name = "humon-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+humon-common = { path = "../humon-common" }
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+[[bin]]
+name = "humon"
+path = "src/main.rs"
+
+[profile.dev]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = false
+panic = "abort"
+incremental = false
+codegen-units = 1
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"

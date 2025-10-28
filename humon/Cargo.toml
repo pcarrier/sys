@@ -1,0 +1,29 @@
+[workspace]
+members = ["humon-ebpf", "humon-common"]
+
+[package]
+name = "humon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "humon"
+path = "src/main.rs"
+
+[dependencies]
+humon-common = { path = "humon-common" }
+aya = { version = "0.12", features = ["async_tokio"] }
+aya-log = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+rumqttc = "0.24"
+postcard = "1.0"
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+bytes = "1.5"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
