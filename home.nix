@@ -157,6 +157,7 @@ let
         clip
         jetbrains.idea-ultimate
         legcord
+        networkmanagerapplet
         pcmanfm
         spotify
         xwayland-satellite
