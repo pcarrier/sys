@@ -7,16 +7,10 @@
       trusted ? true,
       extraModules ? [ ],
     }:
-    {
+    inputs@{
       nixpkgs,
-      nixpkgs-master,
-      nix-index,
       nixos-wsl,
       home-manager,
-      tomorrowTheme,
-      baze,
-      plenty,
-      proxied,
       ...
     }:
     nixpkgs.lib.nixosSystem {
@@ -30,19 +24,10 @@
         {
           boot.binfmt.emulatedSystems = emulated;
           wsl.wslConf.network.hostname = name;
-          _module.args = {
+          _module.args = inputs // {
+            inherit system trusted;
             systemType = "wsl";
             desktop = false;
-            inherit
-              system
-              trusted
-              baze
-              plenty
-              proxied
-              nix-index
-              nixpkgs-master
-              tomorrowTheme
-              ;
           };
         }
       ]
@@ -59,15 +44,9 @@
       desktop ? false,
       extraModules ? [ ],
     }:
-    {
+    inputs@{
       nixpkgs,
-      nixpkgs-master,
-      nix-index,
       home-manager,
-      tomorrowTheme,
-      baze,
-      plenty,
-      proxied,
       ...
     }:
     nixpkgs.lib.nixosSystem {
@@ -81,19 +60,9 @@
         {
           boot.binfmt.emulatedSystems = emulated;
           networking.hostName = name;
-          _module.args = {
+          _module.args = inputs // {
+            inherit system trusted desktop;
             systemType = "bare";
-            inherit
-              system
-              desktop
-              trusted
-              baze
-              plenty
-              proxied
-              nix-index
-              nixpkgs-master
-              tomorrowTheme
-              ;
           };
         }
       ]
