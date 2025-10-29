@@ -15,6 +15,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      plenty,
       proxied,
       ...
     }:
@@ -36,6 +37,7 @@
               system
               trusted
               baze
+              plenty
               proxied
               nix-index
               nixpkgs-master
@@ -64,6 +66,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      plenty,
       proxied,
       ...
     }:
@@ -85,6 +88,7 @@
               desktop
               trusted
               baze
+              plenty
               proxied
               nix-index
               nixpkgs-master

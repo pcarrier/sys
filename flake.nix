@@ -37,6 +37,13 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+    plenty = {
+      url = "github:pcarrier/plenty";
+      inputs = {
+        flake-utils.follows = "flake-utils";
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   nixConfig = {
@@ -57,6 +64,7 @@
       home-manager,
       tomorrowTheme,
       baze,
+      plenty,
       proxied,
       jovian,
       ...
@@ -88,6 +96,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 jovian
                 ;
@@ -111,6 +120,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -133,6 +143,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -155,6 +166,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -178,6 +190,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -205,6 +218,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -228,6 +242,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -250,6 +265,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -277,6 +293,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 jovian
                 ;
@@ -303,6 +320,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -328,6 +346,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -342,6 +361,7 @@
                 ./feat/mail.nix
                 ./feat/zfs.nix
                 ./feat/media.nix
+                ./feat/plentys.nix
                 ./feat/proxied/ctrl.nix
                 ./feat/proxied/dns.nix
                 ./feat/proxied/proxying.nix
@@ -355,6 +375,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 ;
             };
@@ -381,6 +402,7 @@
                 home-manager
                 tomorrowTheme
                 baze
+                plenty
                 proxied
                 jovian
                 ;

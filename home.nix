@@ -7,6 +7,7 @@
   systemType,
   baze,
   tomorrowTheme,
+  plenty,
   trusted ? false,
   desktop ? false,
   ...
@@ -69,6 +70,7 @@ let
         nmap
         nodejs
         perf
+        plenty.packages.${system}.plenty
         procs
         pssh
         rclone
