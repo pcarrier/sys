@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 /// Maximum length for paths, command names, etc.
 /// Note: These are eBPF perf buffer limits, not stack limits
 pub const MAX_STRING_LEN: usize = 4096;  // PATH_MAX on Linux
-pub const MAX_ARGV_LEN: usize = 8192;    // Accommodates long command lines
 
 /// Event type discriminator
 #[repr(u8)]
@@ -118,7 +117,6 @@ pub enum EventData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessExecEvent {
     pub filename: BoundedString<MAX_STRING_LEN>,
-    pub argv: BoundedString<MAX_ARGV_LEN>,
     pub ppid: u32,
 }
 
@@ -188,12 +186,7 @@ pub struct FileChownEvent {
 // Network Events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetConnectEvent {
-    pub family: u16,
-    pub protocol: u8,
-    pub local_addr: IpAddr,
-    pub local_port: u16,
-    pub remote_addr: IpAddr,
-    pub remote_port: u16,
+    pub fd: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,17 +326,13 @@ pub struct ProcessCoredumpEvent {
 // Network Failure Events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetConnectFailEvent {
-    pub family: u16,
-    pub remote_addr: IpAddr,
-    pub remote_port: u16,
+    pub fd: i32,
     pub error: i32, // errno (ECONNREFUSED, ETIMEDOUT, etc.)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetBindFailEvent {
-    pub family: u16,
-    pub addr: IpAddr,
-    pub port: u16,
+    pub fd: i32,
     pub error: i32, // errno (EADDRINUSE, etc.)
 }
 

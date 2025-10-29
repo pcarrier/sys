@@ -69,6 +69,7 @@ let
         nmap
         nodejs
         perf
+        procs
         pssh
         rclone
         ripgrep

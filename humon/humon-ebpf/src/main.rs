@@ -2,19 +2,58 @@
 #![no_main]
 
 use aya_ebpf::{
-    bindings::pt_regs,
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_user_str_bytes},
+    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_ktime_get_ns, bpf_probe_read_user_str_bytes},
     macros::{kprobe, kretprobe, map, tracepoint},
     maps::{HashMap, PerfEventArray},
     programs::{ProbeContext, TracePointContext},
-    EbpfContext,
 };
-use aya_log_ebpf::info;
 use humon_common::*;
 
 // Ring buffer for sending events to userspace
 #[map]
 static EVENTS: PerfEventArray<Event> = PerfEventArray::new(0);
+
+#[map]
+static mut OPEN_CONTEXTS: HashMap<u64, FileOpenContext> = HashMap::with_max_entries(1024, 0);
+
+#[map]
+static mut READ_CONTEXTS: HashMap<u64, FileIoContext> = HashMap::with_max_entries(4096, 0);
+
+#[map]
+static mut WRITE_CONTEXTS: HashMap<u64, FileIoContext> = HashMap::with_max_entries(4096, 0);
+
+#[map]
+static mut CONNECT_CONTEXTS: HashMap<u64, NetConnectContext> = HashMap::with_max_entries(1024, 0);
+
+#[map]
+static mut BIND_CONTEXTS: HashMap<u64, NetBindContext> = HashMap::with_max_entries(1024, 0);
+
+#[repr(C)]
+#[derive(Clone)]
+struct FileOpenContext {
+    path: BoundedString<MAX_STRING_LEN>,
+    flags: i32,
+    mode: u32,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+struct FileIoContext {
+    fd: i32,
+    count: u64,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+struct NetConnectContext {
+    fd: i32,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+struct NetBindContext {
+    fd: i32,
+}
 
 // Helper to get current task info
 #[inline(always)]
@@ -51,10 +90,6 @@ fn try_trace_execve(ctx: &TracePointContext) -> Result<(), i64> {
         filename.len = bytes.len();
     }
 
-    // Read argv (limited implementation - full argv parsing requires task_struct access)
-    let argv_ptr: *const *const u8 = unsafe { ctx.read_at(24)? };
-    let mut argv = BoundedString::<MAX_ARGV_LEN>::new();
-
     // PPID requires task_struct access, not available from tracepoint context
     let ppid = 0;
 
@@ -67,7 +102,6 @@ fn try_trace_execve(ctx: &TracePointContext) -> Result<(), i64> {
         gid,
         data: EventData::ProcessExec(ProcessExecEvent {
             filename,
-            argv,
             ppid,
         }),
     };
@@ -154,8 +188,6 @@ pub fn trace_openat(ctx: ProbeContext) -> u32 {
 }
 
 fn try_trace_openat(ctx: &ProbeContext) -> Result<(), i64> {
-    let (pid, tid, uid, gid, timestamp) = get_task_info();
-
     // openat(int dfd, const char *filename, int flags, umode_t mode)
     let filename_ptr: *const u8 = unsafe { ctx.arg(1).ok_or(1i64)? };
     let flags: i32 = unsafe { ctx.arg(2).ok_or(1i64)? };
@@ -166,23 +198,55 @@ fn try_trace_openat(ctx: &ProbeContext) -> Result<(), i64> {
         path.len = bytes.len();
     }
 
-    let event = Event {
-        event_type: EventType::FileOpen,
-        timestamp_ns: timestamp,
-        pid,
-        tid,
-        uid,
-        gid,
-        data: EventData::FileOpen(FileOpenEvent {
-            path,
-            flags,
-            mode,
-            fd: -1, // Will be filled by kretprobe
-        }),
-    };
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let context = FileOpenContext { path, flags, mode };
 
     unsafe {
-        EVENTS.output(ctx, &event, 0);
+        let _ = OPEN_CONTEXTS.remove(&key);
+        OPEN_CONTEXTS
+            .insert(&key, &context, 0)
+            .map_err(|_| 1i64)?;
+    }
+
+    Ok(())
+}
+
+// File: openat return
+#[kretprobe]
+pub fn trace_openat_ret(ctx: ProbeContext) -> u32 {
+    match try_trace_openat_ret(&ctx) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+fn try_trace_openat_ret(ctx: &ProbeContext) -> Result<(), i64> {
+    let (pid, tid, uid, gid, timestamp) = get_task_info();
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let fd: i32 = ctx.ret::<i64>().map(|v| v as i32).unwrap_or(-1);
+
+    if let Ok(stored) = unsafe { OPEN_CONTEXTS.get(&key) } {
+        let context = stored.clone();
+        let _ = unsafe { OPEN_CONTEXTS.remove(&key) };
+
+        let event = Event {
+            event_type: EventType::FileOpen,
+            timestamp_ns: timestamp,
+            pid,
+            tid,
+            uid,
+            gid,
+            data: EventData::FileOpen(FileOpenEvent {
+                path: context.path,
+                flags: context.flags,
+                mode: context.mode,
+                fd,
+            }),
+        };
+
+        unsafe {
+            EVENTS.output(ctx, &event, 0);
+        }
     }
 
     Ok(())
@@ -198,27 +262,57 @@ pub fn trace_read(ctx: ProbeContext) -> u32 {
 }
 
 fn try_trace_read(ctx: &ProbeContext) -> Result<(), i64> {
-    let (pid, tid, uid, gid, timestamp) = get_task_info();
-
     let fd: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
     let count: u64 = unsafe { ctx.arg(2).ok_or(1i64)? };
 
-    let event = Event {
-        event_type: EventType::FileRead,
-        timestamp_ns: timestamp,
-        pid,
-        tid,
-        uid,
-        gid,
-        data: EventData::FileRead(FileReadEvent {
-            fd,
-            count,
-            ret: 0,
-        }),
-    };
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let context = FileIoContext { fd, count };
 
     unsafe {
-        EVENTS.output(ctx, &event, 0);
+        let _ = READ_CONTEXTS.remove(&key);
+        READ_CONTEXTS
+            .insert(&key, &context, 0)
+            .map_err(|_| 1i64)?;
+    }
+
+    Ok(())
+}
+
+// File: read return
+#[kretprobe]
+pub fn trace_read_ret(ctx: ProbeContext) -> u32 {
+    match try_trace_read_ret(&ctx) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+fn try_trace_read_ret(ctx: &ProbeContext) -> Result<(), i64> {
+    let (pid, tid, uid, gid, timestamp) = get_task_info();
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let ret = ctx.ret::<i64>().unwrap_or(0);
+
+    if let Ok(stored) = unsafe { READ_CONTEXTS.get(&key) } {
+        let context = stored.clone();
+        let _ = unsafe { READ_CONTEXTS.remove(&key) };
+
+        let event = Event {
+            event_type: EventType::FileRead,
+            timestamp_ns: timestamp,
+            pid,
+            tid,
+            uid,
+            gid,
+            data: EventData::FileRead(FileReadEvent {
+                fd: context.fd,
+                count: context.count,
+                ret,
+            }),
+        };
+
+        unsafe {
+            EVENTS.output(ctx, &event, 0);
+        }
     }
 
     Ok(())
@@ -234,27 +328,57 @@ pub fn trace_write(ctx: ProbeContext) -> u32 {
 }
 
 fn try_trace_write(ctx: &ProbeContext) -> Result<(), i64> {
-    let (pid, tid, uid, gid, timestamp) = get_task_info();
-
     let fd: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
     let count: u64 = unsafe { ctx.arg(2).ok_or(1i64)? };
 
-    let event = Event {
-        event_type: EventType::FileWrite,
-        timestamp_ns: timestamp,
-        pid,
-        tid,
-        uid,
-        gid,
-        data: EventData::FileWrite(FileWriteEvent {
-            fd,
-            count,
-            ret: 0,
-        }),
-    };
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let context = FileIoContext { fd, count };
 
     unsafe {
-        EVENTS.output(ctx, &event, 0);
+        let _ = WRITE_CONTEXTS.remove(&key);
+        WRITE_CONTEXTS
+            .insert(&key, &context, 0)
+            .map_err(|_| 1i64)?;
+    }
+
+    Ok(())
+}
+
+// File: write return
+#[kretprobe]
+pub fn trace_write_ret(ctx: ProbeContext) -> u32 {
+    match try_trace_write_ret(&ctx) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+fn try_trace_write_ret(ctx: &ProbeContext) -> Result<(), i64> {
+    let (pid, tid, uid, gid, timestamp) = get_task_info();
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let ret = ctx.ret::<i64>().unwrap_or(0);
+
+    if let Ok(stored) = unsafe { WRITE_CONTEXTS.get(&key) } {
+        let context = stored.clone();
+        let _ = unsafe { WRITE_CONTEXTS.remove(&key) };
+
+        let event = Event {
+            event_type: EventType::FileWrite,
+            timestamp_ns: timestamp,
+            pid,
+            tid,
+            uid,
+            gid,
+            data: EventData::FileWrite(FileWriteEvent {
+                fd: context.fd,
+                count: context.count,
+                ret,
+            }),
+        };
+
+        unsafe {
+            EVENTS.output(ctx, &event, 0);
+        }
     }
 
     Ok(())
@@ -270,29 +394,15 @@ pub fn trace_connect(ctx: ProbeContext) -> u32 {
 }
 
 fn try_trace_connect(ctx: &ProbeContext) -> Result<(), i64> {
-    let (pid, tid, uid, gid, timestamp) = get_task_info();
-
-    // Network address parsing requires sockaddr structure parsing (IPv4/IPv6)
-    // This captures the event occurrence; use NetConnectFail for failures with details
-    let event = Event {
-        event_type: EventType::NetConnect,
-        timestamp_ns: timestamp,
-        pid,
-        tid,
-        uid,
-        gid,
-        data: EventData::NetConnect(NetConnectEvent {
-            family: 0,
-            protocol: 0,
-            local_addr: IpAddr::from_v4([0, 0, 0, 0]),
-            local_port: 0,
-            remote_addr: IpAddr::from_v4([0, 0, 0, 0]),
-            remote_port: 0,
-        }),
-    };
+    let fd: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let context = NetConnectContext { fd };
 
     unsafe {
-        EVENTS.output(ctx, &event, 0);
+        let _ = CONNECT_CONTEXTS.remove(&key);
+        CONNECT_CONTEXTS
+            .insert(&key, &context, 0)
+            .map_err(|_| 1i64)?;
     }
 
     Ok(())
@@ -525,35 +635,70 @@ pub fn trace_connect_ret(ctx: ProbeContext) -> u32 {
 
 fn try_trace_connect_ret(ctx: &ProbeContext) -> Result<(), i64> {
     let (pid, tid, uid, gid, timestamp) = get_task_info();
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let ret = ctx.ret::<i64>().unwrap_or(0);
 
-    let ret: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
+    if let Ok(stored) = unsafe { CONNECT_CONTEXTS.get(&key) } {
+        let context = stored.clone();
+        let _ = unsafe { CONNECT_CONTEXTS.remove(&key) };
 
-    // Only emit events for failures
-    if ret < 0 {
-        let event = Event {
-            event_type: EventType::NetConnectFail,
-            timestamp_ns: timestamp,
-            pid,
-            tid,
-            uid,
-            gid,
-            data: EventData::NetConnectFail(NetConnectFailEvent {
-                family: 0,
-                remote_addr: IpAddr::from_v4([0, 0, 0, 0]),
-                remote_port: 0,
-                error: -ret,
-            }),
-        };
+        if ret == 0 {
+            let event = Event {
+                event_type: EventType::NetConnect,
+                timestamp_ns: timestamp,
+                pid,
+                tid,
+                uid,
+                gid,
+                data: EventData::NetConnect(NetConnectEvent { fd: context.fd }),
+            };
 
-        unsafe {
-            EVENTS.output(ctx, &event, 0);
+            unsafe { EVENTS.output(ctx, &event, 0); }
+        } else if ret < 0 {
+            let event = Event {
+                event_type: EventType::NetConnectFail,
+                timestamp_ns: timestamp,
+                pid,
+                tid,
+                uid,
+                gid,
+                data: EventData::NetConnectFail(NetConnectFailEvent {
+                    fd: context.fd,
+                    error: (-ret) as i32,
+                }),
+            };
+
+            unsafe { EVENTS.output(ctx, &event, 0); }
         }
     }
 
     Ok(())
 }
 
-// Network: bind failure (kretprobe)
+// Network: bind
+#[kprobe]
+pub fn trace_bind(ctx: ProbeContext) -> u32 {
+    match try_trace_bind(&ctx) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+fn try_trace_bind(ctx: &ProbeContext) -> Result<(), i64> {
+    let fd: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let context = NetBindContext { fd };
+
+    unsafe {
+        let _ = BIND_CONTEXTS.remove(&key);
+        BIND_CONTEXTS
+            .insert(&key, &context, 0)
+            .map_err(|_| 1i64)?;
+    }
+
+    Ok(())
+}
+
 #[kretprobe]
 pub fn trace_bind_ret(ctx: ProbeContext) -> u32 {
     match try_trace_bind_ret(&ctx) {
@@ -564,29 +709,33 @@ pub fn trace_bind_ret(ctx: ProbeContext) -> u32 {
 
 fn try_trace_bind_ret(ctx: &ProbeContext) -> Result<(), i64> {
     let (pid, tid, uid, gid, timestamp) = get_task_info();
+    let key = unsafe { bpf_get_current_pid_tgid() };
+    let ret = ctx.ret::<i64>().unwrap_or(0);
 
-    let ret: i32 = unsafe { ctx.arg(0).ok_or(1i64)? };
-
-    // Only emit events for failures
     if ret < 0 {
-        let event = Event {
-            event_type: EventType::NetBindFail,
-            timestamp_ns: timestamp,
-            pid,
-            tid,
-            uid,
-            gid,
-            data: EventData::NetBindFail(NetBindFailEvent {
-                family: 0,
-                addr: IpAddr::from_v4([0, 0, 0, 0]),
-                port: 0,
-                error: -ret,
-            }),
-        };
+        if let Ok(stored) = unsafe { BIND_CONTEXTS.get(&key) } {
+            let context = stored.clone();
+            let _ = unsafe { BIND_CONTEXTS.remove(&key) };
 
-        unsafe {
-            EVENTS.output(ctx, &event, 0);
+            let event = Event {
+                event_type: EventType::NetBindFail,
+                timestamp_ns: timestamp,
+                pid,
+                tid,
+                uid,
+                gid,
+                data: EventData::NetBindFail(NetBindFailEvent {
+                    fd: context.fd,
+                    error: (-ret) as i32,
+                }),
+            };
+
+            unsafe {
+                EVENTS.output(ctx, &event, 0);
+            }
         }
+    } else {
+        let _ = unsafe { BIND_CONTEXTS.remove(&key) };
     }
 
     Ok(())

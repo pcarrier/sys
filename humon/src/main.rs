@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use aya::{
     include_bytes_aligned,
     maps::perf::AsyncPerfEventArray,
@@ -177,13 +177,17 @@ fn attach_probes(ebpf: &mut Ebpf) -> Result<()> {
 
     // File kprobes
     attach_kprobe(ebpf, "trace_openat", "do_sys_openat2", false)?;
+    attach_kprobe(ebpf, "trace_openat_ret", "do_sys_openat2", true)?;
     attach_kprobe(ebpf, "trace_read", "vfs_read", false)?;
+    attach_kprobe(ebpf, "trace_read_ret", "vfs_read", true)?;
     attach_kprobe(ebpf, "trace_write", "vfs_write", false)?;
+    attach_kprobe(ebpf, "trace_write_ret", "vfs_write", true)?;
 
     // Network kprobes
-    attach_kprobe(ebpf, "trace_connect", "tcp_connect", false)?;
-    attach_kprobe(ebpf, "trace_connect_ret", "sys_connect", true)?;
-    attach_kprobe(ebpf, "trace_bind_ret", "sys_bind", true)?;
+    attach_kprobe(ebpf, "trace_connect", "__sys_connect", false)?;
+    attach_kprobe(ebpf, "trace_connect_ret", "__sys_connect", true)?;
+    attach_kprobe(ebpf, "trace_bind", "__sys_bind", false)?;
+    attach_kprobe(ebpf, "trace_bind_ret", "__sys_bind", true)?;
 
     // Security kprobes
     attach_kprobe(ebpf, "trace_setuid", "sys_setuid", false)?;
@@ -231,10 +235,70 @@ fn attach_tracepoint(ebpf: &mut Ebpf, prog_name: &str, category: &str, name: &st
 fn attach_kprobe(ebpf: &mut Ebpf, prog_name: &str, fn_name: &str, is_ret: bool) -> Result<()> {
     let program: &mut KProbe = ebpf.program_mut(prog_name).unwrap().try_into()?;
     program.load()?;
-    program.attach(fn_name, 0)?;
-    let probe_type = if is_ret { "kretprobe" } else { "kprobe" };
-    info!("Attached {}: {}", probe_type, fn_name);
-    Ok(())
+    let mut last_err = None;
+
+    for candidate in candidate_kprobe_names(fn_name) {
+        match program.attach(&candidate, 0) {
+            Ok(()) => {
+                let probe_type = if is_ret { "kretprobe" } else { "kprobe" };
+                info!("Attached {}: {}", probe_type, candidate);
+                return Ok(());
+            }
+            Err(e) => {
+                last_err = Some(anyhow!(e).context(format!(
+                    "failed attaching program {} to {}",
+                    prog_name, candidate
+                )));
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| {
+        anyhow!(
+            "unable to attach program {} using any known symbol for {}",
+            prog_name,
+            fn_name
+        )
+    }))
+}
+
+fn candidate_kprobe_names(fn_name: &str) -> Vec<String> {
+    let mut names = vec![fn_name.to_string()];
+
+    let mut push_unique = |value: String| {
+        if !names.iter().any(|existing| existing == &value) {
+            names.push(value);
+        }
+    };
+
+    if let Some(rest) = fn_name.strip_prefix("__sys_") {
+        push_unique(format!("sys_{}", rest));
+        push_unique(format!("__x64_sys_{}", rest));
+        push_unique(format!("__arm64_sys_{}", rest));
+    }
+
+    if let Some(rest) = fn_name.strip_prefix("sys_") {
+        push_unique(format!("__x64_sys_{}", rest));
+        push_unique(format!("__arm64_sys_{}", rest));
+    }
+
+    if let Some(rest) = fn_name.strip_prefix("do_sys_") {
+        push_unique(format!("sys_{}", rest));
+        push_unique(format!("__x64_sys_{}", rest));
+        push_unique(format!("__arm64_sys_{}", rest));
+    }
+
+    if let Some(rest) = fn_name.strip_prefix("__x64_sys_") {
+        push_unique(format!("sys_{}", rest));
+        push_unique(format!("__sys_{}", rest));
+    }
+
+    if let Some(rest) = fn_name.strip_prefix("__arm64_sys_") {
+        push_unique(format!("sys_{}", rest));
+        push_unique(format!("__sys_{}", rest));
+    }
+
+    names
 }
 
 fn log_event(event: &Event) {
@@ -265,26 +329,26 @@ fn log_event(event: &Event) {
         EventData::FileOpen(e) => {
             let path = String::from_utf8_lossy(e.path.as_bytes());
             debug!(
-                "[{}ms] OPEN: pid={} path={:?} flags={:#x}",
-                timestamp_ms, event.pid, path, e.flags
+                "[{}ms] OPEN: pid={} path={:?} flags={:#x} fd={}",
+                timestamp_ms, event.pid, path, e.flags, e.fd
             );
         }
         EventData::FileRead(e) => {
             debug!(
-                "[{}ms] READ: pid={} fd={} count={}",
-                timestamp_ms, event.pid, e.fd, e.count
+                "[{}ms] READ: pid={} fd={} requested={} ret={}",
+                timestamp_ms, event.pid, e.fd, e.count, e.ret
             );
         }
         EventData::FileWrite(e) => {
             debug!(
-                "[{}ms] WRITE: pid={} fd={} count={}",
-                timestamp_ms, event.pid, e.fd, e.count
+                "[{}ms] WRITE: pid={} fd={} requested={} ret={}",
+                timestamp_ms, event.pid, e.fd, e.count, e.ret
             );
         }
         EventData::NetConnect(e) => {
             info!(
-                "[{}ms] CONNECT: pid={} family={} port={}",
-                timestamp_ms, event.pid, e.family, e.remote_port
+                "[{}ms] CONNECT: pid={} fd={}",
+                timestamp_ms, event.pid, e.fd
             );
         }
         EventData::SecSetuid(e) => {
@@ -355,14 +419,14 @@ fn log_event(event: &Event) {
         }
         EventData::NetConnectFail(e) => {
             warn!(
-                "[{}ms] CONNECT_FAIL: pid={} port={} error={}",
-                timestamp_ms, event.pid, e.remote_port, e.error
+                "[{}ms] CONNECT_FAIL: pid={} fd={} error={}",
+                timestamp_ms, event.pid, e.fd, e.error
             );
         }
         EventData::NetBindFail(e) => {
             warn!(
-                "[{}ms] BIND_FAIL: pid={} port={} error={}",
-                timestamp_ms, event.pid, e.port, e.error
+                "[{}ms] BIND_FAIL: pid={} fd={} error={}",
+                timestamp_ms, event.pid, e.fd, e.error
             );
         }
         EventData::UsbAttach(e) => {
