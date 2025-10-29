@@ -904,11 +904,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1761746598,
-        "narHash": "sha256-YRq9lHFMoZ3xzBnGtL07yVwbs68pAy6cJnN0bhzqT64=",
+        "lastModified": 1761750379,
+        "narHash": "sha256-0tIGctIVaAvpnHB0ukrFRwCyzHRTiHxQMTRnlSLHUR0=",
         "owner": "pcarrier",
         "repo": "plenty",
-        "rev": "409597c4b29c16cab0db3e0cde784f665838eead",
+        "rev": "d87e9b8203bbba5b00f57dc312fbaa57af7b67f9",
         "type": "github"
       },
       "original": {

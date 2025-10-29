@@ -1,7 +1,5 @@
 { pkgs, lib, ... }:
 {
-  boot = {
-    supportedFilesystems = [ "zfs" ];
-  };
+  boot.supportedFilesystems = [ "zfs" ];
   services.zfs.autoScrub.enable = true;
 }
