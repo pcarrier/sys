@@ -1,5 +1,5 @@
 const URL_PREFIX = "git@github.com:twin-so/";
-const REF_PREFIX = `ref: refs/heads/${Deno.env.get('USER')}/`;
+const REF_PREFIX = `ref: refs/heads/`;
 const DECODER = new TextDecoder();
 
 async function git(args) {
@@ -66,12 +66,13 @@ async function main() {
   }
 
   const next = Deno.readTextFileSync(`${gitDir}/HEAD`).trim();
+  const user = Deno.env.get('USER');
 
-  if (!next.startsWith(REF_PREFIX)) {
+  if (!next.startsWith(`${REF_PREFIX}${user}/`)) {
     return;
   }
 
-  const search = next.substring(REF_PREFIX.length);
+  const branch = next.substring(REF_PREFIX.length);
 
   const remoteUrl = await git(['remote', 'get-url', 'origin']);
 
@@ -84,11 +85,11 @@ async function main() {
   const apiKey = readApiKey();
 
   const existing = (await queryLinear(apiKey, `
-    query ($search:String!) {
+    query ($branch:String!) {
       issues(
         filter: {
           assignee: { isMe: { eq: true } }
-          title: { containsIgnoreCase: $search }
+          title: { containsIgnoreCase: $branch }
         }
       ) {
         nodes {
@@ -97,7 +98,7 @@ async function main() {
       }
     }
   `, {
-    search
+    branch
   })).issues.nodes;
 
   if (existing.length > 0) {
@@ -127,7 +128,7 @@ async function main() {
     throw new Error(`State In Progress not found`);
   }
 
-  const title = `[${project}] ${search}`;
+  const title = `[${project}] ${branch.substring(user.length + 1)}`;
 
   const issue = (await queryLinear(apiKey, `
     mutation ($assigneeId:String! $teamId:String! $stateId:String! $title:String!) {
@@ -137,7 +138,7 @@ async function main() {
           assigneeId: $assigneeId
           stateId: $stateId
           title: $title
-          description: "Created automatically for a Git branch."
+          description: "Created automatically for ${branch}."
         }
       ) {
         issue {
