@@ -128,7 +128,7 @@ async function main() {
     throw new Error(`State In Progress not found`);
   }
 
-  const title = `[${project}] ${branch.substring(user.length + 1)}`;
+  const title = `[${project}] ${branch.substring(user.length + 1).replaceAll('_', ' ')}`;
 
   const issue = (await queryLinear(apiKey, `
     mutation ($assigneeId:String! $teamId:String! $stateId:String! $title:String!) {
