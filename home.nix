@@ -461,6 +461,7 @@ let
           color.ui = true;
           branch = {
             autoSetupRebase = "always";
+            autoSetupMerge = "simple";
             sort = "-committerdate";
           };
           column.ui = "auto";
