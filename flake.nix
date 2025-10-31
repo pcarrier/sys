@@ -92,6 +92,7 @@
           extraModules = [
             ./folks/joao.nix
             ./folks/alex.nix
+            ./folks/hugotwin.nix
           ];
         } commonInputs;
     in
@@ -206,6 +207,7 @@
             ./folks/joao.nix
             ./folks/alex.nix
             ./folks/bkolobara.nix
+            ./folks/hugotwin.nix
           ];
         } commonInputs;
         rabbit = build.bare {
