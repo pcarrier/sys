@@ -51,6 +51,7 @@ let
         ffmpeg
         file
         fio
+        htop
         gnuplot
         jo
         jq
