@@ -162,7 +162,7 @@ let
         jetbrains.idea-ultimate
         legcord
         networkmanagerapplet
-        pcmanfm
+        pcmanfm-qt
         spotify
         xwayland-satellite
         wl-clipboard-rs
