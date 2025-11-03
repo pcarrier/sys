@@ -30,6 +30,8 @@ let
     '';
   };
 
+  gitPackage = pkgs.gitFull;
+
   postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
     SELF="''${BASH_SOURCE[0]}" exec ${pkgs.deno}/bin/deno run -A ${./postcheckout.ts} "$@"
   '';
@@ -448,7 +450,7 @@ let
       };
       git = {
         enable = true;
-        package = pkgs.gitFull;
+        package = gitPackage;
         lfs.enable = true;
         settings = {
           user = {
@@ -562,7 +564,8 @@ let
           c = "code";
           ca = "cargo";
           dl = "aria2c -x 16 -s 16 -j 16";
-          g = "git";
+          g = "${gitPackage}/bin/git";
+          git = "${gitPackage}/bin/git";
           lg = "lazygit";
           m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
           mk = "ssh -t komodo 'cd /src/monorepo; and exec fish -l'";
