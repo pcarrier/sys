@@ -89,7 +89,7 @@ async function main() {
       issues(
         filter: {
           assignee: { isMe: { eq: true } }
-          title: { containsIgnoreCase: $branch }
+          description: { contains: $branch }
         }
       ) {
         nodes {
@@ -138,7 +138,7 @@ async function main() {
           assigneeId: $assigneeId
           stateId: $stateId
           title: $title
-          description: "Created automatically for ${branch}."
+          description: "Created automatically for \`${branch}\`."
         }
       ) {
         issue {
