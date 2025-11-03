@@ -146,9 +146,11 @@
           hardware = ./hw/fw.nix;
           extraModules = [
             ./feat/autoniri.nix
-            ./feat/steam.nix
-            ./feat/print.nix
             ./feat/docker.nix
+            ./feat/nvidia.nix
+            ./feat/ollama-nvidia.nix
+            ./feat/print.nix
+            ./feat/steam.nix
           ];
         } commonInputs;
         gorilla = build.bare {
@@ -182,7 +184,7 @@
             ./feat/steam.nix
             ./feat/print.nix
             ./feat/docker.nix
-            ./feat/ollama.nix
+            ./feat/ollama-amd.nix
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
