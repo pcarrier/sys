@@ -79,8 +79,11 @@ async function main() {
   if (!remoteUrl.startsWith(URL_PREFIX)) {
     return;
   }
-
-  const project = remoteUrl.substring(URL_PREFIX.length);
+ 
+  let project = remoteUrl.substring(URL_PREFIX.length);
+  if (project.endsWith('.git')) {
+    project = project.substring(0, project.length - 4);
+  }
 
   const apiKey = readApiKey();
 
