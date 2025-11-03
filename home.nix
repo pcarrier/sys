@@ -419,6 +419,9 @@ let
             hostname = "srv.us";
             port = 2222;
           };
+          monster = {
+            hostname = "138.199.142.90";
+          };
           x0 = {
             hostname = "x0.xmit.dev";
             port = 2222;
