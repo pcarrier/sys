@@ -556,7 +556,7 @@ let
           end
         '';
         shellAliases = {
-          a = "${pkgs.codex}/bin/codex --model gpt-5-codex --full-auto --search";
+          a = "${pkgs.codex}/bin/codex --model gpt-5-codex --full-auto --enable web_search_request";
           b = "${pkgs.claude-code}/bin/claude --dangerously-skip-permissions";
           C = "clear";
           c = "code";
