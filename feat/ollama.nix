@@ -1,0 +1,1 @@
+{ services.ollama.enable = true; }

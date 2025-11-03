@@ -99,7 +99,7 @@
     {
       nixosConfigurations = {
         amoeba = build.bare {
-          name = "hound";
+          name = "amoeba";
           trusted = true;
           desktop = true;
           system = "aarch64-linux";
@@ -107,7 +107,6 @@
           hardware = ./hw/dodge.nix;
           extraModules = [
             ./feat/autoniri.nix
-            ./feat/print.nix
           ];
         } (commonInputs // { inherit jovian; });
         chimp = build.wsl {
@@ -183,6 +182,8 @@
             ./feat/steam.nix
             ./feat/print.nix
             ./feat/docker.nix
+            ./feat/ollama.nix
+            ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
         komodo = build.bare {
