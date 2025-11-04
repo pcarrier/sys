@@ -153,16 +153,6 @@
             ./feat/steam.nix
           ];
         } commonInputs;
-        gorilla = build.bare {
-          name = "gorilla";
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/amd1.nix;
-          extraModules = [
-            ./feat/docker.nix
-            ./feat/rdp.nix
-          ];
-        } commonInputs;
         hare = build.bare {
           name = "hare";
           system = "x86_64-linux";
@@ -188,18 +178,6 @@
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
-        komodo = build.bare {
-          name = "komodo";
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/nv1.nix;
-          extraModules = [
-            ./feat/docker.nix
-            ./feat/rdp.nix
-            ./folks/joao.nix
-            ./folks/bkolobara.nix
-          ];
-        } commonInputs;
         monster = build.bare {
           name = "monster";
           system = "x86_64-linux";
