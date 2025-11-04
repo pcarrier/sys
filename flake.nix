@@ -134,7 +134,7 @@
             ./feat/autoniri.nix
             ./feat/docker.nix
             ./feat/nvidia.nix
-            ./feat/ollama-nvidia.nix
+            /* ./feat/ollama-nvidia.nix */
             ./feat/print.nix
             ./feat/steam.nix
           ];

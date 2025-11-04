@@ -1,9 +1,14 @@
 { pkgs, ... }:
 {
   boot = {
-    initrd.availableKernelModules = [
-      "nvme"
-    ];
+    initrd = {
+      availableKernelModules = [
+        "nvme"
+      ];
+      services.udev.rules = ''
+        ACTION=="add", SUBSYSTEM=="thunderbolt", ATTR{authorized}=="0", ATTR{authorized}="1"
+      '';
+    };
     kernelModules = [ "kvm-intel" ];
   };
   fileSystems = {
