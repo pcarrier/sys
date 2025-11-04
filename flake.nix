@@ -184,7 +184,7 @@
             ./feat/steam.nix
             ./feat/print.nix
             ./feat/docker.nix
-            ./feat/ollama-amd.nix
+            ./feat/ollama-rocm.nix
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
