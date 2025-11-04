@@ -83,18 +83,6 @@
           proxied
           ;
       };
-      mkCobb =
-        name:
-        build.bare {
-          inherit name;
-          system = "x86_64-linux";
-          hardware = ./hw/amd1.nix;
-          extraModules = [
-            ./folks/joao.nix
-            ./folks/alex.nix
-            ./folks/hugotwin.nix
-          ];
-        } commonInputs;
     in
     {
       nixosConfigurations = {
@@ -117,8 +105,6 @@
             ./feat/mail.nix
           ];
         } (commonInputs // { inherit nixos-wsl; });
-        cobb-prod = mkCobb "cobb-prod";
-        cobb-sandbox = mkCobb "cobb-sandbox";
         dog = build.wsl {
           name = "dog";
           system = "x86_64-linux";
