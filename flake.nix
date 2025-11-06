@@ -216,13 +216,19 @@
         };
       in
       {
+        packages = {
+          postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
+            SELF="''${BASH_SOURCE[0]}" exec ${pkgs.bun}/bin/bun ${./postcheckout.ts} "$@"
+          '';
+        };
+
         devShells = {
           default = pkgs.mkShell {
             packages = with pkgs; [
               nixfmt
               nil
               nixd
-              deno
+              bun
               (writeShellScriptBin "hosts" ''
                 echo ${builtins.toString (builtins.attrNames self.nixosConfigurations)}
               '')

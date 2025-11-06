@@ -1,30 +1,34 @@
+import { promises as fs } from 'node:fs';
+
 const URL_PREFIX = "git@github.com:twin-so/";
 const REF_PREFIX = `ref: refs/heads/`;
 const DECODER = new TextDecoder();
 
-async function git(args) {
-  const command = new Deno.Command('git', {
-    args
+async function git(args: string[]): Promise<string> {
+  const result = Bun.spawnSync({
+    cmd: ['git', ...args],
   });
-  const { code, stdout, stderr } = await command.output();
 
-  if (code !== 0) {
-    const message = stderr.length
-      ? DECODER.decode(stderr).trim()
+  if (result.exitCode !== 0) {
+    const message = result.stderr && result.stderr.length
+      ? DECODER.decode(result.stderr).trim()
       : 'Unknown error retrieving origin URL';
     throw new Error(message);
   }
 
-  return DECODER.decode(stdout).trim();
+  return result.stdout ? DECODER.decode(result.stdout).trim() : '';
 }
 
-function readApiKey() {
-  const home = Deno.env.get('HOME');
+async function readApiKey() {
+  const home = process.env['HOME'];
+  if (!home) {
+    throw new Error('HOME environment variable is not set');
+  }
   const path = `${home}/.linear`;
-  return Deno.readTextFileSync(path).trim();
+  return (await Bun.file(path).text()).trim();
 }
 
-async function queryLinear(apiKey: string, query: string, variables: Object | undefined) {
+async function queryLinear(apiKey: string, query: string, variables: Record<string, unknown> | undefined = undefined) {
   const body = JSON.stringify({
     query,
     variables,
@@ -48,27 +52,33 @@ async function queryLinear(apiKey: string, query: string, variables: Object | un
 }
 
 async function main() {
-  const gitDir = Deno.env.get('GIT_DIR') ?? '.git';
+  const gitDir = process.env['GIT_DIR'] ?? '.git';
+  const args = process.argv.slice(2);
 
-  if (Deno.args.length == 0) {
-    if ((await Deno.stat(gitDir)).isDirectory) {
+  if (args.length === 0) {
+    const stats = await fs.stat(gitDir);
+    if (stats.isDirectory()) {
       const path = `${gitDir}/hooks/post-checkout`;
-      try { await Deno.removeSync(path); } catch {}
-      await Deno.symlink(Deno.env.get('SELF'), path);
+      await fs.rm(path, { force: true });
+      const self = process.env['SELF'];
+      if (!self) {
+        throw new Error('SELF environment variable is not set');
+      }
+      await fs.symlink(self, path);
     } else {
       throw new Error('Not in a git repository');
     }
     return;
   }
 
-  if (Deno.args[2] !== '1') {
+  if (args[2] !== '1') {
     return;
   }
 
-  const next = Deno.readTextFileSync(`${gitDir}/HEAD`).trim();
-  const user = Deno.env.get('USER');
+  const next = (await Bun.file(`${gitDir}/HEAD`).text()).trim();
+  const user = process.env['USER'];
 
-  if (!next.startsWith(`${REF_PREFIX}${user}/`)) {
+  if (!user || !next.startsWith(`${REF_PREFIX}${user}/`)) {
     return;
   }
 
@@ -85,7 +95,7 @@ async function main() {
     project = project.substring(0, project.length - 4);
   }
 
-  const apiKey = readApiKey();
+  const apiKey = await readApiKey();
 
   const existing = (await queryLinear(apiKey, `
     query ($branch:String!) {
@@ -122,7 +132,7 @@ async function main() {
   const teamId = data.teams.nodes.find((t) => t.key === teamKey)?.id;
 
   if (!teamId) {
-    throw new Error(`Team ${teamName} not found`);
+    throw new Error(`Team ${teamKey} not found`);
   }
 
   const stateId = data.workflowStates.nodes.find((s) => s.name === 'In Progress' && s.team.id === teamId)?.id;
@@ -163,6 +173,6 @@ async function main() {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    process.exit(1);
   });
 }

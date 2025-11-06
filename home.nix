@@ -33,7 +33,7 @@ let
   gitPackage = pkgs.gitFull;
 
   postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
-    SELF="''${BASH_SOURCE[0]}" exec ${pkgs.deno}/bin/deno run -A ${./postcheckout.ts} "$@"
+    SELF="''${BASH_SOURCE[0]}" exec ${pkgs.bun}/bin/bun ${./postcheckout.ts} "$@"
   '';
 
   baseConfig = {
