@@ -1,6 +1,14 @@
 [workspace]
 members = ["humon-ebpf", "humon-common"]
 
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+
 [package]
 name = "humon"
 version = "0.1.0"
@@ -23,8 +31,3 @@ env_logger = "0.11"
 bytes = "1.5"
 inotify = { version = "0.10", default-features = false }
 futures = "0.3"
-
-[profile.release]
-lto = true
-opt-level = 3
-codegen-units = 1
