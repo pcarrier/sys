@@ -9,27 +9,30 @@ use aya::{
 use aya_log::EbpfLogger;
 use bytes::BytesMut;
 use clap::Parser;
+use futures::StreamExt;
 use humon_common::Event;
+use inotify::{Inotify, WatchMask};
 use log::{debug, info, warn};
-use rumqttc::{AsyncClient, MqttOptions, QoS};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 #[derive(Parser, Debug)]
 #[command(name = "humon")]
 #[command(about = "Human monitoring - eBPF-based system event monitor", long_about = None)]
 struct Args {
-    /// MQTT broker hostname or IP
-    #[arg(short, long, default_value = "localhost")]
-    broker: String,
+    /// Output file path for events
+    #[arg(short, long, default_value = "events.log")]
+    output: String,
 
-    /// MQTT broker port
-    #[arg(short, long, default_value_t = 1883)]
-    port: u16,
-
-    /// MQTT topic prefix
-    #[arg(short, long, default_value = "humon")]
-    topic: String,
+    /// Watch mode: tail the event file instead of monitoring
+    #[arg(short, long)]
+    watch: bool,
 
     /// Enable verbose logging
     #[arg(short, long)]
@@ -50,6 +53,10 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    if args.watch {
+        return watch_mode(&args.output).await;
+    }
+
     info!("humon - System monitoring with eBPF");
     info!("=======================================");
     info!("WARNING: This captures sensitive system events including keyboard input.");
@@ -58,23 +65,16 @@ async fn main() -> Result<()> {
 
     sleep(Duration::from_secs(3)).await;
 
-    // Set up MQTT
-    let mut mqttoptions = MqttOptions::new("humon", &args.broker, args.port);
-    mqttoptions.set_keep_alive(Duration::from_secs(30));
+    // Open output file for writing events
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&args.output)
+        .await
+        .context("Failed to open output file")?;
 
-    let (mqtt_client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
-
-    // Spawn MQTT eventloop handler
-    tokio::spawn(async move {
-        loop {
-            match eventloop.poll().await {
-                Ok(_) => {},
-                Err(e) => warn!("MQTT error: {:?}", e),
-            }
-        }
-    });
-
-    sleep(Duration::from_secs(1)).await;
+    let file = Arc::new(Mutex::new(file));
+    info!("Writing events to: {}", args.output);
 
     // Load eBPF program
     info!("Loading eBPF programs...");
@@ -94,8 +94,7 @@ async fn main() -> Result<()> {
 
     for cpu_id in cpus {
         let mut buf = perf_array.open(cpu_id, Some(32))?;
-        let client = mqtt_client.clone();
-        let topic = args.topic.clone();
+        let file_writer = file.clone();
 
         tokio::spawn(async move {
             let mut buffers = (0..10)
@@ -124,7 +123,7 @@ async fn main() -> Result<()> {
                     // Log event
                     log_event(&event);
 
-                    // Serialize to postcard for MQTT
+                    // Serialize to postcard for file writing
                     let payload = match postcard::to_allocvec(&event) {
                         Ok(p) => p,
                         Err(e) => {
@@ -133,13 +132,20 @@ async fn main() -> Result<()> {
                         }
                     };
 
-                    // Publish to MQTT
-                    let event_topic = format!("{}/{:?}", topic, event.event_type);
-                    if let Err(e) = client
-                        .publish(&event_topic, QoS::AtLeastOnce, false, payload)
-                        .await
-                    {
-                        warn!("Failed to publish to MQTT: {}", e);
+                    // Write to file with length prefix for easy parsing
+                    let mut file = file_writer.lock().await;
+                    let len = payload.len() as u32;
+                    if let Err(e) = file.write_all(&len.to_le_bytes()).await {
+                        warn!("Failed to write event length to file: {}", e);
+                        continue;
+                    }
+                    if let Err(e) = file.write_all(&payload).await {
+                        warn!("Failed to write event to file: {}", e);
+                        continue;
+                    }
+                    // Ensure data is written to disk
+                    if let Err(e) = file.flush().await {
+                        warn!("Failed to flush file: {}", e);
                     }
                 }
             }
@@ -481,4 +487,77 @@ fn log_event(event: &Event) {
             debug!("[{}ms] {:?}", timestamp_ms, event.event_type);
         }
     }
+}
+
+async fn watch_mode(file_path: &str) -> Result<()> {
+    info!("Watch mode: tailing events from {}", file_path);
+
+    // Open file for reading
+    let mut file = File::open(file_path)
+        .context("Failed to open file. Make sure the file exists.")?;
+
+    // Read existing events first
+    info!("Reading existing events...\n");
+    read_and_display_events(&mut file)?;
+
+    // Set up inotify to watch for file changes
+    let mut inotify = Inotify::init()
+        .context("Failed to initialize inotify")?;
+
+    inotify.watches()
+        .add(file_path, WatchMask::MODIFY)
+        .context("Failed to add inotify watch")?;
+
+    info!("\nWatching for new events... (Press Ctrl+C to exit)\n");
+
+    let mut buffer = [0u8; 4096];
+    let mut stream = inotify.into_event_stream(&mut buffer)?;
+
+    // Wait for file modifications
+    while let Some(event_or_error) = stream.next().await {
+        match event_or_error {
+            Ok(_) => {
+                // File was modified, read new events
+                if let Err(e) = read_and_display_events(&mut file) {
+                    warn!("Error reading events: {}", e);
+                }
+            }
+            Err(e) => {
+                warn!("Inotify error: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_and_display_events(file: &mut File) -> Result<()> {
+    loop {
+        // Read length prefix (4 bytes)
+        let mut len_buf = [0u8; 4];
+        match file.read_exact(&mut len_buf) {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                // Reached end of file
+                break;
+            }
+            Err(e) => return Err(e.into()),
+        }
+
+        let len = u32::from_le_bytes(len_buf) as usize;
+
+        // Read event data
+        let mut event_buf = vec![0u8; len];
+        file.read_exact(&mut event_buf)
+            .context("Failed to read event data")?;
+
+        // Deserialize event
+        let event: Event = postcard::from_bytes(&event_buf)
+            .context("Failed to deserialize event")?;
+
+        // Display event
+        log_event(&event);
+    }
+
+    Ok(())
 }
