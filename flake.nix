@@ -3,10 +3,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     tomorrowTheme = {
       url = "github:chriskempson/tomorrow-theme";
       flake = false;
@@ -63,7 +59,6 @@
       flake-utils,
       nixpkgs,
       nixpkgs-master,
-      rust-overlay,
       nix-index,
       nixos-wsl,
       home-manager,
@@ -217,7 +212,6 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ rust-overlay.overlays.default ];
           config.allowUnfree = true;
         };
       in
@@ -225,14 +219,9 @@
         devShells = {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              (rust-bin.nightly.latest.default.override {
-                extensions = [ "rust-src" ];
-              })
-              rust-analyzer
-              bpftools
               nixfmt
-              nixd
               nil
+              nixd
               deno
               (writeShellScriptBin "hosts" ''
                 echo ${builtins.toString (builtins.attrNames self.nixosConfigurations)}
