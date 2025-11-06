@@ -210,13 +210,22 @@
     // flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
       in
       {
         devShells = {
           default = pkgs.mkShell {
             packages = with pkgs; [
+              cargo
+              rust-analyzer
+              claude-code
+              codex
               nixfmt
+              nil
+              nixd
               deno
               (pkgs.writeShellScriptBin "hosts" ''
                 echo ${builtins.toString (builtins.attrNames self.nixosConfigurations)}
