@@ -42,15 +42,6 @@ in
     android_sdk.accept_license = true;
   };
   services = {
-    below = {
-      enable = true;
-      collect = {
-        diskStats = true;
-        exitStats = true;
-        ioStats = true;
-      };
-    };
-    sysstat.enable = true;
     opensmtpd = {
       enable = true;
       serverConfiguration = ''
