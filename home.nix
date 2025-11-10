@@ -53,6 +53,7 @@ let
         ffmpeg
         file
         fio
+        flutter
         htop
         gnuplot
         jo
