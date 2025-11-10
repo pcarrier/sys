@@ -123,22 +123,6 @@
             ./feat/autoniri.nix
           ];
         } commonInputs;
-        lynx = build.bare {
-          name = "lynx";
-          system = "x86_64-linux";
-          trusted = true;
-          desktop = true;
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/fw.nix;
-          extraModules = [
-            ./feat/autoniri.nix
-            ./feat/docker.nix
-            ./feat/nvidia.nix
-            /* ./feat/ollama-nvidia.nix */
-            ./feat/print.nix
-            ./feat/steam.nix
-          ];
-        } commonInputs;
         hare = build.bare {
           name = "hare";
           system = "x86_64-linux";
@@ -164,19 +148,6 @@
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
-        monster = build.bare {
-          name = "monster";
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/amd1.nix;
-          extraModules = [
-            ./feat/docker.nix
-            ./folks/joao.nix
-            ./folks/alex.nix
-            ./folks/bkolobara.nix
-            ./folks/hugotwin.nix
-          ];
-        } commonInputs;
         rabbit = build.bare {
           name = "rabbit";
           system = "x86_64-linux";
