@@ -111,6 +111,7 @@
           emulated = [ "aarch64-linux" ];
           extraModules = [
             ./feat/docker.nix
+            ./feat/flatpak.nix
           ];
         } (commonInputs // { inherit nixos-wsl; });
         kitten = build.bare {
