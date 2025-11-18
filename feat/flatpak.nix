@@ -6,5 +6,5 @@
     config.common.default = "*";
   };
   services.flatpak.enable = true;
-  environment.systemPackages = [ pkgs.flatpak-builder ];
+  environment.systemPackages = [ pkgs.flatpak pkgs.flatpak-builder ];
 }
