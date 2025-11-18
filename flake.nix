@@ -141,10 +141,11 @@
           hardware = ./hw/tower.nix;
           extraModules = [
             ./feat/autoniri.nix
-            ./feat/steam.nix
-            ./feat/print.nix
             ./feat/docker.nix
+            ./feat/flatpak.nix
             ./feat/ollama-rocm.nix
+            ./feat/print.nix
+            ./feat/steam.nix
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
