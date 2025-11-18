@@ -155,13 +155,14 @@
           emulated = [ "aarch64-linux" ];
           hardware = ./hw/zfw.nix;
           extraModules = [
+            ./feat/flatpak.nix
             ./feat/mail.nix
-            ./feat/zfs.nix
             ./feat/media.nix
             ./feat/plentys.nix
             ./feat/proxied/ctrl.nix
             ./feat/proxied/dns.nix
             ./feat/proxied/proxying.nix
+            ./feat/zfs.nix
           ];
         } commonInputs;
         sloth = build.bare {
