@@ -163,6 +163,7 @@ let
         pcmanfm-qt
         spotify
         xwayland-satellite
+        wayfarer
         wl-clipboard-rs
         zoom-us
       ];
