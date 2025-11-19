@@ -147,6 +147,7 @@
             ./feat/ollama-rocm.nix
             ./feat/print.nix
             ./feat/steam.nix
+            ./feat/vbox.nix
             ./folks/dauriac.nix
           ];
         } (commonInputs // { inherit jovian; });
