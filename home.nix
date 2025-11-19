@@ -32,10 +32,6 @@ let
 
   gitPackage = pkgs.gitFull;
 
-  postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
-    SELF="''${BASH_SOURCE[0]}" exec ${pkgs.bun}/bin/bun ${./postcheckout.ts} "$@"
-  '';
-
   baseConfig = {
     home = {
       stateVersion = "25.11";
@@ -87,7 +83,6 @@ let
         tree
         yt-dlp
         zoxide
-        postcheckout
       ];
       sessionVariables.ZED_WINDOW_DECORATIONS = "server";
     };
@@ -170,8 +165,7 @@ let
         xwayland-satellite
         wl-clipboard-rs
         zoom-us
-      ]
-      ++ (if system == "x86_64-linux" then [ slack ] else [ slacky ]);
+      ];
     programs = {
       alacritty = {
         enable = true;
@@ -420,9 +414,6 @@ let
             hostname = "srv.us";
             port = 2222;
           };
-          monster = {
-            hostname = "138.199.142.90";
-          };
           x0 = {
             hostname = "x0.xmit.dev";
             port = 2222;
@@ -440,15 +431,6 @@ let
           };
           horse = {
             hostname = "horse.pcarrier.com";
-          };
-          gorilla = {
-            forwardAgent = true;
-          };
-          komodo = {
-            forwardAgent = true;
-          };
-          monster = {
-            forwardAgent = true;
           };
         };
       };
@@ -576,36 +558,11 @@ let
           n = "nh os switch --accept-flake-config";
           t = "tmux attach";
           v = "nvim";
-          km = "kubectl --context minikube";
-          ks = "kubectl --namespace sandbox --context gke_twin-multiverse-sandbox_europe-west9_twin-multiverse-sandbox-paris";
-          kpp = "kubectl --namespace prod --context gke_twin-multiverse-prod_europe-west9_twin-multiverse-prod-paris";
-          kpi = "kubectl --namespace prod --context gke_twin-multiverse-prod_us-central1_twin-multiverse-prod-iowa";
-          kps = "kubectl --namespace prod --context gke_twin-multiverse-prod_asia-southeast1_twin-multiverse-prod-singapore";
           zed = "zeditor";
         };
         functions = {
           T.body = "$argv 2>&1 | ts";
           cm.body = ''g cm -m "$argv"'';
-          mr.body = ''
-            rsync -avP --delete-after \
-            --exclude /.git \
-            --exclude .direnv \
-            --exclude target \
-            --exclude node_modules \
-            --exclude .terraform \
-            --exclude __pycache__ \
-            /src/monorepo/ gorilla:/src/monorepo/; and ssh gorilla "cd $PWD; and exec direnv exec . fish -lic '$argv'"
-          '';
-          mrk.body = ''
-            rsync -avP --delete-after \
-            --exclude /.git \
-            --exclude .direnv \
-            --exclude target \
-            --exclude node_modules \
-            --exclude .terraform \
-            --exclude __pycache__ \
-            /src/monorepo/ komodo:/src/monorepo/; and ssh gorilla "cd $PWD; and exec direnv exec . fish -lic '$argv'"
-          '';
           nu.body = ''
             set -l ref (git -C /src/sys rev-parse HEAD)
             for host in $argv
