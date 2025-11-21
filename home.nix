@@ -295,6 +295,7 @@ let
         key = "~/.ssh/id_ed25519";
         signByDefault = true;
       };
+      gpg.enable = true;
     };
   };
 
