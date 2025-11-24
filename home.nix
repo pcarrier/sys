@@ -41,7 +41,6 @@ let
         bat
         baze.packages.${system}.default
         bubblewrap
-        codex
         dconf # for https://github.com/nix-community/home-manager/issues/3113
         dive
         fd
@@ -546,8 +545,7 @@ let
           end
         '';
         shellAliases = {
-          a = "${pkgs.codex}/bin/codex --model gpt-5-codex --full-auto --enable web_search_request";
-          b = "${pkgs.claude-code}/bin/claude --dangerously-skip-permissions";
+          a = "${pkgs.claude-code}/bin/claude --dangerously-skip-permissions";
           C = "clear";
           c = "code";
           ca = "cargo";
