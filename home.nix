@@ -156,6 +156,7 @@ let
       with pkgs;
       [
         clip
+        code-cursor
         jetbrains.idea-ultimate
         legcord
         networkmanagerapplet
