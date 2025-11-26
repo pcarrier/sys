@@ -550,6 +550,7 @@ let
         '';
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
+          ac = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --continue";
           C = "clear";
           c = "code";
           ca = "cargo";
