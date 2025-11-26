@@ -320,7 +320,10 @@ let
           "zig"
         ];
       };
-      claude-code.enable = true;
+      claude-code = {
+        enable = true;
+        package = pkgs-master.claude-code;
+      };
       delta = {
         enable = true;
         enableGitIntegration = true;
@@ -546,7 +549,7 @@ let
           end
         '';
         shellAliases = {
-          a = "${pkgs.claude-code}/bin/claude --dangerously-skip-permissions";
+          a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           C = "clear";
           c = "code";
           ca = "cargo";
