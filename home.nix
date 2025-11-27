@@ -435,6 +435,14 @@ let
             port = 2222;
             user = "root";
           };
+          c0 = {
+            hostname = "c0.xmit.dev";
+            user = "root";
+          };
+          c1 = {
+            hostname = "c1.xmit.dev";
+            user = "root";
+          };
           horse = {
             hostname = "horse.pcarrier.com";
           };
