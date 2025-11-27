@@ -75,6 +75,7 @@ let
         rclone
         ripgrep
         ookla-speedtest
+        slipshow
         sshfs
         sysstat
         tk
