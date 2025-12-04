@@ -158,6 +158,7 @@
           hardware = ./hw/zfw.nix;
           extraModules = [
             ./feat/flatpak.nix
+            ./feat/libk.nix
             ./feat/mail.nix
             ./feat/media.nix
             ./feat/plentys.nix
