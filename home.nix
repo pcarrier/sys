@@ -366,8 +366,6 @@ let
             vim.opt.colorcolumn = "100"
             vim.opt.termguicolors = true
 
-            require('supermaven-nvim').setup({})
-
             vim.api.nvim_create_autocmd("BufWritePre", {
               callback = function(args)
                 vim.lsp.buf.format({
@@ -382,7 +380,6 @@ let
             tomorrow
             nvim-lspconfig
             vim-nix
-            supermaven-nvim
             nvim-treesitter.withAllGrammars
           ];
         };
