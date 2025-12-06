@@ -9,21 +9,22 @@
     usbip.enable = true;
     defaultUser = "pcarrier";
     extraBin = with pkgs; [
-      { src = "${gnused}/bin/sed"; }
-      { src = "${which}/bin/which"; }
-      { src = "${mktemp}/bin/mktemp"; }
-      { src = "${coreutils}/bin/mv"; }
-      { src = "${gnutar}/bin/tar"; }
-      { src = "${gzip}/bin/gzip"; }
-      { src = "${coreutils}/bin/rm"; }
-      { src = "${procps}/bin/ps"; }
-      { src = "${gnugrep}/bin/grep"; }
-      { src = "${coreutils}/bin/touch"; }
       { src = "${coreutils}/bin/chmod"; }
+      { src = "${coreutils}/bin/mv"; }
+      { src = "${coreutils}/bin/rm"; }
       { src = "${coreutils}/bin/sleep"; }
       { src = "${coreutils}/bin/tail"; }
-      { src = "${wget}/bin/wget"; }
+      { src = "${coreutils}/bin/touch"; }
       { src = "${gawk}/bin/awk"; }
+      { src = "${gnugrep}/bin/grep"; }
+      { src = "${gnused}/bin/sed"; }
+      { src = "${gnutar}/bin/tar"; }
+      { src = "${gzip}/bin/gunzip"; }
+      { src = "${gzip}/bin/gzip"; }
+      { src = "${mktemp}/bin/mktemp"; }
+      { src = "${procps}/bin/ps"; }
+      { src = "${wget}/bin/wget"; }
+      { src = "${which}/bin/which"; }
     ];
   };
   # for cursor to install its server
