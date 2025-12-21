@@ -67,7 +67,6 @@ let
         nixos-shell
         nixfmt
         nmap
-        nodejs
         perf
         plenty.packages.${system}.plenty
         procs
