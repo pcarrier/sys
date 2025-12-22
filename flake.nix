@@ -144,7 +144,7 @@
             ./feat/autoniri.nix
             ./feat/docker.nix
             ./feat/flatpak.nix
-            ./feat/ollama-rocm.nix
+            ./feat/ollama.nix
             ./feat/print.nix
             ./feat/steam.nix
             ./feat/vbox.nix
