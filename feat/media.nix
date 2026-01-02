@@ -22,6 +22,7 @@
         };
       };
     };
+    sonarr.enable = true;
     immich = {
       enable = true;
       port = 2283;
@@ -35,7 +36,7 @@
           forceSSL = true;
           locations = {
             "/" = {
-              proxyPass = "http://[::1]:2283";
+              proxyPass = "http://[::1]:2283/";
               proxyWebsockets = true;
               extraConfig = ''
                 client_max_body_size 30000M;
@@ -51,7 +52,16 @@
           forceSSL = true;
           locations = {
             "/" = {
-              proxyPass = "http://127.0.0.1:6789";
+              proxyPass = "http://127.0.0.1:6789/";
+            };
+          };
+        };
+        "sonarr.pcarrier.com" = {
+          enableACME = true;
+          forceSSL = true;
+          locations = {
+            "/" = {
+              proxyPass = "http://[::1]:8989/";
             };
           };
         };
