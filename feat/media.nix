@@ -23,6 +23,7 @@
       };
     };
     sonarr.enable = true;
+    tautulli.enable = true;
     immich = {
       enable = true;
       port = 2283;
@@ -61,7 +62,16 @@
           forceSSL = true;
           locations = {
             "/" = {
-              proxyPass = "http://[::1]:8989/";
+              proxyPass = "http://127.0.0.1:8989/";
+            };
+          };
+        };
+        "tautulli.pcarrier.com" = {
+          enableACME = true;
+          forceSSL = true;
+          locations = {
+            "/" = {
+              proxyPass = "http://127.0.0.1:8181/";
             };
           };
         };
