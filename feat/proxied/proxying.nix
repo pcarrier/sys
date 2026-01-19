@@ -12,7 +12,7 @@
       Type = "simple";
       Restart = "always";
       RestartSec = "1s";
-      ExecStart = "${proxied.packages.${pkgs.system}.proxying}/bin/proxying";
+      ExecStart = "${proxied.packages.${pkgs.stdenv.hostPlatform.system}.proxying}/bin/proxying";
     };
   };
 }

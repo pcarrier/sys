@@ -21,7 +21,7 @@
       Type = "simple";
       Restart = "always";
       RestartSec = "1s";
-      ExecStart = "${proxied.packages.${pkgs.system}.ctrl}/bin/ctrl";
+      ExecStart = "${proxied.packages.${pkgs.stdenv.hostPlatform.system}.ctrl}/bin/ctrl";
     };
   };
 }

@@ -17,7 +17,7 @@
       Type = "simple";
       Restart = "always";
       RestartSec = "1s";
-      ExecStart = "${proxied.packages.${pkgs.system}.dns}/bin/dns";
+      ExecStart = "${proxied.packages.${pkgs.stdenv.hostPlatform.system}.dns}/bin/dns";
     };
   };
 }
