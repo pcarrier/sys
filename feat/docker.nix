@@ -5,11 +5,6 @@ let
   );
 in
 {
-  virtualisation.docker = {
-    enable = true;
-    extraOptions = "--insecure-registry 10.42.42.42:5000";
-  };
-
-  # Add all normal users to the docker group without redefining users.users
+  virtualisation.docker.enable = true;
   users.groups.docker.members = normalUsers;
 }
