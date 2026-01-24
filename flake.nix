@@ -1,5 +1,6 @@
 {
   inputs = {
+    determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
@@ -44,6 +45,10 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+    edl-ng = {
+      url = "github:strongtz/edl-ng";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -67,6 +72,8 @@
       plenty,
       proxied,
       jovian,
+      edl-ng,
+      determinate,
       ...
     }:
     let
@@ -81,6 +88,8 @@
           baze
           plenty
           proxied
+          edl-ng
+          determinate
           ;
       };
     in

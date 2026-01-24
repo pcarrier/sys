@@ -11,11 +11,13 @@
       nixpkgs,
       nixos-wsl,
       home-manager,
+      determinate,
       ...
     }:
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
+        determinate.nixosModules.default
         nixos-wsl.nixosModules.default
         home-manager.nixosModules.home-manager
         ./common.nix
@@ -47,11 +49,13 @@
     inputs@{
       nixpkgs,
       home-manager,
+      determinate,
       ...
     }:
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
+        determinate.nixosModules.default
         home-manager.nixosModules.home-manager
         ./common.nix
         ./bare.nix

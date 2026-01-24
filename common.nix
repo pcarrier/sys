@@ -25,15 +25,9 @@ in
       wheelNeedsPassword = false;
     };
   };
-  nix = {
-    settings = {
-      builders-use-substitutes = true;
-      experimental-features = [
-        "nix-command"
-        "flakes"
-      ];
-      trusted-users = [ "@wheel" ];
-    };
+  nix.settings = {
+    builders-use-substitutes = true;
+    trusted-users = [ "@wheel" ];
   };
   nixpkgs.config = {
     allowUnfree = true;

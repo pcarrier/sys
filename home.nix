@@ -8,6 +8,7 @@
   baze,
   tomorrowTheme,
   plenty,
+  edl-ng,
   trusted ? false,
   desktop ? false,
   ...
@@ -157,6 +158,7 @@ let
       [
         clip
         code-cursor
+        edl-ng.packages.${system}.default
         jetbrains.idea-ultimate
         legcord
         networkmanagerapplet
