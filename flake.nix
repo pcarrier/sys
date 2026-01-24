@@ -101,11 +101,19 @@
           desktop = true;
           system = "aarch64-linux";
           emulated = [ "x86_64-linux" ];
-          hardware = ./hw/dodge.nix;
+          hardware = ./hw/odin3ufs.nix;
           extraModules = [
             ./feat/autoniri.nix
           ];
         } (commonInputs // { inherit jovian; });
+        odin3iso = nixpkgs.lib.nixosSystem {
+          system = "aarch64-linux";
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+            ./hw/odin3.nix
+            { boot.supportedFilesystems.zfs = nixpkgs.lib.mkForce false; }
+          ];
+        };
         chimp = build.wsl {
           name = "chimp";
           system = "aarch64-linux";
