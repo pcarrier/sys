@@ -153,6 +153,7 @@
             ./feat/autoniri.nix
             ./feat/docker.nix
             ./feat/flatpak.nix
+            ./feat/mediaclient.nix
             ./feat/ollama.nix
             ./feat/print.nix
             ./feat/steam.nix

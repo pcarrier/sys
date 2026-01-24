@@ -159,7 +159,6 @@ let
         clip
         code-cursor
         edl-ng.packages.${system}.default
-        jetbrains.idea-ultimate
         legcord
         networkmanagerapplet
         pcmanfm-qt

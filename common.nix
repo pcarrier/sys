@@ -28,6 +28,8 @@ in
   nix.settings = {
     builders-use-substitutes = true;
     trusted-users = [ "@wheel" ];
+    extra-substituters = [ "https://install.determinate.systems" ];
+    extra-trusted-public-keys = [ "install.determinate.systems:ywrWBLviPMM0t4GBWfY8XFoQ1EYzp2vL44cBnN+dXOM=" ];
   };
   nixpkgs.config = {
     allowUnfree = true;
