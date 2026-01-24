@@ -155,6 +155,7 @@
             ./feat/flatpak.nix
             ./feat/mediaclient.nix
             ./feat/ollama.nix
+            ./feat/plugdev.nix
             ./feat/print.nix
             ./feat/steam.nix
             ./feat/vbox.nix
