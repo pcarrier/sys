@@ -3,7 +3,7 @@
     determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     tomorrowTheme = {
       url = "github:chriskempson/tomorrow-theme";
       flake = false;
@@ -26,24 +26,15 @@
     };
     baze = {
       url = "github:pcarrier/baze";
-      inputs = {
-        flake-utils.follows = "flake-utils";
-        nixpkgs.follows = "nixpkgs";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     proxied = {
       url = "git+https://github.com/xmit-co/proxied.git?lfs=1";
-      inputs = {
-        flake-utils.follows = "flake-utils";
-        nixpkgs.follows = "nixpkgs";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {
       url = "github:pcarrier/plenty";
-      inputs = {
-        flake-utils.follows = "flake-utils";
-        nixpkgs.follows = "nixpkgs";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     edl-ng = {
       url = "github:strongtz/edl-ng";
@@ -59,177 +50,27 @@
   };
 
   outputs =
-    {
-      self,
-      flake-utils,
-      nixpkgs,
-      nixpkgs-master,
-      nix-index,
-      nixos-wsl,
-      home-manager,
-      tomorrowTheme,
-      baze,
-      plenty,
-      proxied,
-      jovian,
-      edl-ng,
-      determinate,
-      ...
-    }:
-    let
-      build = import ./build.nix;
-      commonInputs = {
-        inherit
-          nixpkgs
-          nixpkgs-master
-          nix-index
-          home-manager
-          tomorrowTheme
-          baze
-          plenty
-          proxied
-          edl-ng
-          determinate
-          ;
-      };
-    in
-    {
-      nixosConfigurations = {
-        amoeba = build.bare {
-          name = "amoeba";
-          trusted = true;
-          desktop = true;
-          system = "aarch64-linux";
-          emulated = [ "x86_64-linux" ];
-          hardware = ./hw/odin3ufs.nix;
-          extraModules = [
-            ./feat/autoniri.nix
-          ];
-        } (commonInputs // { inherit jovian; });
-        odin3iso = nixpkgs.lib.nixosSystem {
-          system = "aarch64-linux";
-          modules = [
-            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
-            ./hw/odin3.nix
-            { boot.supportedFilesystems.zfs = nixpkgs.lib.mkForce false; }
-          ];
-        };
-        chimp = build.wsl {
-          name = "chimp";
-          system = "aarch64-linux";
-          emulated = [ "x86_64-linux" ];
-          extraModules = [
-            ./feat/mail.nix
-          ];
-        } (commonInputs // { inherit nixos-wsl; });
-        dog = build.wsl {
-          name = "dog";
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          extraModules = [
-            ./feat/docker.nix
-            ./feat/flatpak.nix
-          ];
-        } (commonInputs // { inherit nixos-wsl; });
-        kitten = build.bare {
-          name = "kitten";
-          system = "aarch64-linux";
-          trusted = true;
-          desktop = true;
-          hardware = ./hw/macvm.nix;
-          extraModules = [
-            ./feat/autoniri.nix
-          ];
-        } commonInputs;
-        hare = build.bare {
-          name = "hare";
-          system = "x86_64-linux";
-          hardware = ./hw/nas1.nix;
-          extraModules = [
-            ./feat/mail.nix
-            ./feat/zfs.nix
-          ];
-        } commonInputs;
-        hound = build.bare {
-          name = "hound";
-          trusted = true;
-          desktop = true;
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/tower.nix;
-          extraModules = [
-            ./feat/autoniri.nix
-            ./feat/docker.nix
-            ./feat/flatpak.nix
-            ./feat/mediaclient.nix
-            ./feat/ollama.nix
-            ./feat/plugdev.nix
-            ./feat/print.nix
-            ./feat/steam.nix
-            ./feat/vbox.nix
-            ./folks/dauriac.nix
-          ];
-        } (commonInputs // { inherit jovian; });
-        rabbit = build.bare {
-          name = "rabbit";
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/zfw.nix;
-          extraModules = [
-            ./feat/flatpak.nix
-            ./feat/libk.nix
-            ./feat/mail.nix
-            ./feat/media.nix
-            ./feat/plentys.nix
-            ./feat/proxied/ctrl.nix
-            ./feat/proxied/dns.nix
-            ./feat/proxied/proxying.nix
-            ./feat/zfs.nix
-          ];
-        } commonInputs;
-        sloth = build.bare {
-          name = "sloth";
-          trusted = true;
-          desktop = true;
-          system = "x86_64-linux";
-          emulated = [ "aarch64-linux" ];
-          hardware = ./hw/deck.nix;
-          extraModules = [
-            ./feat/autoniri.nix
-            ./feat/print.nix
-            jovian.nixosModules.default
-          ];
-        } (commonInputs // { inherit jovian; });
-      };
-    }
-    // flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config.allowUnfree = true;
-        };
-      in
-      {
-        packages = {
-          postcheckout = pkgs.writeShellScriptBin "postcheckout" ''
-            SELF="''${BASH_SOURCE[0]}" exec ${pkgs.bun}/bin/bun ${./postcheckout.ts} "$@"
-          '';
-        };
+    inputs:
+    inputs.flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
 
-        devShells = {
-          default = pkgs.mkShell {
-            packages = with pkgs; [
-              nixfmt
-              nil
-              nixd
-              bun
-              (writeShellScriptBin "hosts" ''
-                echo ${builtins.toString (builtins.attrNames self.nixosConfigurations)}
-              '')
-            ];
+      imports = [
+        ./parts/hosts.nix
+        ./parts/dev.nix
+      ];
+
+      perSystem =
+        { system, ... }:
+        {
+          _module.args.pkgs = import inputs.nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
           };
         };
-      }
-    );
+    };
 }
