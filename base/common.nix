@@ -26,6 +26,7 @@ in
     };
   };
   nix.settings = {
+    experimental-features = [ "nix-command" "flakes" ];
     builders-use-substitutes = true;
     trusted-users = [ "@wheel" ];
     extra-substituters = [ "https://install.determinate.systems" ];

@@ -31,7 +31,7 @@ let
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
-        determinate.nixosModules.default
+        #FIXME:determinate.nixosModules.default
         nixos-wsl.nixosModules.default
         home-manager.nixosModules.home-manager
         ../base/common.nix
@@ -64,7 +64,7 @@ let
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
-        determinate.nixosModules.default
+        #FIXME:determinate.nixosModules.default
         home-manager.nixosModules.home-manager
         ../base/common.nix
         ../base/bare.nix
