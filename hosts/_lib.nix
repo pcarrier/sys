@@ -9,7 +9,6 @@ let
     inherit (inputs)
       nixpkgs
       nixpkgs-master
-      nix-index
       home-manager
       tomorrowTheme
       baze

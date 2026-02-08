@@ -2,7 +2,6 @@
   pkgs,
   system,
   baze,
-  nix-index,
   plenty,
 }:
 {
@@ -36,7 +35,6 @@
       ncdu
       nil
       nixd
-      nix-index.packages.${system}.default
       nixos-shell
       nixfmt
       nmap
