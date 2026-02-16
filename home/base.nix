@@ -25,6 +25,7 @@
       gnuplot
       jo
       jq
+      k9s
       ldns
       libarchive
       lnav
@@ -87,6 +88,5 @@
     enable = true;
     platformTheme.name = "gtk3";
   };
-  nixpkgs.config.allowUnfree = true;
   services.ssh-agent.enable = true;
 }

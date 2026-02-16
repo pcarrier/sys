@@ -13,7 +13,6 @@ let
       tomorrowTheme
       baze
       plenty
-      proxied
       edl-ng
       determinate
       ;
@@ -31,7 +30,7 @@ let
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
-        #FIXME:determinate.nixosModules.default
+        determinate.nixosModules.default
         nixos-wsl.nixosModules.default
         home-manager.nixosModules.home-manager
         ../base/common.nix
@@ -64,7 +63,7 @@ let
     nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
-        #FIXME:determinate.nixosModules.default
+        determinate.nixosModules.default
         home-manager.nixosModules.home-manager
         ../base/common.nix
         ../base/bare.nix

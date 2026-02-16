@@ -1,7 +1,11 @@
 {
   inputs = {
-    determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    determinate = {
+      url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nix.inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-parts.url = "github:hercules-ci/flake-parts";
     tomorrowTheme = {
@@ -22,10 +26,6 @@
     };
     baze = {
       url = "github:pcarrier/baze";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    proxied = {
-      url = "git+https://github.com/xmit-co/proxied.git?lfs=1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {

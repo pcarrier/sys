@@ -10,9 +10,6 @@ lib.bare {
     ../feat/mail.nix
     ../feat/media.nix
     ../feat/plentys.nix
-    ../feat/proxied/ctrl.nix
-    ../feat/proxied/dns.nix
-    ../feat/proxied/proxying.nix
     ../feat/zfs.nix
   ];
 } lib.commonInputs

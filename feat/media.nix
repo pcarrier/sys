@@ -11,6 +11,7 @@
     };
     samba = {
       enable = true;
+      openFirewall = true;
       settings = {
         tank = {
           path = "/tank";
