@@ -44,6 +44,7 @@ lib.mkMerge [
         enableGitIntegration = true;
       };
       direnv.enable = true;
+      mise.enable = true;
       eza = {
         enable = true;
         enableFishIntegration = true;

@@ -50,6 +50,7 @@ lib.mkMerge [
           tk
           tokei
           tree
+          uv
           yt-dlp
           zoxide
         ]
@@ -113,6 +114,7 @@ lib.mkMerge [
   (lib.mkIf pkgs.stdenv.isDarwin {
     home.packages = with pkgs; [
       code-cursor
+      orbstack
       slack
       spotify
       zoom-us
