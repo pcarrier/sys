@@ -15,6 +15,7 @@ lib.mkMerge [
       packages =
         with pkgs;
         [
+          asciinema
           bat
           baze.packages.${system}.default
           dive
