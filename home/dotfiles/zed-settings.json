@@ -85,8 +85,8 @@
         "diagnostics": false,
         "metrics": false
     },
-    "ui_font_size": 10,
-    "buffer_font_size": 10,
+    "ui_font_size": 13,
+    "buffer_font_size": 13,
     "theme": {
         "mode": "dark",
         "light": "Tomorrow",
