@@ -4,6 +4,7 @@
     systemd-boot.enable = true;
     efi.canTouchEfiVariables = true;
   };
+  programs._1password-gui.enable = true;
   services = {
     tailscale.enable = true;
     fwupd.enable = true;

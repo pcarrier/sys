@@ -1,19 +1,33 @@
 {
   pkgs,
   lib,
-  homeLib,
   system,
   edl-ng,
   desktop,
 }:
+let
+  clip = pkgs.stdenv.mkDerivation {
+    name = "clip";
+    src = pkgs.fetchurl {
+      url = "https://raw.githubusercontent.com/sentriz/cliphist/refs/heads/master/contrib/cliphist-fuzzel-img";
+      sha256 = "sha256-NgQ87yZCusF/FYprJJ+fvkA3VdrvHp4LyylQ0ajBvjU=";
+    };
+    phases = [ "installPhase" ];
+    installPhase = ''
+      install -Dm755 $src $out/bin/clip
+    '';
+  };
+in
 lib.mkIf desktop {
   home.packages = with pkgs; [
-    homeLib.clip
+    clip
     code-cursor
     edl-ng.packages.${system}.default
+    element-desktop
     legcord
     networkmanagerapplet
     pcmanfm-qt
+    signal-desktop
     spotify
     xwayland-satellite
     wayfarer

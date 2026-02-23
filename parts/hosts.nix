@@ -14,4 +14,8 @@ in
     rabbit = import ../hosts/rabbit.nix { inherit lib; };
     sloth = import ../hosts/sloth.nix { inherit lib; };
   };
+
+  flake.darwinConfigurations = {
+    indentmac = import ../hosts/indentmac.nix { inherit lib; };
+  };
 }

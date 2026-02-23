@@ -2,6 +2,7 @@
 let
   determinate = inputs.determinate;
   home-manager = inputs.home-manager;
+  nix-darwin = inputs.nix-darwin;
   nixos-wsl = inputs.nixos-wsl;
   nixpkgs = inputs.nixpkgs;
 
@@ -80,8 +81,44 @@ let
       ]
       ++ extraModules;
     };
+
+  darwin =
+    {
+      name,
+      system,
+      trusted ? true,
+      extraModules ? [ ],
+    }:
+    moduleInputs:
+    nix-darwin.lib.darwinSystem {
+      inherit system;
+      modules = [
+        home-manager.darwinModules.home-manager
+        ../home.nix
+        {
+          nix.enable = false;
+          nixpkgs.hostPlatform = system;
+          networking.hostName = name;
+          programs._1password-gui.enable = true;
+          programs.fish.enable = true;
+          services.openssh.enable = true;
+          system.primaryUser = "pcarrier";
+          system.stateVersion = 6;
+          users.users.pcarrier = {
+            home = "/Users/pcarrier";
+            shell = nixpkgs.legacyPackages.${system}.fish;
+          };
+          _module.args = moduleInputs // {
+            inherit system trusted;
+            systemType = "mac";
+            desktop = false;
+          };
+        }
+      ]
+      ++ extraModules;
+    };
 in
 {
-  inherit wsl bare commonInputs;
-  inherit (inputs) jovian nixos-wsl determinate nixpkgs;
+  inherit wsl bare darwin commonInputs;
+  inherit (inputs) jovian nixos-wsl nix-darwin determinate nixpkgs;
 }

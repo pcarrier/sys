@@ -12,27 +12,29 @@
   desktop ? false,
   ...
 }:
-let
-  homeLib = import ./home/_lib.nix { inherit pkgs nixpkgs-master system; };
-  baseConfig = import ./home/base.nix { inherit pkgs system baze plenty; };
-  systemConfigs = import ./home/system.nix { inherit pkgs; };
-  desktopConfig = import ./home/desktop.nix { inherit pkgs lib homeLib system edl-ng desktop; };
-  trustedConfig = import ./home/trusted.nix { inherit pkgs lib trusted; };
-  programsConfig = import ./home/programs.nix { inherit pkgs homeLib tomorrowTheme; };
-in
 {
+  nixpkgs.config = {
+    allowUnfree = true;
+    android_sdk.accept_license = true;
+  };
   home-manager = {
     backupFileExtension = "backup";
     useGlobalPkgs = true;
     useUserPackages = true;
-    users = {
-      pcarrier = lib.mkMerge [
-        baseConfig
-        (systemConfigs.${systemType} or { })
-        desktopConfig
-        trustedConfig
-        programsConfig
-      ];
-    };
+    users.pcarrier = lib.mkMerge (import ./home/config.nix {
+      inherit
+        pkgs
+        nixpkgs-master
+        lib
+        system
+        systemType
+        baze
+        tomorrowTheme
+        plenty
+        edl-ng
+        trusted
+        desktop
+        ;
+    });
   };
 }
