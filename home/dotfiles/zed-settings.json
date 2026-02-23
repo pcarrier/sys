@@ -27,7 +27,6 @@
         "regex": true
     },
     "preview_tabs": {
-        "enable_preview_from_code_navigation": true,
         "enable_preview_from_file_finder": true
     },
     "title_bar": {
@@ -54,7 +53,6 @@
     "tab_bar": {
         "show": false
     },
-    "relative_line_numbers": false,
     "auto_signature_help": true,
     "scroll_beyond_last_line": "off",
     "seed_search_query_from_cursor": "always",

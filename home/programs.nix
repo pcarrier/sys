@@ -272,6 +272,7 @@ lib.mkMerge [
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           ac = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --continue";
+          i = "${pkgs.uv}/bin/uvx indent";
           C = "clear";
           c = "code";
           ca = "cargo";
