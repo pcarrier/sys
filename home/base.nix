@@ -16,6 +16,7 @@ lib.mkMerge [
         with pkgs;
         [
           asciinema
+          asciinema-agg
           bat
           baze.packages.${system}.default
           dive
@@ -113,6 +114,7 @@ lib.mkMerge [
   )
   (lib.mkIf pkgs.stdenv.isDarwin {
     home.packages = with pkgs; [
+      brave
       code-cursor
       orbstack
       slack
