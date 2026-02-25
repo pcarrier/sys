@@ -12,6 +12,30 @@ let
     config.allowUnfree = true;
   };
   gitPackage = pkgs.gitFull;
+  indent = pkgs.stdenv.mkDerivation rec {
+    pname = "indent";
+    version = "0.1.51";
+    dontUnpack = true;
+    nativeBuildInputs = [
+      pkgs.uv
+      pkgs.python312
+      pkgs.cacert
+    ];
+    buildPhase = ''
+      export HOME=$TMPDIR
+      export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+      export UV_CACHE_DIR=$TMPDIR/uv-cache
+      export UV_TOOL_DIR=$out/tools
+      export UV_TOOL_BIN_DIR=$out/bin
+      export UV_PYTHON=${pkgs.python312}/bin/python3.12
+      export SOURCE_DATE_EPOCH=0
+      uv tool install indent==${version}
+    '';
+    dontInstall = true;
+    outputHashAlgo = "sha256";
+    outputHashMode = "recursive";
+    outputHash = "sha256-ADc4b/gT6Tkzpf/vIezv2VLVHkY3otGDNx5FUkgUGkA=";
+  };
 in
 lib.mkMerge [
   {
@@ -271,7 +295,8 @@ lib.mkMerge [
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           ac = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --continue";
-          i = "${pkgs.uv}/bin/uvx indent";
+          i = "${indent}/bin/indent";
+          li = "${pkgs.uv}/bin/uv run --directory ~/src/indent indent --";
           C = "clear";
           c = "code";
           ca = "cargo";
