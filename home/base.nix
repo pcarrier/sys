@@ -116,8 +116,6 @@ lib.mkMerge [
     home.packages = with pkgs; [
       aerospace
       brave
-      code-cursor
-      orbstack
       slack
       spotify
       zoom-us
