@@ -116,6 +116,7 @@ lib.mkMerge [
     home.packages = with pkgs; [
       aerospace
       brave
+      istat-menus
       slack
       spotify
       zoom-us
