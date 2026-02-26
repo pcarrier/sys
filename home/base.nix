@@ -117,8 +117,10 @@ lib.mkMerge [
       aerospace
       betterdisplay
       brave
+      discord
       istat-menus
       slack
+      steam-unwrapped
       spotify
       zoom-us
     ];
