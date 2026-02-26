@@ -99,11 +99,18 @@ let
           nix.enable = false;
           nixpkgs.hostPlatform = system;
           networking.hostName = name;
-          programs._1password-gui.enable = true;
-          programs.fish.enable = true;
-          services.openssh.enable = true;
-          system.primaryUser = "pcarrier";
-          system.stateVersion = 6;
+          programs = {
+            _1password-gui.enable = true;
+            fish.enable = true;
+          };
+          services = {
+            openssh.enable = true;
+            tailscale.enable = true;
+          };
+          system = {
+            primaryUser = "pcarrier";
+            stateVersion = 6;
+          };
           users.users.pcarrier = {
             home = "/Users/pcarrier";
             shell = nixpkgs.legacyPackages.${system}.fish;

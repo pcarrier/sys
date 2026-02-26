@@ -119,6 +119,7 @@ lib.mkMerge [
       brave
       discord
       istat-menus
+      ollama
       slack
       steam-unwrapped
       spotify
