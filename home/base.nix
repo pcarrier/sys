@@ -68,7 +68,10 @@ lib.mkMerge [
           iterm2
           raycast
         ];
-      sessionVariables.ZED_WINDOW_DECORATIONS = "server";
+      sessionVariables = {
+        OLLAMA_HOST = "dog";
+        ZED_WINDOW_DECORATIONS = "server";
+      };
     };
   }
   (
