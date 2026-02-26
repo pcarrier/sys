@@ -115,6 +115,7 @@ lib.mkMerge [
   (lib.mkIf pkgs.stdenv.isDarwin {
     home.packages = with pkgs; [
       aerospace
+      betterdisplay
       brave
       istat-menus
       slack
