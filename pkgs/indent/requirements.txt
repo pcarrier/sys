@@ -341,7 +341,7 @@ pathable==0.5.0
     # via jsonschema-path
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
-pip==25.3
+pip==26.0
     # via indent
 platformdirs==4.9.2
     # via
