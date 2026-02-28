@@ -400,7 +400,7 @@ pydantic==2.12.5
     #   pydantic-settings
 pydantic-ai==1.44.0
     # via indent
-pydantic-ai-slim==1.44.0
+pydantic-ai-slim==1.56.0
     # via
     #   pydantic-ai
     #   pydantic-evals
