@@ -398,7 +398,7 @@ pydantic==2.12.5
     #   pydantic-evals
     #   pydantic-graph
     #   pydantic-settings
-pydantic-ai==1.44.0
+pydantic-ai==1.56.0
     # via indent
 pydantic-ai-slim==1.44.0
     # via
