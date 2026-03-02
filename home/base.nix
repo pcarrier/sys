@@ -36,7 +36,6 @@ lib.mkMerge [
           lsof
           moreutils
           mosh
-          mpv
           ncdu
           nil
           nixd
@@ -52,7 +51,6 @@ lib.mkMerge [
           tk
           tokei
           tree
-          yt-dlp
           zoxide
         ]
         ++ lib.optionals pkgs.stdenv.isLinux [
@@ -73,6 +71,7 @@ lib.mkMerge [
         ZED_WINDOW_DECORATIONS = "server";
       };
     };
+    programs.mpv.enable = pkgs.stdenv.isLinux;
   }
   (
     {
@@ -121,7 +120,6 @@ lib.mkMerge [
       betterdisplay
       brave
       discord
-      element-desktop
       istat-menus
       ollama
       slack

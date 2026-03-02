@@ -12,7 +12,6 @@ let
     config.allowUnfree = true;
   };
   gitPackage = pkgs.gitFull;
-  indent = import ../pkgs/indent { inherit pkgs; };
 in
 lib.mkMerge [
   {
@@ -272,7 +271,8 @@ lib.mkMerge [
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           ac = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --continue";
-          i = "${indent}/bin/indent";
+          i = "${pkgs.uv}/bin/uvx indent";
+          indent = "${pkgs.uv}/bin/uvx indent";
           li = "${pkgs.uv}/bin/uv run --project ~/src/indent indent --";
           C = "clear";
           c = "code";
