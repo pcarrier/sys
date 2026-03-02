@@ -23,7 +23,6 @@ lib.mkIf desktop {
     clip
     code-cursor
     edl-ng.packages.${system}.default
-    element-desktop
     legcord
     networkmanagerapplet
     pcmanfm-qt
@@ -45,6 +44,7 @@ lib.mkIf desktop {
         };
       };
     };
+    element-desktop.enable = true;
     fuzzel = {
       enable = true;
       settings = {

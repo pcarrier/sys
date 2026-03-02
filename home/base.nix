@@ -121,6 +121,7 @@ lib.mkMerge [
       betterdisplay
       brave
       discord
+      element-desktop
       istat-menus
       ollama
       slack
