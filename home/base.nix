@@ -63,7 +63,6 @@ lib.mkMerge [
           sysstat
         ]
         ++ lib.optionals pkgs.stdenv.isDarwin [
-          iterm2
           raycast
         ];
       sessionVariables = {
