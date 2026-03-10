@@ -267,6 +267,12 @@ lib.mkMerge [
             echo took $CMD_DURATION ms
             set_color normal
           end
+
+          function retry
+            while not $argv
+              echo Retrying...
+            end
+          end
         '';
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
