@@ -28,8 +28,8 @@
       url = "github:pcarrier/baze";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    btrm = {
-      url = "github:pcarrier/btrm";
+    blit = {
+      url = "github:pcarrier/blit";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {

@@ -21,7 +21,7 @@
         "type": "github"
       }
     },
-    "btrm": {
+    "blit": {
       "inputs": {
         "flake-utils": "flake-utils_2",
         "nixpkgs": [
@@ -33,13 +33,13 @@
         "lastModified": 1773770999,
         "narHash": "sha256-vkn+xtda9OJL5KhzfgBX42AhvPb3oKsoJ2r7DICUPAk=",
         "owner": "pcarrier",
-        "repo": "btrm",
+        "repo": "blit",
         "rev": "8c3bf780f7731ecbe7bf8e646177a28656538c64",
         "type": "github"
       },
       "original": {
         "owner": "pcarrier",
-        "repo": "btrm",
+        "repo": "blit",
         "type": "github"
       }
     },
@@ -1322,7 +1322,7 @@
     "root": {
       "inputs": {
         "baze": "baze",
-        "btrm": "btrm",
+        "blit": "blit",
         "determinate": "determinate",
         "edl-ng": "edl-ng",
         "flake-parts": "flake-parts_2",

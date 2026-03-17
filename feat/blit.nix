@@ -1,15 +1,15 @@
-{ btrm, system, ... }:
+{ blit, system, ... }:
 {
-  systemd.services.btrm = {
-    description = "btrm";
+  systemd.services.blit = {
+    description = "blit";
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      ExecStart = "${btrm.packages.${system}.default}/bin/btrm-server";
+      ExecStart = "${blit.packages.${system}.default}/bin/blit-server";
       Restart = "on-failure";
       User = "pcarrier";
       WorkingDirectory = "~";
-      EnvironmentFile = "/etc/btrm.env";
+      EnvironmentFile = "/etc/blit.env";
     };
   };
 }
