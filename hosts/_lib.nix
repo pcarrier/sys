@@ -13,6 +13,7 @@ let
       home-manager
       tomorrowTheme
       baze
+      btrm
       plenty
       edl-ng
       determinate

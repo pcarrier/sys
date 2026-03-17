@@ -31,6 +31,10 @@
       url = "github:pcarrier/baze";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    btrm = {
+      url = "github:pcarrier/btrm";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     plenty = {
       url = "github:pcarrier/plenty";
       inputs.nixpkgs.follows = "nixpkgs";
