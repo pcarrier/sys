@@ -1,6 +1,7 @@
 { blit, system, ... }:
 let
-  pkg = blit.packages.${system}.default;
+  gw = blit.packages.${system}.blit-gateway;
+  server = blit.packages.${system}.blit-server;
 in
 {
   systemd.services.blit-gateway = {
@@ -9,7 +10,7 @@ in
     requires = [ "blit-server.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      ExecStart = "${pkg}/bin/blit-gateway";
+      ExecStart = "${gw}/bin/blit-gateway";
       Restart = "on-failure";
       User = "pcarrier";
       EnvironmentFile = "/etc/blit-gateway.env";
@@ -21,7 +22,7 @@ in
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      ExecStart = "${pkg}/bin/blit-server";
+      ExecStart = "${server}/bin/blit-server";
       Restart = "on-failure";
       User = "pcarrier";
       WorkingDirectory = "~";
