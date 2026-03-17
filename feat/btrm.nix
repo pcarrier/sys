@@ -1,19 +1,14 @@
 { btrm, system, ... }:
 {
-  users.users.btrm = {
-    isSystemUser = true;
-    group = "btrm";
-  };
-  users.groups.btrm = { };
   systemd.services.btrm = {
     description = "btrm";
     after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      ExecStart = "${btrm.packages.${system}.default}/bin/btrm";
+      ExecStart = "${btrm.packages.${system}.default}/bin/btrm-server";
       Restart = "on-failure";
-      User = "btrm";
-      Group = "btrm";
+      User = "pcarrier";
+      WorkingDirectory = "~";
       EnvironmentFile = "/etc/btrm.env";
     };
   };

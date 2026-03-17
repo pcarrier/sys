@@ -52,10 +52,21 @@
         "16al.pcarrier.com" = {
           enableACME = true;
           forceSSL = true;
+          extraConfig = ''
+            ssl_buffer_size 4k;
+          '';
           locations = {
             "/" = {
+              proxyPass = "http://127.0.0.1:6789/";
+            };
+            "/vt" = {
               proxyPass = "http://127.0.0.1:3264/";
               proxyWebsockets = true;
+              extraConfig = ''
+                proxy_buffering off;
+                proxy_request_buffering off;
+                tcp_nodelay on;
+              '';
             };
           };
         };
