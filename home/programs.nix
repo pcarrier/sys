@@ -154,6 +154,10 @@ lib.mkMerge [
           horse = {
             hostname = "horse.pcarrier.com";
           };
+          "*.indent" = {
+            proxyCommand = "indent-ssh-helper %n";
+            user = "root";
+          };
         };
       };
       git = {
