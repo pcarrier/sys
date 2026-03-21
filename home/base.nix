@@ -4,6 +4,7 @@
   system,
   systemType,
   baze,
+  blit,
   plenty,
 }:
 lib.mkMerge [
@@ -19,6 +20,7 @@ lib.mkMerge [
           asciinema-agg
           bat
           baze.packages.${system}.default
+          blit.packages.${system}.default
           dive
           fd
           fastfetch

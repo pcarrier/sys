@@ -5,6 +5,7 @@
   system,
   systemType,
   baze,
+  blit,
   tomorrowTheme,
   plenty,
   edl-ng,
@@ -29,6 +30,7 @@
         system
         systemType
         baze
+        blit
         tomorrowTheme
         plenty
         edl-ng

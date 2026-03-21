@@ -31,6 +31,11 @@ let
     moduleInputs:
     nixpkgs.lib.nixosSystem {
       inherit system;
+      specialArgs = moduleInputs // {
+        inherit system trusted;
+        systemType = "wsl";
+        desktop = false;
+      };
       modules = [
         determinate.nixosModules.default
         nixos-wsl.nixosModules.default
@@ -41,11 +46,6 @@ let
         {
           boot.binfmt.emulatedSystems = emulated;
           wsl.wslConf.network.hostname = name;
-          _module.args = moduleInputs // {
-            inherit system trusted;
-            systemType = "wsl";
-            desktop = false;
-          };
         }
       ]
       ++ extraModules;
@@ -64,6 +64,10 @@ let
     moduleInputs:
     nixpkgs.lib.nixosSystem {
       inherit system;
+      specialArgs = moduleInputs // {
+        inherit system trusted desktop;
+        systemType = "bare";
+      };
       modules = [
         determinate.nixosModules.default
         home-manager.nixosModules.home-manager
@@ -74,10 +78,6 @@ let
         {
           boot.binfmt.emulatedSystems = emulated;
           networking.hostName = name;
-          _module.args = moduleInputs // {
-            inherit system trusted desktop;
-            systemType = "bare";
-          };
         }
       ]
       ++ extraModules;
@@ -93,6 +93,11 @@ let
     moduleInputs:
     nix-darwin.lib.darwinSystem {
       inherit system;
+      specialArgs = moduleInputs // {
+        inherit system trusted;
+        systemType = "mac";
+        desktop = false;
+      };
       modules = [
         home-manager.darwinModules.home-manager
         ../home.nix
@@ -115,11 +120,6 @@ let
           users.users.pcarrier = {
             home = "/Users/pcarrier";
             shell = nixpkgs.legacyPackages.${system}.fish;
-          };
-          _module.args = moduleInputs // {
-            inherit system trusted;
-            systemType = "mac";
-            desktop = false;
           };
         }
       ]

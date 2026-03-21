@@ -302,7 +302,7 @@ lib.mkMerge [
           T.body = "$argv 2>&1 | ts";
           cm.body = ''g cm -m "$argv"'';
           nu.body = ''
-            set -l ref (git -C /src/sys rev-parse HEAD)
+            set -l ref (git -C ${if pkgs.stdenv.isDarwin then "~/src/sys" else "/src/sys"} rev-parse HEAD)
             for host in $argv
               echo === $host ===
               ssh $host nh os switch github:pcarrier/sys/$ref --accept-flake-config
