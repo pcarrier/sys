@@ -281,6 +281,8 @@ lib.mkMerge [
         shellAliases = {
           a = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions";
           ac = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --continue";
+          A = "${pkgs-master.codex}/bin/codex --dangerously-bypass-approvals-and-sandbox";
+          AC = "${pkgs-master.codex}/bin/codex resume --last --dangerously-bypass-approvals-and-sandbox";
           i = "${pkgs.uv}/bin/uvx indent";
           indent = "${pkgs.uv}/bin/uvx indent";
           li = "${pkgs.uv}/bin/uv run --project ~/src/indent indent --";
