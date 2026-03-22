@@ -1,5 +1,6 @@
 { inputs }:
 let
+  blit = inputs.blit;
   determinate = inputs.determinate;
   home-manager = inputs.home-manager;
   nix-darwin = inputs.nix-darwin;
@@ -99,9 +100,11 @@ let
         desktop = false;
       };
       modules = [
+        blit.darwinModules.blit
         home-manager.darwinModules.home-manager
         ../home.nix
         {
+          services.blit.enable = true;
           nix.enable = false;
           nixpkgs.hostPlatform = system;
           networking.hostName = name;
