@@ -72,7 +72,7 @@ lib.mkMerge [
         ZED_WINDOW_DECORATIONS = "server";
       };
     };
-    programs.mpv.enable = pkgs.stdenv.isLinux;
+    programs.mpv.enable = true;
   }
   (
     {
