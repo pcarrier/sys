@@ -328,7 +328,7 @@ lib.mkMerge [
       };
       zellij = {
         enable = true;
-        enableFishIntegration = true;
+        enableFishIntegration = false;
       };
       zoxide = {
         enable = true;
