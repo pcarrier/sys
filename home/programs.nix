@@ -296,7 +296,7 @@ lib.mkMerge [
           m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
           mk = "ssh -t komodo 'cd /src/monorepo; and exec fish -l'";
           n = if pkgs.stdenv.isDarwin then "nh darwin switch --accept-flake-config ~/src/sys" else "nh os switch --accept-flake-config";
-          t = "tmux attach";
+          t = "zellij attach -c";
           v = "nvim";
           zed = "zeditor";
         };
@@ -325,6 +325,10 @@ lib.mkMerge [
         mouse = true;
         newSession = true;
         clock24 = true;
+      };
+      zellij = {
+        enable = true;
+        enableFishIntegration = true;
       };
       zoxide = {
         enable = true;
