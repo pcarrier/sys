@@ -7,6 +7,16 @@ in
 {
   imports = [ blit.nixosModules.blit ];
 
+  networking.nftables.tables.blit-redirect = {
+    family = "inet";
+    content = ''
+      chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        udp dport 443 redirect to :3264
+      }
+    '';
+  };
+
   services.blit = {
     enable = true;
     users = normalUsers;
@@ -14,6 +24,7 @@ in
       user = "pcarrier";
       port = 3264;
       passFile = "/etc/blit.env";
+      quic = true;
     };
   };
 }
