@@ -30,11 +30,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1774593348,
-        "narHash": "sha256-D5TSqp0w1KaQRyT9qMAzzRC/hFlnXuZTnoTS9gc99cs=",
+        "lastModified": 1774594463,
+        "narHash": "sha256-SM2L3ixwme9c67QcakNBu/+svixkYamxrkhE6x3C/cQ=",
         "owner": "indent-com",
         "repo": "blit",
-        "rev": "f298d936fd0c928c295da815bef9dbfec5d1d129",
+        "rev": "23c9d2cb6e30ee98b7478a41c57c2821e5febce0",
         "type": "github"
       },
       "original": {
