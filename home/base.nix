@@ -141,7 +141,7 @@ lib.mkMerge [
         sansSerif = [ "PragmataPro Liga" ];
       };
     };
-    gtk = {
+    gtk = rec {
       enable = true;
       colorScheme = "dark";
       font = {
@@ -152,6 +152,7 @@ lib.mkMerge [
         name = "Flat-Remix-GTK-Red-Darkest-Solid";
         package = pkgs.flat-remix-gtk;
       };
+      gtk4.theme = theme;
       iconTheme = {
         name = "Flat-Remix-Red-Dark";
         package = pkgs.flat-remix-icon-theme;

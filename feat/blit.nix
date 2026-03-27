@@ -7,14 +7,20 @@ in
 {
   imports = [ blit.nixosModules.blit ];
 
-  networking.nftables.tables.blit-redirect = {
-    family = "inet";
-    content = ''
-      chain prerouting {
-        type nat hook prerouting priority dstnat; policy accept;
-        udp dport 443 redirect to :3264
-      }
-    '';
+  networking = {
+    firewall.allowedUDPPorts = [ 443 3264 ];
+    nftables = {
+      enable = true;
+      tables.blit-redirect = {
+        family = "inet";
+        content = ''
+          chain prerouting {
+            type nat hook prerouting priority dstnat; policy accept;
+            udp dport 443 redirect to :3264
+          }
+        '';
+      };
+    };
   };
 
   services.blit = {

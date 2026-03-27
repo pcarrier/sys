@@ -66,6 +66,7 @@
                 proxy_buffering off;
                 proxy_request_buffering off;
                 tcp_nodelay on;
+                add_header Alt-Svc 'h3=":443"; ma=86400' always;
               '';
             };
           };
