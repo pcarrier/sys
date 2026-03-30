@@ -81,8 +81,8 @@ lib.mkMerge [
           packages = with pkgs; [ wslu ];
           sessionVariables = {
             BROWSER = "wslview";
-            EDITOR = "nvim";
-            VISUAL = "nvim";
+            EDITOR = "${pkgs.neovim}/bin/nvim";
+            VISUAL = "${pkgs.neovim}/bin/nvim";
           };
         };
       };
@@ -100,15 +100,15 @@ lib.mkMerge [
           ];
           sessionVariables = {
             BROWSER = "brave";
-            EDITOR = "zeditor --wait";
-            VISUAL = "zeditor --wait";
+            EDITOR = "${pkgs.neovim}/bin/nvim";
+            VISUAL = "${pkgs.neovim}/bin/nvim";
           };
         };
       };
       mac = {
         home.sessionVariables = {
-          EDITOR = "zeditor --wait";
-          VISUAL = "zeditor --wait";
+          EDITOR = "${pkgs.neovim}/bin/nvim";
+          VISUAL = "${pkgs.neovim}/bin/nvim";
         };
       };
     }
