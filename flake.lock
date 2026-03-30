@@ -858,11 +858,11 @@
     "homebrew-indent": {
       "flake": false,
       "locked": {
-        "lastModified": 1774871710,
-        "narHash": "sha256-9+nIoAdAps2ZuQieRdqU9H7/Y+g9i96uN/qwC5rpXvU=",
+        "lastModified": 1774888045,
+        "narHash": "sha256-7B6eMH6fgIk2Xo4CU8zqW6MDsiDJSWdIk4SI9zk7jLM=",
         "owner": "indent-com",
         "repo": "homebrew-tap",
-        "rev": "05647a03f949ca6ae91d0d97e0ffe165c2d47616",
+        "rev": "e7903a03b7a8b95b7365845791a3cf596f67bba8",
         "type": "github"
       },
       "original": {
