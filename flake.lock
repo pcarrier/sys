@@ -30,11 +30,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1774884856,
-        "narHash": "sha256-kN9R5BtIjF3JN2yM1bNDyJ2S65LKgbifmoRyGOzwHBs=",
+        "lastModified": 1774899856,
+        "narHash": "sha256-r64ShghdWabLeRFGSB4+T5BGGGLHpbC6t76dWl1xEBc=",
         "owner": "indent-com",
         "repo": "blit",
-        "rev": "b8998854508a15a47078984b6060a0c2a7be9a0a",
+        "rev": "1084081fe75daf8e4d13bba59256ef09bcea1d57",
         "type": "github"
       },
       "original": {
@@ -858,11 +858,11 @@
     "homebrew-indent": {
       "flake": false,
       "locked": {
-        "lastModified": 1774888045,
-        "narHash": "sha256-7B6eMH6fgIk2Xo4CU8zqW6MDsiDJSWdIk4SI9zk7jLM=",
+        "lastModified": 1774894163,
+        "narHash": "sha256-T4dABqqaOTeNcmJ76mBpH55IQ8kNxZ8V4U8/2TXz2lM=",
         "owner": "indent-com",
         "repo": "homebrew-tap",
-        "rev": "e7903a03b7a8b95b7365845791a3cf596f67bba8",
+        "rev": "66bfac3b5c8a9216a577eb9a99c12eca8b1ae6f2",
         "type": "github"
       },
       "original": {
