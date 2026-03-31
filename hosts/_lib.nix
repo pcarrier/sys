@@ -106,7 +106,13 @@ let
         home-manager.darwinModules.home-manager
         ../home.nix
         {
-          services.blit.enable = true;
+          services.blit = {
+            enable = true;
+            gateways.default = {
+              passFile = "/etc/blit.env";
+              quic = true;
+            };
+          };
           nix.enable = false;
           nix-homebrew = {
             enable = true;
