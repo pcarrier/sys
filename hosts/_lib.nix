@@ -111,6 +111,7 @@ let
             gateways.default = {
               passFile = "/etc/blit.env";
               quic = true;
+              storeConfig = true;
             };
           };
           nix.enable = false;

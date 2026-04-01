@@ -31,6 +31,7 @@ in
       port = 3264;
       passFile = "/etc/blit.env";
       quic = true;
+      storeConfig = true;
     };
   };
 }
