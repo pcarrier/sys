@@ -36,7 +36,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     blit = {
-      url = "github:indent-com/blit/v0.13.1";
+      url = "github:indent-com/blit";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {
