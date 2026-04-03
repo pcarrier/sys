@@ -1,4 +1,10 @@
-{ blit, system, lib, config, ... }:
+{
+  blit,
+  system,
+  lib,
+  config,
+  ...
+}:
 let
   normalUsers = builtins.attrNames (
     lib.filterAttrs (_: u: (u.isNormalUser or false)) config.users.users
@@ -8,7 +14,10 @@ in
   imports = [ blit.nixosModules.blit ];
 
   networking = {
-    firewall.allowedUDPPorts = [ 443 3264 ];
+    firewall.allowedUDPPorts = [
+      443
+      3264
+    ];
     nftables = {
       enable = true;
       tables.blit-redirect = {
@@ -32,6 +41,10 @@ in
       passFile = "/etc/blit.env";
       quic = true;
       storeConfig = true;
+    };
+    forwarders.pcarrier = {
+      user = "pcarrier";
+      passFile = "/etc/blit.env";
     };
   };
 }
