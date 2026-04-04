@@ -69,7 +69,7 @@
               {
                 name = "/vt${toString n}/";
                 value = {
-                  proxyPass = "http://127.0.0.1:${toString (3263 + n)}/";
+                  proxyPass = "http://127.0.0.1:${toString (9991 + n * 10)}/";
                   proxyWebsockets = true;
                   extraConfig = ''
                     proxy_buffering off;
