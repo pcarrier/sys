@@ -67,7 +67,7 @@
                 n = i + 1;
               in
               {
-                name = "/vt${toString n}";
+                name = "/vt${toString n}/";
                 value = {
                   proxyPass = "http://127.0.0.1:${toString (3263 + n)}/";
                   proxyWebsockets = true;
