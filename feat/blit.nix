@@ -1,5 +1,6 @@
 {
   blit,
+  pkgs,
   system,
   lib,
   config,
@@ -31,6 +32,8 @@ in
       };
     };
   };
+
+  home-manager.users.pcarrier.home.packages = [ pkgs.chromium ];
 
   services.blit = {
     enable = true;
