@@ -23,6 +23,7 @@
     },
     "blit": {
       "inputs": {
+        "crane": "crane",
         "flake-parts": "flake-parts",
         "nixpkgs": [
           "nixpkgs"
@@ -30,11 +31,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1775339520,
-        "narHash": "sha256-JRoBG4cc7gCff60WgbDEwXUFsYUKLhXkkycw+eAe6UY=",
+        "lastModified": 1775347588,
+        "narHash": "sha256-3wVEEyoWEdWpdyPy/Gu4yOXLogSKj6/rfO0j+AbEwUg=",
         "owner": "indent-com",
         "repo": "blit",
-        "rev": "055a07af01c62151f7dc2ed797f195092464992c",
+        "rev": "f453fefdbb0b1939334b3c351e0bc7d71704575a",
         "type": "github"
       },
       "original": {
@@ -160,6 +161,21 @@
         "owner": "cachix",
         "ref": "latest",
         "repo": "cachix",
+        "type": "github"
+      }
+    },
+    "crane": {
+      "locked": {
+        "lastModified": 1775236976,
+        "narHash": "sha256-gCgX+AXN7K1gAIEqcLcZHxmC+QoZcwn9m6Z9r2Az+N8=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "6c23998526351a53ce734f0ac84940da988ccef1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
         "type": "github"
       }
     },
