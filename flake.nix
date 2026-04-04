@@ -36,7 +36,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     blit = {
-      url = "github:indent-com/blit/merge/omnibus";
+      url = "github:indent-com/blit/omnirelease";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {
