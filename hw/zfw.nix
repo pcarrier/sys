@@ -55,7 +55,13 @@
       enable = true;
       extraPackages = with pkgs; [ intel-media-driver ];
     };
+    nvidia = {
+      modesetting.enable = true;
+      open = true;
+      nvidiaSettings = false;
+    };
   };
+  services.xserver.videoDrivers = [ "nvidia" ];
   powerManagement.enable = true;
   services = {
     logind.settings.Login.HandleLidSwitch = "ignore";
