@@ -59,6 +59,16 @@
             "/" = {
               proxyPass = "http://127.0.0.1:6789/";
             };
+            "/vt/" = {
+              proxyPass = "http://127.0.0.1:3264/";
+              proxyWebsockets = true;
+              extraConfig = ''
+                proxy_buffering off;
+                proxy_request_buffering off;
+                tcp_nodelay on;
+                add_header Alt-Svc 'h3=":443"; ma=86400' always;
+              '';
+            };
           }
           // builtins.listToAttrs (
             builtins.genList (
