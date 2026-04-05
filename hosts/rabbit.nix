@@ -7,6 +7,7 @@ lib.bare {
   extraModules = [
     ../feat/blit.nix
     ../feat/flatpak.nix
+    ../feat/nvidia.nix
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix

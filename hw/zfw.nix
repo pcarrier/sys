@@ -57,11 +57,9 @@
     };
     nvidia = {
       modesetting.enable = true;
-      open = true;
       nvidiaSettings = false;
     };
   };
-  services.xserver.videoDrivers = [ "nvidia" ];
   powerManagement.enable = true;
   services = {
     logind.settings.Login.HandleLidSwitch = "ignore";

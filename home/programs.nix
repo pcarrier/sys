@@ -222,6 +222,7 @@ lib.mkMerge [
             bl = "blame -C -C -C";
             bu = "bundle";
             cl = "clone";
+            ch = "chromium --ozone-platform=wayland";
             cm = "commit -av";
             co = "checkout";
             cp = "cherry-pick";
