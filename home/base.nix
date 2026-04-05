@@ -92,6 +92,7 @@ lib.mkMerge [
             blueman
             brave
             brightnessctl
+            noto-fonts-color-emoji
             coppwr
             drm_info
             firefox
@@ -112,8 +113,7 @@ lib.mkMerge [
         };
       };
     }
-    .${systemType}
-    or { }
+    .${systemType} or { }
   )
   (lib.mkIf pkgs.stdenv.isDarwin {
     home.packages = with pkgs; [
@@ -121,6 +121,7 @@ lib.mkMerge [
       betterdisplay
       brave
       discord
+      noto-fonts-color-emoji
       istat-menus
       ollama
       slack

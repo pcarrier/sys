@@ -33,7 +33,10 @@ in
     };
   };
 
-  home-manager.users.pcarrier.home.packages = [ pkgs.chromium ];
+  home-manager.users.pcarrier.home.packages = with pkgs; [
+    chromium
+    noto-fonts-color-emoji
+  ];
 
   services.blit = {
     enable = true;
