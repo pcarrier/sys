@@ -345,7 +345,6 @@ lib.mkMerge [
   }
   (lib.mkIf trusted {
     home.packages = with pkgs; [
-      gomuks
     ];
     programs = {
       keychain = {

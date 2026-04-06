@@ -44,7 +44,6 @@ lib.mkIf desktop {
         };
       };
     };
-    element-desktop.enable = true;
     fuzzel = {
       enable = true;
       settings = {
