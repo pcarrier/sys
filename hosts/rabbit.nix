@@ -12,7 +12,6 @@ lib.bare {
     ../feat/mail.nix
     ../feat/media.nix
     ../feat/plentys.nix
-    ../feat/vt.nix
     ../feat/zfs.nix
   ];
 } lib.commonInputs
