@@ -94,10 +94,12 @@ in
       port = 3264;
       passFile = "/etc/blit.env";
       storeConfig = true;
+      webrtcProxy = true;
     };
     forwarders.pcarrier = {
       user = "pcarrier";
       passFile = "/etc/blit.env";
+      verboseWebrtc = true;
     };
   };
 }

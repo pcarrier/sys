@@ -18,6 +18,7 @@ in
     forwarders.pcarrier = {
       user = "pcarrier";
       passFile = "/etc/blit.env";
+      verboseWebrtc = true;
     };
   };
 }
