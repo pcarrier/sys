@@ -122,7 +122,7 @@ let
               "indent-com/homebrew-tap" = inputs.homebrew-indent;
             };
           };
-          nixpkgs.hostPlatform = system;
+          nixpkgs.stdenv.hostPlatform = system;
           networking.hostName = name;
           programs = {
             _1password-gui.enable = true;
