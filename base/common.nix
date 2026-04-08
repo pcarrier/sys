@@ -63,5 +63,5 @@ in
     openssh.authorizedKeys.keys = keys;
   };
   users.users.root.openssh.authorizedKeys.keys = keys;
-  system.stateVersion = "25.11";
+  system.stateVersion = "26.05";
 }
