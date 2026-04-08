@@ -32,7 +32,6 @@ let
     }:
     moduleInputs:
     nixpkgs.lib.nixosSystem {
-      inherit system;
       specialArgs = moduleInputs // {
         inherit system trusted;
         systemType = "wsl";
@@ -46,6 +45,7 @@ let
         ../base/wsl.nix
         ../home.nix
         {
+          nixpkgs.hostPlatform = system;
           boot.binfmt.emulatedSystems = emulated;
           wsl.wslConf.network.hostname = name;
         }
@@ -65,7 +65,6 @@ let
     }:
     moduleInputs:
     nixpkgs.lib.nixosSystem {
-      inherit system;
       specialArgs = moduleInputs // {
         inherit system trusted desktop;
         systemType = "bare";
@@ -78,6 +77,7 @@ let
         hardware
         ../home.nix
         {
+          nixpkgs.hostPlatform = system;
           boot.binfmt.emulatedSystems = emulated;
           networking.hostName = name;
         }
@@ -146,6 +146,17 @@ let
     };
 in
 {
-  inherit wsl bare darwin commonInputs;
-  inherit (inputs) jovian nixos-wsl nix-darwin determinate nixpkgs;
+  inherit
+    wsl
+    bare
+    darwin
+    commonInputs
+    ;
+  inherit (inputs)
+    jovian
+    nixos-wsl
+    nix-darwin
+    determinate
+    nixpkgs
+    ;
 }
