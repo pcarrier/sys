@@ -119,7 +119,6 @@ lib.mkMerge [
     home.packages = with pkgs; [
       aerospace
       betterdisplay
-      brave
       discord
       noto-fonts-color-emoji
       istat-menus
