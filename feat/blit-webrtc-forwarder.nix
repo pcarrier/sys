@@ -14,8 +14,9 @@ in
 
   services.blit = {
     enable = true;
+    audio.enable = true;
     users = normalUsers;
-    forwarders.pcarrier = {
+    shares.pcarrier = {
       user = "pcarrier";
       passFile = "/etc/blit.env";
       verboseWebrtc = true;

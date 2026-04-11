@@ -88,6 +88,7 @@ in
 
   services.blit = {
     enable = true;
+    audio.enable = true;
     users = normalUsers;
     gateways.pcarrier = {
       user = "pcarrier";
@@ -96,7 +97,7 @@ in
       storeConfig = true;
       webrtcProxy = true;
     };
-    forwarders.pcarrier = {
+    shares.pcarrier = {
       user = "pcarrier";
       passFile = "/etc/blit.env";
       verboseWebrtc = true;
