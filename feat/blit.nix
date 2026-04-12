@@ -96,6 +96,7 @@ in
       passFile = "/etc/blit.env";
       storeConfig = true;
       webrtcProxy = true;
+      quic = true;
     };
     shares.pcarrier = {
       user = "pcarrier";
