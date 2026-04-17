@@ -18,6 +18,7 @@ lib.bare {
     ../feat/print.nix
     ../feat/steam.nix
     ../feat/vbox.nix
+    ../feat/vnc.nix
     ../folks/dauriac.nix
   ];
 } (lib.commonInputs // { inherit (lib) jovian; })
