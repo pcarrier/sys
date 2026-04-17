@@ -12,6 +12,7 @@ lib.bare {
     ../feat/docker.nix
     ../feat/flatpak.nix
     ../feat/mediaclient.nix
+    ../feat/nvidia.nix
     ../feat/ollama.nix
     ../feat/plugdev.nix
     ../feat/print.nix
