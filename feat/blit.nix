@@ -48,7 +48,7 @@ in
         '';
         locations = {
           "/" = {
-            proxyPass = "http://hound:10000/";
+            proxyPass = "http://localhost:10000/";
             proxyWebsockets = true;
             extraConfig = ''
               proxy_buffering off;
