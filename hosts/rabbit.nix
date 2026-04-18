@@ -1,6 +1,7 @@
 { lib }:
 lib.bare {
   name = "rabbit";
+  trusted = true;
   system = "x86_64-linux";
   emulated = [ "aarch64-linux" ];
   hardware = ../hw/zfw.nix;
