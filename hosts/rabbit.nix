@@ -11,6 +11,7 @@ lib.bare {
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix
+    ../feat/moo.nix
     ../feat/plentys.nix
     ../feat/zfs.nix
   ];

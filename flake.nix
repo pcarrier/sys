@@ -47,6 +47,10 @@
       url = "github:strongtz/edl-ng";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    moo = {
+      url = "github:pcarrier/moo";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {

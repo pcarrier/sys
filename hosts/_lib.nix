@@ -19,6 +19,7 @@ let
       plenty
       edl-ng
       determinate
+      moo
       ;
   };
 
