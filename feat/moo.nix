@@ -3,7 +3,7 @@
     enableACME = true;
     forceSSL = true;
     locations."/" = {
-      proxyPass = "http://hound:5713/";
+      proxyPass = "http://hound:5173/";
       proxyWebsockets = true;
       extraConfig = ''
         proxy_buffering off;
