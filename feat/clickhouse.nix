@@ -1,0 +1,3 @@
+{
+  services.clickhouse.enable = true;
+}
