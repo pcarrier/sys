@@ -254,6 +254,15 @@ lib.mkMerge [
           };
         };
       };
+      jujutsu = {
+        enable = true;
+        settings = {
+          user = {
+            name = "Pierre Carrier";
+            email = "pc@rrier.fr";
+          };
+        };
+      };
       lazygit = {
         enable = true;
         settings = {
