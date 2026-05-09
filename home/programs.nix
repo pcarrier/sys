@@ -12,6 +12,7 @@ let
     config.allowUnfree = true;
   };
   gitPackage = pkgs.gitFull;
+  userEmail = "pc@rrier.ch";
 in
 lib.mkMerge [
   {
@@ -168,7 +169,7 @@ lib.mkMerge [
         settings = {
           user = {
             name = "Pierre Carrier";
-            email = "pc@rrier.fr";
+            email = userEmail;
           };
           pull.rebase = true;
           init.defaultBranch = "main";
@@ -259,7 +260,7 @@ lib.mkMerge [
         settings = {
           user = {
             name = "Pierre Carrier";
-            email = "pc@rrier.fr";
+            email = userEmail;
           };
         };
       };
