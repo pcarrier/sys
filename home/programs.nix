@@ -12,7 +12,7 @@ let
     config.allowUnfree = true;
   };
   gitPackage = pkgs.gitFull;
-  userEmail = "pc@rrier.ch";
+  userEmail = "pc@rrier.fr";
 in
 lib.mkMerge [
   {
