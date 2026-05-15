@@ -121,7 +121,6 @@ lib.mkMerge [
       betterdisplay
       discord
       noto-fonts-color-emoji
-      istat-menus
       ollama
       slack
       steam-unwrapped
