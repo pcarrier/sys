@@ -273,7 +273,7 @@ lib.mkMerge [
       fish = {
         enable = true;
         shellInit = ''
-          fish_add_path --prepend ~/.nix-profile/bin /nix/var/nix/profiles/default/bin
+          fish_add_path --prepend ~/.nix-profile/bin /nix/var/nix/profiles/default/bin ~/.local/bin
         '';
         interactiveShellInit = ''
           set fish_greeting
