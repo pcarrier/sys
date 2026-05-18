@@ -72,6 +72,7 @@ lib.mkMerge [
         ZED_WINDOW_DECORATIONS = "server";
       };
     };
+    manual.manpages.enable = false;
     programs.mpv.enable = true;
   }
   (

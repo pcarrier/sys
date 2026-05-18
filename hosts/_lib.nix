@@ -46,7 +46,7 @@ let
         ../base/wsl.nix
         ../home.nix
         {
-          nixpkgs.hostPlatform = system;
+          nixpkgs.hostPlatform.system = system;
           boot.binfmt.emulatedSystems = emulated;
           wsl.wslConf.network.hostname = name;
         }
@@ -78,7 +78,7 @@ let
         hardware
         ../home.nix
         {
-          nixpkgs.hostPlatform = system;
+          nixpkgs.hostPlatform.system = system;
           boot.binfmt.emulatedSystems = emulated;
           networking.hostName = name;
         }
@@ -123,7 +123,7 @@ let
               "indent-com/homebrew-tap" = inputs.homebrew-indent;
             };
           };
-          nixpkgs.hostPlatform = system;
+          nixpkgs.hostPlatform.system = system;
           networking.hostName = name;
           programs = {
             _1password-gui.enable = true;

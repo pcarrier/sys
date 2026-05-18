@@ -6,12 +6,12 @@ let
       -depth 24 \
       -SecurityTypes None \
       -localhost 0 &
-    while ! ${pkgs.xorg.xdpyinfo}/bin/xdpyinfo -display :1 >/dev/null 2>&1; do
+    while ! ${pkgs.xdpyinfo}/bin/xdpyinfo -display :1 >/dev/null 2>&1; do
       sleep 0.1
     done
     export DISPLAY=:1
     source /etc/set-environment
-    exec ${pkgs.dbus}/bin/dbus-run-session --dbus-daemon=${pkgs.dbus}/bin/dbus-daemon ${pkgs.xfce.xfce4-session}/bin/startxfce4
+    exec ${pkgs.dbus}/bin/dbus-run-session --dbus-daemon=${pkgs.dbus}/bin/dbus-daemon ${pkgs.xfce4-session}/bin/startxfce4
   '';
 in
 {

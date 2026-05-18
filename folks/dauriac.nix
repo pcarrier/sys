@@ -8,6 +8,7 @@
     ];
   };
   home-manager.users.dauriac = {
+    manual.manpages.enable = false;
     home = {
       username = "dauriac";
       homeDirectory = "/home/dauriac";
