@@ -9,7 +9,6 @@ lib.bare {
   extraModules = [
     ../feat/autoniri.nix
     ../feat/blit-webrtc-forwarder.nix
-    ../feat/clickhouse.nix
     ../feat/docker.nix
     ../feat/flatpak.nix
     ../feat/mediaclient.nix
