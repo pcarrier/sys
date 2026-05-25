@@ -120,7 +120,6 @@ lib.mkMerge [
     home.packages = with pkgs; [
       aerospace
       betterdisplay
-      discord
       noto-fonts-color-emoji
       ollama
       slack
