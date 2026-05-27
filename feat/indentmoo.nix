@@ -1,4 +1,5 @@
 {
+  pkgs,
   moo,
   system,
   ...
@@ -14,7 +15,8 @@
     wantedBy = [ "multi-user.target" ];
     after = [ "network.target" ];
     serviceConfig = {
-      ExecStart = "${moo.packages.${system}.default}/bin/moo serve --port 7777 --host 127.0.0.1";
+      ExecStart = "${pkgs.fish}/bin/fish -l -c '${moo.packages.${system}.default}/bin/moo serve --port 7777 --host 127.0.0.1'";
+      WorkingDirectory = "/src";
       User = "pcarrier";
       Group = "users";
       Restart = "on-failure";
