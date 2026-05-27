@@ -11,6 +11,7 @@ in
     kitten = import ../hosts/kitten.nix { inherit lib; };
     hare = import ../hosts/hare.nix { inherit lib; };
     hound = import ../hosts/hound.nix { inherit lib; };
+    indentbox = import ../hosts/indentbox.nix { inherit lib; };
     rabbit = import ../hosts/rabbit.nix { inherit lib; };
     sloth = import ../hosts/sloth.nix { inherit lib; };
   };

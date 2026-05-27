@@ -86,6 +86,42 @@ let
       ++ extraModules;
     };
 
+  ec2 =
+    {
+      name,
+      system,
+      emulated ? [ ],
+      trusted ? false,
+      extraModules ? [ ],
+    }:
+    moduleInputs:
+    nixpkgs.lib.nixosSystem {
+      specialArgs = moduleInputs // {
+        inherit system trusted;
+        systemType = "bare";
+        desktop = false;
+      };
+      modules = [
+        determinate.nixosModules.default
+        home-manager.nixosModules.home-manager
+        ../base/common.nix
+        ../home.nix
+        (
+          { modulesPath, ... }:
+          {
+            imports = [ "${modulesPath}/virtualisation/amazon-image.nix" ];
+            ec2.efi = true;
+          }
+        )
+        {
+          nixpkgs.hostPlatform.system = system;
+          boot.binfmt.emulatedSystems = emulated;
+          networking.hostName = name;
+        }
+      ]
+      ++ extraModules;
+    };
+
   darwin =
     {
       name,
@@ -150,6 +186,7 @@ in
   inherit
     wsl
     bare
+    ec2
     darwin
     commonInputs
     ;
