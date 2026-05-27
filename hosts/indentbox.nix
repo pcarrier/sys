@@ -16,6 +16,9 @@ lib.ec2 {
               user = "pcarrier";
               port = 3264;
               passFile = "/etc/blit.env";
+              storeConfig = true;
+              webrtcProxy = true;
+              quic = true;
             };
           };
           nginx.virtualHosts."blit.pierre.dev.indent.sh" = {
