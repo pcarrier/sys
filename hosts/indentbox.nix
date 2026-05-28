@@ -36,6 +36,8 @@ lib.ec2 {
           };
           tailscale.enable = true;
         };
+        hardware.graphics.enable = true;
+
         networking.firewall.interfaces.tailscale0 = {
           allowedTCPPortRanges = [
             {
