@@ -31,16 +31,15 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1779911894,
-        "narHash": "sha256-dLL5t6YDakKmrXpblLyr+NwHRodXwOMMIzyHZOkdzjc=",
+        "lastModified": 1779947974,
+        "narHash": "sha256-Ua8LtJy3U6VNeJaCpb6yi5WeVX+gqkx1vANOYN0MzSg=",
         "owner": "indent-com",
         "repo": "blit",
-        "rev": "6110834ef9b4caa186ececd1bc40209347b8916c",
+        "rev": "473edecf1ea1cac18072fbe46ec54e3308785b4b",
         "type": "github"
       },
       "original": {
         "owner": "indent-com",
-        "ref": "next",
         "repo": "blit",
         "type": "github"
       }
@@ -933,16 +932,15 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1779918024,
-        "narHash": "sha256-aCc/RHKPIm3DTEbG5FaxxX2LH9pMMvvboWw+lRZDcF0=",
+        "lastModified": 1779946661,
+        "narHash": "sha256-gmuO1lybAFkxBhskQ7QgU224a7wDuUgU780RCxyvJz8=",
         "owner": "pcarrier",
         "repo": "moo",
-        "rev": "10e5e1dde7994ad1bfa4180f11f52dcbd439b528",
+        "rev": "a5edb17401c076d32a35e3a51d1c53e9bde946c4",
         "type": "github"
       },
       "original": {
         "owner": "pcarrier",
-        "ref": "next",
         "repo": "moo",
         "type": "github"
       }
