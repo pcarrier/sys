@@ -4,6 +4,7 @@ lib.ec2 {
   system = "aarch64-linux";
   extraModules = [
     ../feat/indentmoo.nix
+    ../feat/indentcode.nix
     (
       { blit, ... }:
       {
