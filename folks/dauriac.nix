@@ -12,7 +12,7 @@
     home = {
       username = "dauriac";
       homeDirectory = "/home/dauriac";
-      stateVersion = "26.05";
+      stateVersion = "26.11";
     };
     programs = {
       git = {
