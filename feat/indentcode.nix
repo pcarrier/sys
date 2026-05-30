@@ -23,7 +23,10 @@
     group = "users";
     withoutConnectionToken = true;
     telemetryLevel = "off";
-    extraArguments = [ "/src" ];
+    extraArguments = [
+      "--server-data-dir"
+      "/home/pcarrier/.openvscode-server"
+    ];
   };
 
   services.nginx = {
