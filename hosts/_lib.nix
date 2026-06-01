@@ -161,10 +161,7 @@ let
           };
           nixpkgs.hostPlatform.system = system;
           networking.hostName = name;
-          programs = {
-            _1password-gui.enable = true;
-            fish.enable = true;
-          };
+          programs.fish.enable = true;
           services = {
             openssh.enable = true;
             tailscale.enable = true;
