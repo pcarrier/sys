@@ -932,11 +932,11 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1780183116,
-        "narHash": "sha256-AtDmW2m4K9WnuGMxUEHtL7gxw1dsJ6ig0gfLQybCrjQ=",
+        "lastModified": 1780283358,
+        "narHash": "sha256-eylzjSQWEW4U9BrOXaWFJZyDZ+rYF3H/h0Mg+P9By5Q=",
         "owner": "pcarrier",
         "repo": "moo",
-        "rev": "a719e2617241a245c1efd3f37cefee867788935f",
+        "rev": "e942f7f478ddaf63646ef980fb140e64cc517847",
         "type": "github"
       },
       "original": {
