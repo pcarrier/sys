@@ -9,7 +9,9 @@
 }:
 lib.mkMerge [
   {
+    programs.man.generateCaches = false;
     home = {
+      enableNixpkgsReleaseCheck = false;
       stateVersion = "26.11";
       username = "pcarrier";
       homeDirectory = if pkgs.stdenv.isDarwin then "/Users/pcarrier" else "/home/pcarrier";

@@ -110,55 +110,53 @@ lib.mkMerge [
         extraConfig = ''
           StrictHostKeyChecking accept-new
         '';
-        matchBlocks = {
+        settings = {
           "*" = {
-            addKeysToAgent = "yes";
-            compression = true;
-            serverAliveInterval = 60;
+            AddKeysToAgent = "yes";
+            Compression = true;
+            ServerAliveInterval = 60;
           };
           ident = {
-            hostname = "ident.me";
-            port = 2222;
-            user = "root";
+            HostName = "ident.me";
+            Port = 2222;
+            User = "root";
           };
           tnedi = {
-            hostname = "tnedi.me";
-            port = 2222;
-            user = "root";
+            HostName = "tnedi.me";
+            Port = 2222;
+            User = "root";
           };
           srvus = {
-            hostname = "srv.us";
-            port = 2222;
+            HostName = "srv.us";
+            Port = 2222;
           };
           x0 = {
-            hostname = "x0.xmit.dev";
-            port = 2222;
-            user = "root";
+            HostName = "x0.xmit.dev";
+            Port = 2222;
+            User = "root";
           };
           x1 = {
-            hostname = "x1.xmit.dev";
-            port = 2222;
-            user = "root";
+            HostName = "x1.xmit.dev";
+            Port = 2222;
+            User = "root";
           };
           x2 = {
-            hostname = "x2.xmit.dev";
-            port = 2222;
-            user = "root";
+            HostName = "x2.xmit.dev";
+            Port = 2222;
+            User = "root";
           };
           c0 = {
-            hostname = "c0.xmit.dev";
-            user = "root";
+            HostName = "c0.xmit.dev";
+            User = "root";
           };
           c1 = {
-            hostname = "c1.xmit.dev";
-            user = "root";
+            HostName = "c1.xmit.dev";
+            User = "root";
           };
-          horse = {
-            hostname = "horse.pcarrier.com";
-          };
+          horse.HostName = "horse.pcarrier.com";
           "*.indent" = {
-            proxyCommand = "indent-ssh-helper %n";
-            user = "root";
+            ProxyCommand = "indent-ssh-helper %n";
+            User = "root";
           };
         };
       };
