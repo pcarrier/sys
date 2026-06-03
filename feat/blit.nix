@@ -86,6 +86,23 @@ in
     noto-fonts-color-emoji
   ];
 
+  # blit is a Wayland-only compositor (no XWayland), so GUI apps launched in a
+  # blit terminal must use their Wayland backends — otherwise X11-default apps
+  # (Electron/Cursor, Firefox, GTK, Qt) come up with no window. PTY shells
+  # inherit the blit-server service env, and scoping these here (rather than
+  # global sessionVariables) keeps them out of the host's other, XWayland-
+  # capable sessions (sway/gnome/plasma).
+  systemd.services = lib.genAttrs (map (u: "blit-server@${u}") normalUsers) (_: {
+    environment = {
+      NIXOS_OZONE_WL = "1";
+      ELECTRON_OZONE_PLATFORM_HINT = "wayland";
+      MOZ_ENABLE_WAYLAND = "1";
+      GDK_BACKEND = "wayland";
+      QT_QPA_PLATFORM = "wayland";
+      SDL_VIDEODRIVER = "wayland";
+    };
+  });
+
   services.blit = {
     enable = true;
     audio.enable = true;

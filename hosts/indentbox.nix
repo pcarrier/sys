@@ -40,6 +40,21 @@ lib.ec2 {
         };
         hardware.graphics.enable = true;
 
+        # blit is a Wayland-only compositor (no XWayland), so GUI apps launched
+        # in a blit terminal must use their Wayland backends — otherwise
+        # X11-default apps (Electron/Cursor, Firefox, GTK, Qt) come up with no
+        # window. PTY shells inherit the blit-server service env. Scoped to the
+        # service so it stays out of any other (XWayland-capable) sessions.
+        # Mirrors feat/blit.nix.
+        systemd.services."blit-server@pcarrier".environment = {
+          NIXOS_OZONE_WL = "1";
+          ELECTRON_OZONE_PLATFORM_HINT = "wayland";
+          MOZ_ENABLE_WAYLAND = "1";
+          GDK_BACKEND = "wayland";
+          QT_QPA_PLATFORM = "wayland";
+          SDL_VIDEODRIVER = "wayland";
+        };
+
         # Browser WebTransport (QUIC) arrives on UDP/443; dstnat-redirect it to
         # the blit gateway's QUIC listener on :3264 so datagrams actually reach
         # it. QUIC is end-to-end to the gateway (it pins its own self-signed
