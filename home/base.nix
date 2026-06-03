@@ -23,6 +23,7 @@ lib.mkMerge [
           bat
           baze.packages.${system}.default
           blit.packages.${system}.default
+          code-cursor
           dive
           fd
           fastfetch

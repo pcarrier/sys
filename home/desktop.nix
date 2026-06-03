@@ -21,7 +21,6 @@ in
 lib.mkIf desktop {
   home.packages = with pkgs; [
     clip
-    code-cursor
     edl-ng.packages.${system}.default
     legcord
     networkmanagerapplet
