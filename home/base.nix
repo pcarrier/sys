@@ -124,7 +124,6 @@ lib.mkMerge [
       aerospace
       betterdisplay
       noto-fonts-color-emoji
-      ollama
       slack
       steam-unwrapped
       spotify
