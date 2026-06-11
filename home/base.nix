@@ -82,9 +82,7 @@ lib.mkMerge [
     {
       wsl = {
         home = {
-          packages = with pkgs; [ wslu ];
           sessionVariables = {
-            BROWSER = "wslview";
             EDITOR = "${pkgs.neovim}/bin/nvim";
             VISUAL = "${pkgs.neovim}/bin/nvim";
           };
