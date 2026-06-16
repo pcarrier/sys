@@ -20,6 +20,7 @@ let
       edl-ng
       determinate
       moo
+      kimi-code
       ;
   };
 

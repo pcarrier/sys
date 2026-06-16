@@ -9,6 +9,7 @@
   tomorrowTheme,
   plenty,
   edl-ng,
+  kimi-code,
   trusted ? false,
   desktop ? false,
   ...
@@ -34,6 +35,7 @@
         tomorrowTheme
         plenty
         edl-ng
+        kimi-code
         trusted
         desktop
         ;

@@ -923,6 +923,26 @@
         "type": "github"
       }
     },
+    "kimi-code": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1781618951,
+        "narHash": "sha256-y4y/tTxP25NRj6iOz0dGadHBlm+xUi5IwnJVU4l6R1Y=",
+        "owner": "MoonshotAI",
+        "repo": "kimi-code",
+        "rev": "66b4d658a055e19359056fe0f2d52202c4a93c25",
+        "type": "github"
+      },
+      "original": {
+        "owner": "MoonshotAI",
+        "repo": "kimi-code",
+        "type": "github"
+      }
+    },
     "moo": {
       "inputs": {
         "crane": "crane_2",
@@ -1448,6 +1468,7 @@
         "home-manager": "home-manager",
         "homebrew-indent": "homebrew-indent",
         "jovian": "jovian",
+        "kimi-code": "kimi-code",
         "moo": "moo",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",

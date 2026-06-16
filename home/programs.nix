@@ -4,6 +4,7 @@
   nixpkgs-master,
   system,
   tomorrowTheme,
+  kimi-code,
   trusted ? false,
 }:
 let
@@ -16,6 +17,7 @@ let
 in
 lib.mkMerge [
   {
+    home.packages = [ kimi-code.packages.${system}.default ];
     programs = {
       zed-editor = {
         enable = true;
@@ -293,6 +295,8 @@ lib.mkMerge [
           clc = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --verbose --continue";
           co = "${pkgs-master.codex}/bin/codex --dangerously-bypass-approvals-and-sandbox";
           coc = "${pkgs-master.codex}/bin/codex resume --last --dangerously-bypass-approvals-and-sandbox";
+          ki = "${kimi-code.packages.${system}.default}/bin/kimi";
+          kic = "${kimi-code.packages.${system}.default}/bin/kimi --resume";
           oc = "${pkgs-master.opencode}/bin/opencode";
           i = "${pkgs.uv}/bin/uvx indent";
           indent = "${pkgs.uv}/bin/uvx indent";

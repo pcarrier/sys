@@ -51,6 +51,10 @@
       url = "github:pcarrier/moo";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    kimi-code = {
+      url = "github:MoonshotAI/kimi-code";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
