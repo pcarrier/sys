@@ -6,5 +6,6 @@ lib.nixpkgs.lib.nixosSystem {
     "${lib.nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
     ../hw/odin3.nix
     { boot.supportedFilesystems.zfs = lib.nixpkgs.lib.mkForce false; }
+    { boot.kernelParams = [ "copytoram" ]; }
   ];
 }

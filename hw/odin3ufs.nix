@@ -1,6 +1,5 @@
 {
   imports = [ ./odin3.nix ];
-
   fileSystems = {
     "/" = {
       device = "/dev/disk/by-label/root";
