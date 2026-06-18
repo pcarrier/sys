@@ -23,7 +23,10 @@
       ];
     };
   };
-  networking.networkmanager.enable = true;
+  networking = {
+    networkmanager.enable = true;
+    hostId = "43218765";
+  };
   security.polkit.enable = true;
   hardware = {
     bluetooth.enable = true;
@@ -33,5 +36,8 @@
       enable32Bit = true;
     };
   };
-  services.automatic-timezoned.enable = true;
+  services = {
+    automatic-timezoned.enable = true;
+    xserver.videoDrivers = [ "nvidia" "amd" ];
+  };
 }
