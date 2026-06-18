@@ -13,6 +13,7 @@ lib.bare {
     ../feat/media.nix
     ../feat/mymoo.nix
     ../feat/plentys.nix
+    ../feat/tb-server.nix
     ../feat/zfs.nix
   ];
 } lib.commonInputs

@@ -17,6 +17,7 @@ lib.bare {
     ../feat/plugdev.nix
     ../feat/print.nix
     ../feat/steam.nix
+    ../feat/tb-client.nix
     ../feat/vbox.nix
     ../feat/vnc.nix
     ../feat/zfs.nix
