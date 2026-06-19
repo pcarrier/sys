@@ -1,19 +1,6 @@
 { pkgs, ... }:
 {
   boot = {
-    initrd = {
-      availableKernelModules = [
-        "xhci_pci"
-        "thunderbolt"
-        "nvme"
-        "usbhid"
-        "sd_mod"
-      ];
-      services.udev.rules = ''
-        ACTION=="add", SUBSYSTEM=="thunderbolt", ATTR{authorized}=="0", ATTR{authorized}="1"
-      '';
-    };
-    kernelModules = [ "kvm-intel" ];
     zfs.extraPools = [
       "tank"
       "tonk"
@@ -46,26 +33,9 @@
     };
   };
   networking = {
-    networkmanager.enable = true;
     hostId = "12345678";
   };
-  hardware = {
-    cpu.intel.updateMicrocode = true;
-    graphics = {
-      enable = true;
-      extraPackages = with pkgs; [
-        intel-media-driver
-        intel-vaapi-driver
-      ];
-    };
-    nvidia = {
-      modesetting.enable = true;
-      nvidiaSettings = false;
-    };
-  };
-  powerManagement.enable = true;
   services = {
-    logind.settings.Login.HandleLidSwitch = "ignore";
     syncoid = {
       enable = true;
       commands = {

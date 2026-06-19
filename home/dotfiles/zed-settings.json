@@ -1,101 +1,126 @@
 {
-    "code_actions_on_format": {
-        "source.fixAll": true,
-        "source.removeUnusedImports": true,
-        "source.organizeImports": true
-    },
-    "rounded_selection": true,
-    "calls": {
-        "mute_on_join": true
-    },
-    "diagnostics": {
-        "inline": {
-            "enabled": true
-        }
-    },
-    "diagnostics_max_severity": "hint",
-    "git": {
-        "inline_blame": {
-            "show_commit_summary": true
-        }
-    },
-    "project_panel": {
-        "hide_root": true,
-        "entry_spacing": "standard"
-    },
-    "search": {
-        "regex": true
-    },
-    "preview_tabs": {
-        "enable_preview_from_file_finder": true
-    },
-    "title_bar": {
-        "show_onboarding_banner": false,
-        "show_user_picture": false,
-        "show_sign_in": false,
-        "show_menus": false,
-        "show_branch_icon": true
-    },
-    "completions": {
-        "words": "enabled"
-    },
-    "prettier": {
-        "allowed": true
-    },
-    "indent_guides": {
-        "background_coloring": "indent_aware",
-        "coloring": "indent_aware"
-    },
-    "toolbar": {
-        "code_actions": true,
-        "breadcrumbs": true
-    },
-    "tab_bar": {
-        "show": false
-    },
-    "auto_signature_help": true,
-    "scroll_beyond_last_line": "off",
-    "seed_search_query_from_cursor": "always",
-    "search_wrap": false,
-    "zoomed_padding": true,
-    "show_whitespaces": "all",
-    "cursor_shape": "bar",
-    "cursor_blink": false,
-    "confirm_quit": true,
-    "load_direnv": "shell_hook",
-    "minimap": {
-        "show": "auto"
-    },
-    "inlay_hints": {
-        "enabled": true
-    },
-    "buffer_font_family": "PragmataPro Liga",
-    "ui_font_family": "PragmataPro Liga",
-    "buffer_line_height": "standard",
-    "terminal": {
-        "line_height": "standard",
-        "cursor_shape": "bar"
-    },
-    "icon_theme": {
-        "mode": "system",
-        "light": "Zed (Default)",
-        "dark": "Zed (Default)"
-    },
-    "telemetry": {
-        "diagnostics": false,
-        "metrics": false
-    },
-    "ui_font_size": 13,
-    "buffer_font_size": 13,
-    "theme": {
-        "mode": "dark",
-        "light": "Tomorrow",
-        "dark": "Tomorrow at Midnight"
-    },
-    "format_on_save": "on",
-    "wrap_guides": [
-        80,
-        100,
-        120
-    ]
+  "outline_panel": {
+    "dock": "left"
+  },
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "agent": {
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": []
+  },
+  "git_panel": {
+    "dock": "left"
+  },
+  "code_actions_on_format": {
+    "source.fixAll": true,
+    "source.removeUnusedImports": true,
+    "source.organizeImports": true
+  },
+  "rounded_selection": true,
+  "calls": {
+    "mute_on_join": true
+  },
+  "diagnostics": {
+    "inline": {
+      "enabled": true
+    }
+  },
+  "diagnostics_max_severity": "hint",
+  "git": {
+    "inline_blame": {
+      "show_commit_summary": true
+    }
+  },
+  "project_panel": {
+    "dock": "left",
+    "hide_root": true,
+    "entry_spacing": "standard"
+  },
+  "search": {
+    "regex": true
+  },
+  "preview_tabs": {
+    "enable_preview_from_file_finder": true
+  },
+  "title_bar": {
+    "show_onboarding_banner": false,
+    "show_user_picture": false,
+    "show_sign_in": false,
+    "show_menus": false
+  },
+  "completions": {
+    "words": "enabled"
+  },
+  "prettier": {
+    "allowed": true
+  },
+  "indent_guides": {
+    "background_coloring": "indent_aware",
+    "coloring": "indent_aware"
+  },
+  "toolbar": {
+    "code_actions": true,
+    "breadcrumbs": true
+  },
+  "tab_bar": {
+    "show": false
+  },
+  "auto_signature_help": true,
+  "scroll_beyond_last_line": "off",
+  "seed_search_query_from_cursor": "always",
+  "search_wrap": false,
+  "zoomed_padding": true,
+  "show_whitespaces": "all",
+  "cursor_shape": "bar",
+  "cursor_blink": false,
+  "confirm_quit": true,
+  "load_direnv": "shell_hook",
+  "minimap": {
+    "show": "auto"
+  },
+  "inlay_hints": {
+    "enabled": true
+  },
+  "buffer_font_family": "PragmataPro Liga",
+  "ui_font_family": "PragmataPro Liga",
+  "buffer_line_height": "standard",
+  "terminal": {
+    "line_height": "standard",
+    "cursor_shape": "bar"
+  },
+  "icon_theme": {
+    "mode": "system",
+    "light": "Zed (Default)",
+    "dark": "Zed (Default)"
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "ui_font_size": 13,
+  "buffer_font_size": 13,
+  "theme": {
+    "mode": "dark",
+    "light": "Tomorrow",
+    "dark": "Tomorrow at Midnight"
+  },
+  "format_on_save": "on",
+  "wrap_guides": [80, 100, 120],
+  "auto_install_extensions": {
+    "css": true,
+    "dockerfile": true,
+    "git-firefly": true,
+    "html": true,
+    "nix": true,
+    "proto": true,
+    "svelte": true,
+    "terraform": true,
+    "toml": true,
+    "tomorrow-theme": true,
+    "zig": true,
+    "protod": true,
+    "kotlin": true
+  }
 }

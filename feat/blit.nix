@@ -48,7 +48,7 @@ in
         '';
         locations = {
           "/" = {
-            proxyPass = "http://localhost:10000/";
+            proxyPass = "http://127.0.0.1:10000/";
             proxyWebsockets = true;
             extraConfig = ''
               proxy_buffering off;

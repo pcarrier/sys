@@ -8,18 +8,20 @@ lib.bare {
   hardware = ../hw/tower.nix;
   extraModules = [
     ../feat/autoniri.nix
-    ../feat/blit-webrtc-forwarder.nix
+    ../feat/blit.nix
     ../feat/docker.nix
     ../feat/flatpak.nix
-    ../feat/mediaclient.nix
+    ../feat/libk.nix
+    ../feat/mail.nix
+    ../feat/media.nix
+    ../feat/mymoo.nix
     ../feat/nvidia.nix
     ../feat/ollama.nix
+    ../feat/plentys.nix
     ../feat/plugdev.nix
     ../feat/print.nix
     ../feat/steam.nix
-    ../feat/tb-client.nix
     ../feat/vbox.nix
-    ../feat/vnc.nix
     ../feat/zfs.nix
     ../folks/dauriac.nix
   ];
