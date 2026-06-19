@@ -128,6 +128,9 @@ lib.mkMerge [
       zoom-us
     ];
   })
+  (lib.mkIf (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+    home.packages = with pkgs; [ slack ];
+  })
   (lib.mkIf pkgs.stdenv.isLinux {
     dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
     fonts.fontconfig = {
