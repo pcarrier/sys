@@ -12,8 +12,8 @@ in
     hare = import ../hosts/hare.nix { inherit lib; };
     hound = import ../hosts/hound.nix { inherit lib; };
     indentbox = import ../hosts/indentbox.nix { inherit lib; };
-    rabbit = import ../hosts/rabbit.nix { inherit lib; };
     sloth = import ../hosts/sloth.nix { inherit lib; };
+    monkey = import ../hosts/monkey.nix { inherit lib; };
   };
 
   flake.darwinConfigurations = {

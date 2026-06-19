@@ -4,7 +4,7 @@
 
   fileSystems = {
     "/tank" = {
-      device = "//rabbit/tank";
+      device = "//hound/tank";
       fsType = "cifs";
       options = [
         "credentials=/etc/cifscreds"
@@ -16,7 +16,7 @@
       ];
     };
     "/tonk" = {
-      device = "//rabbit/tonk";
+      device = "//hound/tonk";
       fsType = "cifs";
       options = [
         "credentials=/etc/cifscreds"

@@ -12,9 +12,9 @@ jobs:
       - uses: cachix/cachix-action@v16
         with:
           name: pcarrier
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - run: |
-          nix build $(for h in baboon dog gorilla hare hound komodo monster rabbit sloth; do
+          nix build $(for h in baboon dog gorilla hare hound komodo monster sloth; do
             echo .#nixosConfigurations.$h.config.system.build.toplevel
           done) --accept-flake-config
   arm64:
@@ -26,7 +26,7 @@ jobs:
       - uses: cachix/cachix-action@v16
         with:
           name: pcarrier
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - run: |
           nix build $(for h in chimp amoeba; do
             echo .#nixosConfigurations.$h.config.system.build.toplevel
