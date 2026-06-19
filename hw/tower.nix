@@ -1,4 +1,17 @@
 {
+  boot = {
+    initrd = {
+      availableKernelModules = [ "nvme" "thunderbolt" "ahci" "xhci_pci" "usb_storage" "usbhid" "sd_mod" ];
+      services.udev.rules = ''
+        ACTION=="add", SUBSYSTEM=="thunderbolt", ATTR{authorized}=="0", ATTR{authorized}="1"
+      '';
+    };
+    kernelModules = [ "kvm-amd" ];
+    zfs.extraPools = [
+      "tank"
+      "tonk"
+    ];
+  };
   fileSystems = {
     "/" = {
       device = "tank/root";
@@ -40,7 +53,7 @@
   };
   services = {
     automatic-timezoned.enable = true;
-    xserver.videoDrivers = [ "nvidia" "amd" ];
+    xserver.videoDrivers = [ "nvidia" ];
     syncoid = {
       enable = true;
       commands = {
