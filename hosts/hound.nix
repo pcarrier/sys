@@ -9,7 +9,6 @@ lib.bare {
   extraModules = [
     ../feat/autoniri.nix
     ../feat/blit.nix
-    ../feat/docker.nix
     ../feat/flatpak.nix
     ../feat/libk.nix
     ../feat/mail.nix

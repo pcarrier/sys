@@ -5,7 +5,6 @@ lib.wsl {
   emulated = [ "aarch64-linux" ];
   extraModules = [
     ../feat/blit.nix
-    ../feat/docker.nix
     ../feat/flatpak.nix
   ];
 } (lib.commonInputs // { nixos-wsl = lib.nixos-wsl; })

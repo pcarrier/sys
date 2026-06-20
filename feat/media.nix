@@ -88,6 +88,7 @@
   networking.firewall.allowedTCPPorts = [
     80
     443
+    32400 # redundant sanity check; services.plex.openFirewall should already open this
   ];
   home-manager.users.pcarrier.home.packages = with pkgs; [
     immich-cli
