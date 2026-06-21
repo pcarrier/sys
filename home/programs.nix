@@ -101,7 +101,18 @@ lib.mkMerge [
             nvim-treesitter.withAllGrammars
           ];
         };
-      vscode.enable = true;
+      vscode = {
+        enable = true;
+        profiles.default.extensions = with pkgs.vscode-marketplace; [
+          golang.go
+          jjk.jjk
+          jnoortheen.nix-ide
+          mkhl.direnv
+          moonshot-ai.kimi-code
+          rust-lang.rust-analyzer
+          tamasfe.even-better-toml
+        ];
+      };
       nh = {
         enable = true;
         clean.enable = true;

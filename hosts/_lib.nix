@@ -21,6 +21,7 @@ let
       determinate
       moo
       kimi-code
+      nix-vscode-extensions
       ;
   };
 

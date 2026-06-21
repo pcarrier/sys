@@ -1,3 +1,4 @@
+{ lib, ... }:
 {
   boot = {
     initrd.availableKernelModules = [
@@ -11,7 +12,7 @@
     kernelModules = [ "hv_sock" ];
   };
   fileSystems = {
-    "/" = {
+    "/" = lib.mkDefault {
       device = "/dev/disk/by-label/root";
       fsType = "f2fs";
       options = [
@@ -21,7 +22,7 @@
         "gc_merge"
       ];
     };
-    "/boot" = {
+    "/boot" = lib.mkDefault {
       device = "/dev/disk/by-label/boot";
       fsType = "vfat";
       options = [

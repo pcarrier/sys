@@ -10,14 +10,18 @@
   plenty,
   edl-ng,
   kimi-code,
+  nix-vscode-extensions,
   trusted ? false,
   desktop ? false,
   ...
 }:
 {
-  nixpkgs.config = {
-    allowUnfree = true;
-    android_sdk.accept_license = true;
+  nixpkgs = {
+    config = {
+      allowUnfree = true;
+      android_sdk.accept_license = true;
+    };
+    overlays = [ nix-vscode-extensions.overlays.default ];
   };
   home-manager = {
     backupFileExtension = "backup";
