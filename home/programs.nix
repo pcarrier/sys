@@ -101,6 +101,7 @@ lib.mkMerge [
             nvim-treesitter.withAllGrammars
           ];
         };
+      vscode.enable = true;
       nh = {
         enable = true;
         clean.enable = true;
