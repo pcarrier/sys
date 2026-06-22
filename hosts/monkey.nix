@@ -1,7 +1,6 @@
 { lib }:
-lib.bare {
+lib.wsl {
   name = "monkey";
   system = "aarch64-linux";
-  trusted = true;
-  hardware = ../hw/hyperv.nix;
-} lib.commonInputs
+  emulated = [ "x86_64-linux" ];
+} (lib.commonInputs // { nixos-wsl = lib.nixos-wsl; })
