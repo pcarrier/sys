@@ -62,6 +62,7 @@ lib.mkMerge [
         enable = true;
         settings.git_protocol = "ssh";
       };
+      mullvad-vpn.enable = true;
       neovim =
         let
           tomorrow = pkgs.vimUtils.buildVimPlugin {
