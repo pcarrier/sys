@@ -20,6 +20,7 @@ lib.bare {
     ../feat/plugdev.nix
     ../feat/print.nix
     ../feat/steam.nix
+    ../feat/sunshine.nix
     ../feat/zfs.nix
     ../folks/dauriac.nix
   ];
