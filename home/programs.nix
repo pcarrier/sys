@@ -17,7 +17,7 @@ let
 in
 lib.mkMerge [
   {
-    #TMP home.packages = [ kimi-code.packages.${system}.default ];
+    home.packages = [ kimi-code.packages.${system}.default ];
     programs = {
       zed-editor = {
         enable = true;
@@ -307,8 +307,8 @@ lib.mkMerge [
           clc = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --verbose --continue";
           co = "${pkgs-master.codex}/bin/codex --dangerously-bypass-approvals-and-sandbox";
           coc = "${pkgs-master.codex}/bin/codex resume --last --dangerously-bypass-approvals-and-sandbox";
-          #TMP ki = "${kimi-code.packages.${system}.default}/bin/kimi --yolo";
-          #TMP kic = "${kimi-code.packages.${system}.default}/bin/kimi --resume --yolo";
+          ki = "${kimi-code.packages.${system}.default}/bin/kimi --yolo";
+          kic = "${kimi-code.packages.${system}.default}/bin/kimi --resume --yolo";
           oc = "${pkgs-master.opencode}/bin/opencode";
           i = "${pkgs.uv}/bin/uvx indent";
           indent = "${pkgs.uv}/bin/uvx indent";
