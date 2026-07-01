@@ -112,7 +112,6 @@ in
       port = 3264;
       passFile = "/etc/blit.env";
       storeConfig = true;
-      webrtcProxy = true;
       quic = true;
     };
     shares.pcarrier = {
