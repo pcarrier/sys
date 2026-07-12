@@ -23,6 +23,7 @@ lib.mkIf desktop {
     clip
     edl-ng.packages.${system}.default
     legcord
+    makemkv
     networkmanagerapplet
     pcmanfm-qt
     signal-desktop
