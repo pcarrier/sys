@@ -27,6 +27,7 @@ lib.mkIf desktop {
     pcmanfm-qt
     signal-desktop
     spotify
+    vlc
     xwayland-satellite
     wayfarer
     wl-clipboard-rs
