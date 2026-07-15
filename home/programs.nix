@@ -17,7 +17,10 @@ let
 in
 lib.mkMerge [
   {
-    home.packages = [ kimi-code.packages.${system}.default ];
+    home.packages = [
+      kimi-code.packages.${system}.default
+      pkgs.agent-browser
+    ];
     programs = {
       zed-editor = {
         enable = true;
