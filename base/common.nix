@@ -4,7 +4,7 @@
 }:
 let
   keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAvpKEUAeZFJkpIOuyV7PXuSkrNV51TCs7NxPCarRiEr"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFNb7q+cgXMUhGR8xaNnAhj5HU4iazGV1kbipcaRRiEr"
   ];
 in
 {
