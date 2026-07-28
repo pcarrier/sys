@@ -14,12 +14,40 @@ let
   };
   gitPackage = pkgs.gitFull;
   userEmail = "pc@rrier.fr";
+  wtp = pkgs.buildGoModule rec {
+    pname = "wtp";
+    version = "2.10.3";
+    src = pkgs.fetchFromGitHub {
+      owner = "satococoa";
+      repo = "wtp";
+      rev = "v${version}";
+      hash = "sha256-KgayKjH4iHi7LgWwk2Laba33bMVZdbiMQgSmqBSTfZ0=";
+    };
+    vendorHash = "sha256-zsSNo1MQgpvH3ZSd3kmvdIpOCVJgSu1/pYLltx/9dZg=";
+    subPackages = [ "cmd/wtp" ];
+    env.CGO_ENABLED = 0;
+    ldflags = [
+      "-s"
+      "-w"
+      "-X main.version=${version}"
+    ];
+    # tests expect to run inside a git checkout
+    doCheck = false;
+    nativeBuildInputs = [ pkgs.installShellFiles ];
+    postInstall = ''
+      installShellCompletion --cmd wtp \
+        --bash <($out/bin/wtp completion bash) \
+        --fish <($out/bin/wtp completion fish) \
+        --zsh <($out/bin/wtp completion zsh)
+    '';
+  };
 in
 lib.mkMerge [
   {
     home.packages = [
       kimi-code.packages.${system}.default
       pkgs.agent-browser
+      wtp
     ];
     programs = {
       zed-editor = {
