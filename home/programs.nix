@@ -340,7 +340,6 @@ lib.mkMerge [
           coc = "${pkgs-master.codex}/bin/codex resume --last --dangerously-bypass-approvals-and-sandbox";
           ki = "${kimi-code.packages.${system}.default}/bin/kimi --yolo";
           kic = "${kimi-code.packages.${system}.default}/bin/kimi --resume --yolo";
-          oc = "${pkgs-master.opencode}/bin/opencode";
           i = "${pkgs.uv}/bin/uvx indent";
           indent = "${pkgs.uv}/bin/uvx indent";
           li = "${pkgs.uv}/bin/uv run --project ~/src/indent indent --";
