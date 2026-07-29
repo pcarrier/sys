@@ -22,18 +22,36 @@ lib.ec2 {
               quic = true;
             };
           };
-          nginx.virtualHosts."blit.pierre.dev.indent.sh" = {
-            enableACME = true;
-            forceSSL = true;
-            locations."/" = {
-              proxyPass = "http://127.0.0.1:3264/";
-              proxyWebsockets = true;
-              extraConfig = ''
-                proxy_buffering off;
-                proxy_request_buffering off;
-                tcp_nodelay on;
-                add_header Alt-Svc 'h3=":443"; ma=86400' always;
-              '';
+          nginx.virtualHosts = {
+            "blit.pierre.dev.indent.sh" = {
+              enableACME = true;
+              forceSSL = true;
+              locations."/" = {
+                proxyPass = "http://127.0.0.1:3264/";
+                proxyWebsockets = true;
+                extraConfig = ''
+                  proxy_buffering off;
+                  proxy_request_buffering off;
+                  tcp_nodelay on;
+                  add_header Alt-Svc 'h3=":443"; ma=86400' always;
+                '';
+              };
+            };
+            # Dev gateway (blit built from source, run by hand on :10000).
+            # Mirrors blitdev.pcarrier.com in feat/blit.nix.
+            "blitdev.pierre.dev.indent.sh" = {
+              enableACME = true;
+              forceSSL = true;
+              locations."/" = {
+                proxyPass = "http://127.0.0.1:10000/";
+                proxyWebsockets = true;
+                extraConfig = ''
+                  proxy_buffering off;
+                  proxy_request_buffering off;
+                  tcp_nodelay on;
+                  add_header Alt-Svc 'h3=":443"; ma=86400' always;
+                '';
+              };
             };
           };
           tailscale.enable = true;
