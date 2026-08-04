@@ -151,13 +151,19 @@ lib.mkMerge [
         size = 8;
       };
       theme = {
-        name = "Flat-Remix-GTK-Red-Darkest-Solid";
-        package = pkgs.flat-remix-gtk;
+        name = "Colloid-Red-Dark";
+        package = pkgs.colloid-gtk-theme.override {
+          themeVariants = [ "red" ];
+          colorVariants = [ "dark" ];
+          tweaks = [ "black" ];
+        };
       };
       gtk4.theme = theme;
       iconTheme = {
-        name = "Flat-Remix-Red-Dark";
-        package = pkgs.flat-remix-icon-theme;
+        name = "Colloid-Red-Dark";
+        package = pkgs.colloid-icon-theme.override {
+          colorVariants = [ "red" ];
+        };
       };
     };
     qt = {
