@@ -112,7 +112,7 @@ in
       port = 3264;
       passFile = "/etc/blit.env";
       storeConfig = true;
-      quic = true;
+      # quic = true; <--- see https://github.com/indent-com/blit/pull/165
     };
     shares.pcarrier = {
       user = "pcarrier";
