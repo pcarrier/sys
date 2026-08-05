@@ -18,6 +18,7 @@ let
       blit
       plenty
       edl-ng
+      claude-desktop
       determinate
       moo
       kimi-code

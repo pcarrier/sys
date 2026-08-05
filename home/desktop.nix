@@ -3,6 +3,7 @@
   lib,
   system,
   edl-ng,
+  claude-desktop,
   desktop,
 }:
 let
@@ -21,6 +22,7 @@ in
 lib.mkIf desktop {
   home.packages = with pkgs; [
     clip
+    claude-desktop.packages.${system}.default
     edl-ng.packages.${system}.default
     legcord
     makemkv

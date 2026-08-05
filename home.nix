@@ -9,6 +9,7 @@
   tomorrowTheme,
   plenty,
   edl-ng,
+  claude-desktop,
   kimi-code,
   nix-vscode-extensions,
   trusted ? false,
@@ -39,6 +40,7 @@
         tomorrowTheme
         plenty
         edl-ng
+        claude-desktop
         kimi-code
         trusted
         desktop
