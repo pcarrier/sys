@@ -7,6 +7,25 @@
   desktop,
 }:
 let
+  wsConfig = pkgs.writeText "ws.yaml" ''
+    version: "0.5"
+    processes:
+      brave:
+        command: ${pkgs.brave}/bin/brave
+        availability:
+          restart: always
+      claude-desktop:
+        command: ${claude-desktop.packages.${system}.default}/bin/claude-desktop
+        availability:
+          restart: always
+      slack:
+        command: ${pkgs.slack}/bin/slack
+        availability:
+          restart: always
+  '';
+  ws = pkgs.writeShellScriptBin "ws" ''
+    exec ${pkgs.process-compose}/bin/process-compose up -f ${wsConfig} "$@"
+  '';
   clip = pkgs.stdenv.mkDerivation {
     name = "clip";
     src = pkgs.fetchurl {
@@ -22,6 +41,7 @@ in
 lib.mkIf desktop {
   home.packages = with pkgs; [
     clip
+    ws
     claude-desktop.packages.${system}.default
     edl-ng.packages.${system}.default
     legcord
