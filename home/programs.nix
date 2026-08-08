@@ -73,6 +73,10 @@ lib.mkMerge [
         enable = true;
         package = pkgs-master.claude-code;
       };
+      codex = {
+        enable = true;
+        package = pkgs-master.codex;
+      };
       delta = {
         enable = true;
         enableGitIntegration = true;

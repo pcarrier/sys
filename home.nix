@@ -10,6 +10,7 @@
   plenty,
   edl-ng,
   claude-desktop,
+  codex-desktop,
   kimi-code,
   nix-vscode-extensions,
   trusted ? false,
@@ -41,6 +42,7 @@
         plenty
         edl-ng
         claude-desktop
+        codex-desktop
         kimi-code
         trusted
         desktop

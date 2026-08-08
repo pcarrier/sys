@@ -19,6 +19,7 @@ let
       plenty
       edl-ng
       claude-desktop
+      codex-desktop
       determinate
       moo
       kimi-code

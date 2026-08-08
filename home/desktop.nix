@@ -4,6 +4,7 @@
   system,
   edl-ng,
   claude-desktop,
+  codex-desktop,
   desktop,
 }:
 let
@@ -43,6 +44,7 @@ lib.mkIf desktop {
     clip
     ws
     claude-desktop.packages.${system}.default
+    codex-desktop.packages.${system}.default
     edl-ng.packages.${system}.default
     legcord
     makemkv
