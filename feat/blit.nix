@@ -22,6 +22,7 @@ in
     firewall.allowedUDPPorts = [
       443
       3264
+      10001
     ];
     nftables = {
       enable = true;
