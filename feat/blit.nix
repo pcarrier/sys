@@ -97,6 +97,9 @@ in
     environment = {
       NIXOS_OZONE_WL = "1";
       ELECTRON_OZONE_PLATFORM_HINT = "wayland";
+      # The Codex Desktop launcher otherwise disables GPU compositing on every
+      # Wayland session, forcing full-rate wl_shm uploads through the compositor.
+      CODEX_ELECTRON_DISABLE_GPU_COMPOSITING = "0";
       MOZ_ENABLE_WAYLAND = "1";
       GDK_BACKEND = "wayland";
       QT_QPA_PLATFORM = "wayland";
