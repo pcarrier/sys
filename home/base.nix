@@ -102,7 +102,6 @@ lib.mkMerge [
             lxqt.pavucontrol-qt
           ];
           sessionVariables = {
-            BROWSER = "brave";
             EDITOR = "${pkgs.neovim}/bin/nvim";
             VISUAL = "${pkgs.neovim}/bin/nvim";
           };
