@@ -22,21 +22,50 @@ in
     firewall.allowedUDPPorts = [
       443
       3264
+      # The redirect below runs in nat prerouting (priority dstnat), which is
+      # ahead of the firewall's input chain, so by the time a WebTransport
+      # packet is filtered its port is already 10001 and opening 443 alone
+      # does nothing. Only the first packet of a flow needs this — the rest
+      # match on conntrack — which is why the failure looks like a connect
+      # timeout rather than a refusal.
       10001
     ];
     nftables = {
       enable = true;
       tables.blit-redirect = {
         family = "inet";
+        # `redirect` rewrites the destination to the *incoming interface's*
+        # address, not to loopback, so the gateway this lands on has to be
+        # bound beyond 127.0.0.1 (BLIT_DEV_GW_HOST=0.0.0.0 for the dev stack)
+        # or the packets arrive at a port nothing is listening on.
         content = ''
           chain prerouting {
             type nat hook prerouting priority dstnat; policy accept;
-            udp dport 443 redirect to :3264
+            udp dport 443 redirect to :10001
           }
         '';
       };
     };
   };
+
+  # The packaged blit-server gets its RT budget from the blit module's unit,
+  # but a dev stack started from a login shell inherits these instead — and
+  # with both at 0 PipeWire's graph thread stays SCHED_OTHER, misses its
+  # 21 ms cycle under video-encode load, and emits audio in bursts.
+  security.pam.loginLimits = [
+    {
+      domain = "@users";
+      type = "-";
+      item = "rtprio";
+      value = "95";
+    }
+    {
+      domain = "@users";
+      type = "-";
+      item = "nice";
+      value = "-11";
+    }
+  ];
 
   services.nginx = {
     enable = true;
