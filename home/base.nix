@@ -132,14 +132,27 @@ lib.mkMerge [
   })
   (lib.mkIf pkgs.stdenv.isLinux {
     dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
+    # PragmataPro has no CJK coverage, so browsers (Brave/Chromium) render
+    # tofu without an explicit fallback in the default font families.
+    home.packages = with pkgs; [
+      noto-fonts-cjk-sans
+      noto-fonts-cjk-serif
+    ];
     fonts.fontconfig = {
       enable = true;
       antialiasing = true;
       subpixelRendering = "none";
       hinting = "full";
       defaultFonts = {
-        monospace = [ "PragmataPro Mono Liga" ];
-        sansSerif = [ "PragmataPro Liga" ];
+        monospace = [
+          "PragmataPro Mono Liga"
+          "Noto Sans Mono CJK JP"
+        ];
+        sansSerif = [
+          "PragmataPro Liga"
+          "Noto Sans CJK JP"
+        ];
+        serif = [ "Noto Serif CJK JP" ];
       };
     };
     gtk = rec {
