@@ -62,7 +62,10 @@
               '';
             });
         in
-        {
+        # Linux only: PipeWire is what this is about, and the Darwin builds of
+        # these packages are `.app` bundles under `$out/Applications` with no
+        # `$out/bin/<binary>` for `wrapProgram` to find.
+        lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
           brave = prev.brave.override {
             commandLineArgs =
               "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder,WaylandWindowDecorations,WebRtcPipeWireCamera";
