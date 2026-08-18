@@ -59,7 +59,7 @@ in
   };
   users.users.pcarrier = {
     isNormalUser = true;
-    extraGroups = [ "wheel" ];
+    extraGroups = [ "wheel" "systemd-journal" ];
     shell = pkgs.fish;
     openssh.authorizedKeys.keys = keys;
   };
