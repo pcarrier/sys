@@ -4,7 +4,6 @@ let
   determinate = inputs.determinate;
   home-manager = inputs.home-manager;
   nix-darwin = inputs.nix-darwin;
-  nix-homebrew = inputs.nix-homebrew;
   nixos-wsl = inputs.nixos-wsl;
   nixpkgs = inputs.nixpkgs;
 
@@ -143,7 +142,6 @@ let
       };
       modules = [
         blit.darwinModules.blit
-        nix-homebrew.darwinModules.nix-homebrew
         home-manager.darwinModules.home-manager
         ../home.nix
         {
@@ -156,13 +154,6 @@ let
             };
           };
           nix.enable = false;
-          nix-homebrew = {
-            enable = true;
-            user = "pcarrier";
-            taps = {
-              "indent-com/homebrew-tap" = inputs.homebrew-indent;
-            };
-          };
           nixpkgs.hostPlatform.system = system;
           networking.hostName = name;
           programs.fish.enable = true;
