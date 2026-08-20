@@ -22,22 +22,12 @@ in
     firewall.allowedUDPPorts = [
       443
       3264
-      # The redirect below runs in nat prerouting (priority dstnat), which is
-      # ahead of the firewall's input chain, so by the time a WebTransport
-      # packet is filtered its port is already 10001 and opening 443 alone
-      # does nothing. Only the first packet of a flow needs this — the rest
-      # match on conntrack — which is why the failure looks like a connect
-      # timeout rather than a refusal.
       10001
     ];
     nftables = {
       enable = true;
       tables.blit-redirect = {
         family = "inet";
-        # `redirect` rewrites the destination to the *incoming interface's*
-        # address, not to loopback, so the gateway this lands on has to be
-        # bound beyond 127.0.0.1 (BLIT_DEV_GW_HOST=0.0.0.0 for the dev stack)
-        # or the packets arrive at a port nothing is listening on.
         content = ''
           chain prerouting {
             type nat hook prerouting priority dstnat; policy accept;
