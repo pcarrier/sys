@@ -14,7 +14,7 @@ lib.mkMerge [
       enableNixpkgsReleaseCheck = false;
       stateVersion = "26.11";
       username = "pcarrier";
-      homeDirectory = if pkgs.stdenv.isDarwin then "/Users/pcarrier" else "/home/pcarrier";
+      homeDirectory = if pkgs.stdenv.hostPlatform.isDarwin then "/Users/pcarrier" else "/home/pcarrier";
       packages =
         with pkgs;
         [
@@ -58,7 +58,7 @@ lib.mkMerge [
           tree
           zoxide
         ]
-        ++ lib.optionals pkgs.stdenv.isLinux [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
           bubblewrap
           dconf
           fio
@@ -67,7 +67,7 @@ lib.mkMerge [
           sshfs
           sysstat
         ]
-        ++ lib.optionals pkgs.stdenv.isDarwin [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           raycast
         ];
       sessionVariables = {
@@ -116,7 +116,7 @@ lib.mkMerge [
     }
     .${systemType} or { }
   )
-  (lib.mkIf pkgs.stdenv.isDarwin {
+  (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     home.packages = with pkgs; [
       aerospace
       betterdisplay
@@ -130,7 +130,7 @@ lib.mkMerge [
   (lib.mkIf (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
     home.packages = with pkgs; [ slack ];
   })
-  (lib.mkIf pkgs.stdenv.isLinux {
+  (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
     dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
     # PragmataPro has no CJK coverage, so browsers (Brave/Chromium) render
     # tofu without an explicit fallback in the default font families.

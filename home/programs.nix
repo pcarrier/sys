@@ -357,7 +357,7 @@ lib.mkMerge [
           m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
           mk = "ssh -t komodo 'cd /src/monorepo; and exec fish -l'";
           n =
-            if pkgs.stdenv.isDarwin then
+            if pkgs.stdenv.hostPlatform.isDarwin then
               "nh darwin switch --accept-flake-config ~/src/sys"
             else
               "nh os switch --accept-flake-config";
@@ -369,7 +369,7 @@ lib.mkMerge [
           T.body = "$argv 2>&1 | ts";
           cm.body = ''g cm -m "$argv"'';
           nu.body = ''
-            set -l ref (git -C ${if pkgs.stdenv.isDarwin then "~/src/sys" else "/src/sys"} rev-parse HEAD)
+            set -l ref (git -C ${if pkgs.stdenv.hostPlatform.isDarwin then "~/src/sys" else "/src/sys"} rev-parse HEAD)
             for host in $argv
               echo === $host ===
               ssh $host nh os switch github:pcarrier/sys/$ref --accept-flake-config
@@ -401,7 +401,7 @@ lib.mkMerge [
       };
     };
   }
-  (lib.mkIf pkgs.stdenv.isLinux {
+  (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
     programs.mullvad-vpn.enable = true;
   })
   (lib.mkIf trusted {
