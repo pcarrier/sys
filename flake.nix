@@ -28,8 +28,8 @@
       url = "github:pcarrier/baze";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    blit = {
-      url = "github:indent-com/blit";
+    yas = {
+      url = "github:pcarrier/yas";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plenty = {

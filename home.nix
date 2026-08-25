@@ -5,7 +5,7 @@
   system,
   systemType,
   baze,
-  blit,
+  yas,
   tomorrowTheme,
   plenty,
   edl-ng,
@@ -31,7 +31,7 @@
       # release so far, and without it Chromium enumerates only V4L2
       # `/dev/video*` devices — it never even contacts the camera portal, and
       # there is no fallback once its PipeWire factory is live. A camera that
-      # exists only as a PipeWire node, which is the only kind Blit can lend,
+      # exists only as a PipeWire node, which is the only kind YAS can lend,
       # is therefore invisible: a meeting reports no camera at all, and
       # because getUserMedia rejects wholesale when either half of an
       # audio+video request fails, it reports no microphone either.
@@ -45,7 +45,8 @@
       # `WebRTCPipeWireCapturer`, which Slack and Legcord already set, is
       # *screen capture*. It is a different feature from the camera one and
       # does nothing for a webcam; the resemblance is a trap.
-      (_: prev:
+      (
+        _: prev:
         let
           # Only Brave takes `commandLineArgs`; the Electron apps are wrapped
           # in place. In place, rather than joined into a new path, because a
@@ -67,38 +68,40 @@
         # `$out/bin/<binary>` for `wrapProgram` to find.
         lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
           brave = prev.brave.override {
-            commandLineArgs =
-              "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder,WaylandWindowDecorations,WebRtcPipeWireCamera";
+            commandLineArgs = "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder,WaylandWindowDecorations,WebRtcPipeWireCamera";
           };
           slack = withCamera prev.slack "slack" "WaylandWindowDecorations,WebRTCPipeWireCapturer";
           legcord =
             withCamera prev.legcord "legcord"
               "UseOzonePlatform,WaylandWindowDecorations,WebRTCPipeWireCapturer";
-        })
+        }
+      )
     ];
   };
   home-manager = {
     backupFileExtension = "backup";
     useGlobalPkgs = true;
     useUserPackages = true;
-    users.pcarrier = lib.mkMerge (import ./home/config.nix {
-      inherit
-        pkgs
-        nixpkgs-master
-        lib
-        system
-        systemType
-        baze
-        blit
-        tomorrowTheme
-        plenty
-        edl-ng
-        claude-desktop
-        codex-desktop
-        kimi-code
-        trusted
-        desktop
-        ;
-    });
+    users.pcarrier = lib.mkMerge (
+      import ./home/config.nix {
+        inherit
+          pkgs
+          nixpkgs-master
+          lib
+          system
+          systemType
+          baze
+          yas
+          tomorrowTheme
+          plenty
+          edl-ng
+          claude-desktop
+          codex-desktop
+          kimi-code
+          trusted
+          desktop
+          ;
+      }
+    );
   };
 }

@@ -50,6 +50,7 @@ lib.mkIf desktop {
     makemkv
     networkmanagerapplet
     pcmanfm-qt
+    qutebrowser
     signal-desktop
     spotify
     vlc

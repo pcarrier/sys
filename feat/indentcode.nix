@@ -9,7 +9,7 @@
   # Auth is handled by nginx HTTP basic auth (basicAuthFile), NOT VS Code:
   # openvscode-server is unauthenticated on its loopback port, and nginx gates
   # everything in front of it. The htpasswd file lives OUTSIDE the Nix store at
-  # /etc/code.htpasswd, matching the /etc/blit.env pattern. Create it before
+  # /etc/code.htpasswd, matching the /etc/yas.env pattern. Create it before
   # deploying, e.g.:
   #
   #   nix run nixpkgs#apacheHttpd -- htpasswd -B -c /etc/code.htpasswd pierre

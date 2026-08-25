@@ -5,7 +5,7 @@
   system,
   systemType,
   baze,
-  blit,
+  yas,
   tomorrowTheme,
   plenty,
   edl-ng,
@@ -16,7 +16,37 @@
   desktop ? false,
 }:
 [
-  (import ./base.nix { inherit pkgs lib system systemType baze blit plenty; })
-  (import ./desktop.nix { inherit pkgs lib system edl-ng claude-desktop codex-desktop desktop; })
-  (import ./programs.nix { inherit pkgs lib nixpkgs-master system tomorrowTheme trusted kimi-code; })
+  (import ./base.nix {
+    inherit
+      pkgs
+      lib
+      system
+      systemType
+      baze
+      yas
+      plenty
+      ;
+  })
+  (import ./desktop.nix {
+    inherit
+      pkgs
+      lib
+      system
+      edl-ng
+      claude-desktop
+      codex-desktop
+      desktop
+      ;
+  })
+  (import ./programs.nix {
+    inherit
+      pkgs
+      lib
+      nixpkgs-master
+      system
+      tomorrowTheme
+      trusted
+      kimi-code
+      ;
+  })
 ]

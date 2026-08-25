@@ -1,11 +1,11 @@
 { inputs }:
 let
-  blit = inputs.blit;
   determinate = inputs.determinate;
   home-manager = inputs.home-manager;
   nix-darwin = inputs.nix-darwin;
   nixos-wsl = inputs.nixos-wsl;
   nixpkgs = inputs.nixpkgs;
+  yas = inputs.yas;
 
   commonInputs = {
     inherit (inputs)
@@ -14,7 +14,7 @@ let
       home-manager
       tomorrowTheme
       baze
-      blit
+      yas
       plenty
       edl-ng
       claude-desktop
@@ -141,16 +141,17 @@ let
         desktop = false;
       };
       modules = [
-        blit.darwinModules.blit
+        yas.darwinModules.yas
         home-manager.darwinModules.home-manager
         ../home.nix
         {
-          services.blit = {
+          services.yas = {
             enable = true;
-            gateways.default = {
-              passFile = "/etc/blit.env";
-              quic = true;
-              storeConfig = true;
+            # The server serves the browser itself; there is no separate edge
+            # agent to configure.
+            edge = {
+              enable = true;
+              passFile = "/etc/yas.env";
             };
           };
           nix.enable = false;
@@ -188,5 +189,6 @@ in
     nix-darwin
     determinate
     nixpkgs
+    yas
     ;
 }

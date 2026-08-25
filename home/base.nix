@@ -4,7 +4,7 @@
   system,
   systemType,
   baze,
-  blit,
+  yas,
   plenty,
 }:
 lib.mkMerge [
@@ -22,7 +22,7 @@ lib.mkMerge [
           asciinema-agg
           bat
           baze.packages.${system}.default
-          blit.packages.${system}.default
+          yas.packages.${system}.yas
           code-cursor
           dive
           fd

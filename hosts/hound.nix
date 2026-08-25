@@ -7,7 +7,7 @@ lib.bare {
   emulated = [ "aarch64-linux" ];
   hardware = ../hw/tower.nix;
   extraModules = [
-    ../feat/blit.nix
+    ../feat/yas.nix
     ../feat/flatpak.nix
     ../feat/libk.nix
     ../feat/mail.nix

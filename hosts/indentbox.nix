@@ -6,24 +6,24 @@ lib.ec2 {
     ../feat/indentmoo.nix
     ../feat/indentcode.nix
     (
-      { blit, ... }:
+      { yas, ... }:
       {
-        imports = [ blit.nixosModules.blit ];
+        imports = [ yas.nixosModules.yas ];
         services = {
-          blit = {
+          yas = {
             enable = true;
             users = [ "pcarrier" ];
             gateways.pcarrier = {
               user = "pcarrier";
               port = 3264;
-              passFile = "/etc/blit.env";
+              passFile = "/etc/yas.env";
               storeConfig = true;
               webrtcProxy = true;
               quic = true;
             };
           };
           nginx.virtualHosts = {
-            "blit.pierre.dev.indent.sh" = {
+            "yas.pierre.dev.indent.sh" = {
               enableACME = true;
               forceSSL = true;
               locations."/" = {
@@ -37,9 +37,9 @@ lib.ec2 {
                 '';
               };
             };
-            # Dev gateway (blit built from source, run by hand on :10000).
-            # Mirrors blitdev.pcarrier.com in feat/blit.nix.
-            "blitdev.pierre.dev.indent.sh" = {
+            # Dev gateway (YAS built from source, run by hand on :10000).
+            # Mirrors yasdev.pcarrier.com in feat/yas.nix.
+            "yasdev.pierre.dev.indent.sh" = {
               enableACME = true;
               forceSSL = true;
               locations."/" = {
@@ -58,13 +58,13 @@ lib.ec2 {
         };
         hardware.graphics.enable = true;
 
-        # blit is a Wayland-only compositor (no XWayland), so GUI apps launched
-        # in a blit terminal must use their Wayland backends — otherwise
+        # YAS is a Wayland-only compositor (no XWayland), so GUI apps launched
+        # in a YAS terminal must use their Wayland backends — otherwise
         # X11-default apps (Electron/Cursor, Firefox, GTK, Qt) come up with no
-        # window. PTY shells inherit the blit-server service env. Scoped to the
+        # window. PTY shells inherit the yas-server service env. Scoped to the
         # service so it stays out of any other (XWayland-capable) sessions.
-        # Mirrors feat/blit.nix.
-        systemd.services."blit-server@pcarrier".environment = {
+        # Mirrors feat/yas.nix.
+        systemd.services."yas-server@pcarrier".environment = {
           NIXOS_OZONE_WL = "1";
           ELECTRON_OZONE_PLATFORM_HINT = "wayland";
           MOZ_ENABLE_WAYLAND = "1";
@@ -74,20 +74,20 @@ lib.ec2 {
         };
 
         # Browser WebTransport (QUIC) arrives on UDP/443; dstnat-redirect it to
-        # the blit gateway's QUIC listener on :3264 so datagrams actually reach
+        # the YAS gateway's QUIC listener on :3264 so datagrams actually reach
         # it. QUIC is end-to-end to the gateway (it pins its own self-signed
         # cert via serverCertificateHashes) — this is a dumb port redirect, no
         # TLS termination. Without it the gateway advertises WebTransport
         # (wt=<hash>) but datagrams never arrive, so every page (re)load waits
         # out the browser's WT connect timeout before falling back to WebSocket.
-        # Mirrors feat/blit.nix.
+        # Mirrors feat/yas.nix.
         networking.firewall.allowedUDPPorts = [
           443
           3264
         ];
         networking.nftables = {
           enable = true;
-          tables.blit-redirect = {
+          tables.yas-redirect = {
             family = "inet";
             content = ''
               chain prerouting {

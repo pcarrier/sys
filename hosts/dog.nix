@@ -4,7 +4,7 @@ lib.wsl {
   system = "x86_64-linux";
   emulated = [ "aarch64-linux" ];
   extraModules = [
-    ../feat/blit.nix
+    ../feat/yas.nix
     ../feat/flatpak.nix
   ];
 } (lib.commonInputs // { nixos-wsl = lib.nixos-wsl; })
