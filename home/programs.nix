@@ -401,9 +401,6 @@ lib.mkMerge [
       };
     };
   }
-  (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
-    programs.mullvad-vpn.enable = true;
-  })
   (lib.mkIf trusted {
     home.packages = with pkgs; [
     ];

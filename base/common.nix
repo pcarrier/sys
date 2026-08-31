@@ -39,7 +39,6 @@ in
     android_sdk.accept_license = true;
   };
   services = {
-    mullvad-vpn.enable = true;
     opensmtpd = {
       enable = true;
       serverConfiguration = ''
