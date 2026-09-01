@@ -1,10 +1,10 @@
 { lib }:
-lib.ec2 {
+lib.bare {
   name = "indentbox";
-  system = "aarch64-linux";
+  system = "x86_64-linux";
+  hardware = ../hw/indentbox.nix;
   extraModules = [
-    ../feat/indentmoo.nix
-    ../feat/indentcode.nix
+    ../feat/nvidia.nix
     (
       { yas, ... }:
       {
@@ -13,7 +13,7 @@ lib.ec2 {
           yas = {
             enable = true;
             users = [ "pcarrier" ];
-            gateways.pcarrier = {
+            edges.pcarrier = {
               user = "pcarrier";
               port = 3264;
               passFile = "/etc/yas.env";
