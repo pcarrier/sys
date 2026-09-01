@@ -47,7 +47,6 @@ lib.mkIf desktop {
     codex-desktop.packages.${system}.default
     edl-ng.packages.${system}.default
     legcord
-    makemkv
     networkmanagerapplet
     pcmanfm-qt
     qutebrowser
@@ -55,8 +54,6 @@ lib.mkIf desktop {
     spotify
     vlc
     xwayland-satellite
-    wayfarer
-    wl-clipboard-rs
     zoom-us
   ];
   programs = {
