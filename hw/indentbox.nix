@@ -15,11 +15,11 @@
   };
   fileSystems = {
     "/" = {
-      device = "/dev/md0";
+      device = "LABEL=root";
       fsType = "ext4";
     };
     "/boot" = {
-      device = "/dev/nvme0n1p1";
+      device = "LABEL=boot";
       fsType = "vfat";
       options = [
         "fmask=0022"

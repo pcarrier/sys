@@ -9,6 +9,10 @@ let
 in
 {
   documentation.nixos.enable = false;
+  environment.pathsToLink = [
+    "/share/applications"
+    "/share/xdg-desktop-portal"
+  ];
   hardware.enableRedistributableFirmware = true;
   # zramSwap.enable = true;
   security = {
