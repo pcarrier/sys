@@ -151,11 +151,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788100217,
-        "narHash": "sha256-d6Mcm0MUzuY/1A30vktTgdUiT84CtklN7TPOs5nLbFs=",
+        "lastModified": 1788327105,
+        "narHash": "sha256-rm2NxhIqbd13IM7YToRsk8rKAT+Fmge/+M5iwg9wONA=",
         "owner": "ilysenko",
         "repo": "codex-desktop-linux",
-        "rev": "241435e57b27da16e1a4381dabeb9c63876dfab2",
+        "rev": "6fbd37aca34fd82f315b6f89aed5999a2d9425df",
         "type": "github"
       },
       "original": {
@@ -543,11 +543,11 @@
         "nixpkgs-lib": "nixpkgs-lib"
       },
       "locked": {
-        "lastModified": 1787559586,
-        "narHash": "sha256-onL0VLf9vPllmT0H/OlURIU5r5t5WIEl7t4tVNKT0Nw=",
+        "lastModified": 1788306937,
+        "narHash": "sha256-lbrI1UYVpFgKSsyrU9oeF7FHfnu8nLD9ja0ou9f2rxk=",
         "owner": "hercules-ci",
         "repo": "flake-parts",
-        "rev": "9d0d87172c374f89da73c1cfe6d81ae62feac1f1",
+        "rev": "f16b25b8c3d2809b87925d0b76652d7821a75c68",
         "type": "github"
       },
       "original": {
@@ -888,11 +888,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788199093,
-        "narHash": "sha256-gh09zTgEsbnoWwrNPzIDajc/HoE446Sc3yKDCPFa7Xs=",
+        "lastModified": 1788355065,
+        "narHash": "sha256-gAz5oTI7ur34CfuakQduiQd/2ZhO62Bn2XXg08nZYYQ=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "f772b7f968365e7b2b70a860c509d214639556fe",
+        "rev": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
         "type": "github"
       },
       "original": {
@@ -929,11 +929,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788195614,
-        "narHash": "sha256-RAs3XTuzmGsyE9nKDUwxRagcXuzTbW2B17hULuoI/OA=",
+        "lastModified": 1788362542,
+        "narHash": "sha256-uCePjstz17izUyVvty/pmtZsxq6tKnG6J5VY7KEUWD8=",
         "owner": "MoonshotAI",
         "repo": "kimi-code",
-        "rev": "630a11db51ab0ac422cae6a10580b62c1ae8e05f",
+        "rev": "052e98ec17ac8d931873ef892fb0e1912aa401e0",
         "type": "github"
       },
       "original": {
@@ -1082,11 +1082,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788152092,
-        "narHash": "sha256-f4UUCtLuoTg3quGWFo8DvHH0rKnqnnzL74Ohw4BYHfQ=",
+        "lastModified": 1788321782,
+        "narHash": "sha256-sOg8M7qYl3mW8woJMVn00kVdzpH0EwezD9jneHYdgwE=",
         "owner": "nix-community",
         "repo": "nix-vscode-extensions",
-        "rev": "0185f854b1384a4fad802d3044845b58dc864bab",
+        "rev": "4633f7c14cd41bf0d2512fc8784c35181e063a5e",
         "type": "github"
       },
       "original": {
@@ -1148,11 +1148,11 @@
     },
     "nixpkgs-lib": {
       "locked": {
-        "lastModified": 1785031560,
-        "narHash": "sha256-OmshNvn2vupOFpYinLUu+1Dnpu4n7Q5N3ggGVNHpkUI=",
+        "lastModified": 1788057806,
+        "narHash": "sha256-DTQSMxzDWmT0zhguthvegnVkn7CFqGCv4IHCzk5ZUpM=",
         "owner": "nix-community",
         "repo": "nixpkgs.lib",
-        "rev": "0e79af5e3d4dcfcd676ab5ba3f95d2e3352e078c",
+        "rev": "596e2e3940e09b2abbeb03f75fa1828c57fcd72c",
         "type": "github"
       },
       "original": {
@@ -1178,11 +1178,11 @@
     },
     "nixpkgs-master": {
       "locked": {
-        "lastModified": 1788205561,
-        "narHash": "sha256-hkncj/QE32nEgZPdicNkfcw8/0hwZeTttavjiXjDeAs=",
+        "lastModified": 1788377164,
+        "narHash": "sha256-UxvTqddOs+SIQaf3FoQpyWdDPO3rzI75pjmLpa3rUZc=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "cd5fe9ec3aa2c93c2af6445dcf1bcf5e2196f55b",
+        "rev": "a4014feca5db2c1d7a8644f92aa5d6b3c38380d3",
         "type": "github"
       },
       "original": {
@@ -1681,11 +1681,11 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1788295577,
-        "narHash": "sha256-bmW3vcSGOztoWZ3Hm0hn4yIzzFpKt45TAS7hU3AEXUQ=",
+        "lastModified": 1788371310,
+        "narHash": "sha256-e/N+3zfpM9pTzggdeLKCT1KpZ9VvrRZlAwdYHtzSU7o=",
         "owner": "pcarrier",
         "repo": "yas",
-        "rev": "4a7db9c6bcdb69e0d457bd13b2551c9b0e2106ab",
+        "rev": "97f3ffe6875b5064cef9573284c6993b519d86cd",
         "type": "github"
       },
       "original": {

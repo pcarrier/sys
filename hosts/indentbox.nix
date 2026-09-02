@@ -88,7 +88,10 @@ lib.bare {
         # WebTransport is advertised on the standard HTTPS port. Keep the YAS
         # process on an unprivileged port and redirect only the UDP traffic;
         # TCP/443 continues to terminate at nginx.
-        networking.firewall.allowedUDPPorts = [ 443 ];
+        networking.firewall.allowedUDPPorts = [
+          443
+          10001
+        ];
         networking.nftables = {
           enable = true;
           tables.yas-webtransport-redirect = {
