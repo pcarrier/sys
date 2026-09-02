@@ -14,6 +14,7 @@ lib.bare {
           yas = {
             enable = true;
             users = [ "pcarrier" ];
+            audio.enable = true;
             edges.pcarrier = {
               port = 3264;
               passFile = "/etc/yas.env";
