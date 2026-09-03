@@ -1,6 +1,7 @@
 { lib }:
 lib.bare {
   name = "indentbox";
+  trusted = true;
   desktop = true;
   system = "x86_64-linux";
   hardware = ../hw/indentbox.nix;
