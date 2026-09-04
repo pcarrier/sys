@@ -20,13 +20,6 @@ lib.bare {
               port = 3264;
               passFile = "/etc/yas.env";
               trustedProxyIps = [ "127.0.0.1" ];
-              webTransport = {
-                enable = true;
-                addr = "0.0.0.0";
-                port = 3264;
-                publicPort = 443;
-                openFirewall = true;
-              };
             };
           };
           nginx = {
@@ -100,7 +93,7 @@ lib.bare {
             content = ''
               chain prerouting {
                 type nat hook prerouting priority dstnat; policy accept;
-                udp dport 443 redirect to :3264
+                udp dport 443 redirect to :10001
               }
 
               # Connections originating on indentbox route its public address
@@ -108,7 +101,7 @@ lib.bare {
               # destinations here so normal outbound HTTP/3 stays untouched.
               chain output {
                 type nat hook output priority dstnat; policy accept;
-                fib daddr type local udp dport 443 redirect to :3264
+                fib daddr type local udp dport 443 redirect to :10001
               }
             '';
           };
