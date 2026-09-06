@@ -6,7 +6,12 @@
   };
   programs._1password-gui.enable = true;
   services = {
-    tailscale.enable = true;
+    tailscale = {
+      enable = true;
+      extraSetFlags = [ "--advertise-exit-node" ];
+      openFirewall = true;
+      useRoutingFeatures = "server";
+    };
     fwupd.enable = true;
   };
   # PipeWire asks for SCHED_FIFO for its data loop and carries on silently
