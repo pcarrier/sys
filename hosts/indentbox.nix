@@ -60,6 +60,11 @@ lib.bare {
         };
         hardware.graphics.enable = true;
 
+        boot.kernel.sysctl = {
+          "net.ipv4.ip_forward" = 1;
+          "net.ipv6.conf.all.forwarding" = 1;
+        };
+
         # YAS is a Wayland-only compositor (no XWayland), so GUI apps launched
         # in a YAS terminal must use their Wayland backends — otherwise
         # X11-default apps (Electron/Cursor, Firefox, GTK, Qt) come up with no
