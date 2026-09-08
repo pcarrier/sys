@@ -354,8 +354,6 @@ lib.mkMerge [
           g = "${gitPackage}/bin/git";
           git = "${gitPackage}/bin/git";
           lg = "lazygit";
-          m = "ssh -t gorilla 'cd /src/monorepo; and exec fish -l'";
-          mk = "ssh -t komodo 'cd /src/monorepo; and exec fish -l'";
           n =
             if pkgs.stdenv.hostPlatform.isDarwin then
               "nh darwin switch --accept-flake-config ~/src/sys"
