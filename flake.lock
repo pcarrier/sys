@@ -1681,11 +1681,11 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1788815761,
-        "narHash": "sha256-JBDthWFvrFkKJm3h4vBFdfDHg7GP2PhvCCG+FY78S58=",
+        "lastModified": 1788918558,
+        "narHash": "sha256-LmyKLM/yMSvwIMcBdmQhnGpCV0BjXJ1asdKOK/nM29g=",
         "owner": "pcarrier",
         "repo": "yas",
-        "rev": "228ca02600253e8ea2709e4f6b7aa38a307ffce1",
+        "rev": "7bb0ea9a6b62fba0dcd43a575abf3c7e2c29ae16",
         "type": "github"
       },
       "original": {
