@@ -13,6 +13,26 @@ let
     config.allowUnfree = true;
   };
   gitPackage = pkgs.gitFull;
+  git-cow-worktree = pkgs.buildGoModule {
+    pname = "git-cow-worktree";
+    version = "0-unstable-2026-08-17";
+    src = pkgs.fetchFromGitHub {
+      owner = "josharian";
+      repo = "git-cow-worktree";
+      rev = "0f6852cebe494a29dd5fe28eb5077bdb8fda912c";
+      hash = "sha256-dbkFtFbGIdQ4ICm/KsqOfyAjof5iQu1yFo4P+3Va1cQ=";
+    };
+    vendorHash = "sha256-sp/KCEAbc/l54y+Ts/iplFnt/EGedxiypvt33fQYeQ8=";
+    subPackages = [ "." ];
+    env.CGO_ENABLED = 0;
+    ldflags = [
+      "-s"
+      "-w"
+    ];
+    nativeCheckInputs = [ pkgs.git ];
+    # These tests require reflinks, which aren't available in all build sandboxes.
+    checkFlags = [ "-skip=^TestE2E_(UnusableIndexRecovers|SkipsUnmaterializedSource)$" ];
+  };
   userEmail = "pc@rrier.fr";
   wtp = pkgs.buildGoModule rec {
     pname = "wtp";
@@ -47,6 +67,7 @@ lib.mkMerge [
     home.packages = [
       kimi-code.packages.${system}.default
       pkgs.agent-browser
+      git-cow-worktree
       wtp
     ];
     programs = {
