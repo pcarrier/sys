@@ -18,5 +18,6 @@ in
 
   flake.darwinConfigurations = {
     indentmac = import ../hosts/indentmac.nix { inherit lib; };
+    indentmbp = import ../hosts/indentmbp.nix { inherit lib; };
   };
 }
