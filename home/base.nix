@@ -21,6 +21,7 @@ lib.mkMerge [
           asciinema
           asciinema-agg
           bat
+          btop
           baze.packages.${system}.default
           yas.packages.${system}.yas
           code-cursor
@@ -31,6 +32,7 @@ lib.mkMerge [
           file
           flutter
           htop
+          hyperfine
           gnuplot
           jo
           jq

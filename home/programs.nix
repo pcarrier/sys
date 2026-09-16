@@ -102,9 +102,9 @@ lib.mkMerge [
         enable = true;
         package = pkgs-master.opencode;
       };
-      delta = {
+      difftastic = {
         enable = true;
-        enableGitIntegration = true;
+        git.enable = true;
       };
       bash.enable = true;
       direnv.enable = true;
