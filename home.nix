@@ -11,6 +11,8 @@
   edl-ng,
   claude-desktop,
   codex-desktop,
+  llm-agents,
+  zen-browser,
   kimi-code,
   nix-vscode-extensions,
   trusted ? false,
@@ -97,6 +99,8 @@
           edl-ng
           claude-desktop
           codex-desktop
+          llm-agents
+          zen-browser
           kimi-code
           trusted
           desktop

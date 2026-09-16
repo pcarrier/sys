@@ -11,6 +11,8 @@
   edl-ng,
   claude-desktop,
   codex-desktop,
+  llm-agents,
+  zen-browser,
   kimi-code,
   trusted ? false,
   desktop ? false,
@@ -25,6 +27,7 @@
       baze
       yas
       plenty
+      zen-browser
       ;
   })
   (import ./desktop.nix {
@@ -35,6 +38,7 @@
       edl-ng
       claude-desktop
       codex-desktop
+      llm-agents
       desktop
       ;
   })

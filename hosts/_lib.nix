@@ -19,6 +19,8 @@ let
       edl-ng
       claude-desktop
       codex-desktop
+      llm-agents
+      zen-browser
       determinate
       moo
       kimi-code

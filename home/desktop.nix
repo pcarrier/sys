@@ -5,6 +5,7 @@
   edl-ng,
   claude-desktop,
   codex-desktop,
+  llm-agents,
   desktop,
 }:
 let
@@ -46,6 +47,7 @@ lib.mkIf desktop {
     claude-desktop.packages.${system}.default
     codex-desktop.packages.${system}.default
     edl-ng.packages.${system}.default
+    llm-agents.packages.${system}.zcode
     legcord
     networkmanagerapplet
     pcmanfm-qt

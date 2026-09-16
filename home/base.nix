@@ -6,6 +6,7 @@
   baze,
   yas,
   plenty,
+  zen-browser,
 }:
 lib.mkMerge [
   {
@@ -99,7 +100,7 @@ lib.mkMerge [
             noto-fonts-color-emoji
             coppwr
             drm_info
-            firefox
+            zen-browser.packages.${system}.beta
             obs-studio
             lxqt.pavucontrol-qt
           ];
