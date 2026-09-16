@@ -391,6 +391,12 @@ lib.mkMerge [
           zed = "zeditor";
         };
         functions = {
+          fish_user_key_bindings.body = ''
+            for mode in default insert
+              bind --mode $mode enter 'commandline --insert \n' repaint
+              bind --mode $mode ctrl-enter execute
+            end
+          '';
           T.body = "$argv 2>&1 | ts";
           cm.body = ''g cm -m "$argv"'';
           nu.body = ''
