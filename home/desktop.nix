@@ -31,7 +31,7 @@ let
     name = "clip";
     src = pkgs.fetchurl {
       url = "https://raw.githubusercontent.com/sentriz/cliphist/refs/heads/master/contrib/cliphist-fuzzel-img";
-      sha256 = "sha256-NgQ87yZCusF/FYprJJ+fvkA3VdrvHp4LyylQ0ajBvjU=";
+      sha256 = "sha256-EtaxS5QQMU1j0Izj4W4jLU7eYadPwV9Xdu3tx+O9sNE=";
     };
     phases = [ "installPhase" ];
     installPhase = ''
