@@ -7,6 +7,7 @@ lib.bare {
   hardware = ../hw/indentbox.nix;
   extraModules = [
     ../feat/nvidia.nix
+    ../feat/waydroid.nix
     (
       { yas, ... }:
       {
