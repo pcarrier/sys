@@ -5,6 +5,7 @@
   system,
   tomorrowTheme,
   kimi-code,
+  llm-agents,
   trusted ? false,
 }:
 let
@@ -12,6 +13,7 @@ let
     inherit system;
     config.allowUnfree = true;
   };
+  opencode = llm-agents.packages.${system}.opencode2;
   gitPackage = pkgs.gitFull;
   git-cow-worktree = pkgs.buildGoModule {
     pname = "git-cow-worktree";
@@ -100,7 +102,7 @@ lib.mkMerge [
       };
       opencode = {
         enable = true;
-        package = pkgs-master.opencode;
+        package = opencode;
       };
       difftastic = {
         enable = true;
@@ -367,8 +369,8 @@ lib.mkMerge [
           clc = "${pkgs-master.claude-code}/bin/claude --dangerously-skip-permissions --verbose --continue";
           co = "${pkgs-master.codex}/bin/codex --dangerously-bypass-approvals-and-sandbox";
           coc = "${pkgs-master.codex}/bin/codex resume --last --dangerously-bypass-approvals-and-sandbox";
-          oc = ''env OPENCODE_PERMISSION='{"*":"allow"}' ${pkgs-master.opencode}/bin/opencode'';
-          occ = ''env OPENCODE_PERMISSION='{"*":"allow"}' ${pkgs-master.opencode}/bin/opencode --continue'';
+          oc = "${lib.getExe opencode} --auto";
+          occ = "${lib.getExe opencode} --auto --continue";
           ki = "${kimi-code.packages.${system}.default}/bin/kimi --yolo";
           kic = "${kimi-code.packages.${system}.default}/bin/kimi --resume --yolo";
           i = "${pkgs.uv}/bin/uvx indent";

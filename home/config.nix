@@ -51,6 +51,7 @@
       tomorrowTheme
       trusted
       kimi-code
+      llm-agents
       ;
   })
 ]
