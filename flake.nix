@@ -36,6 +36,10 @@
       url = "github:pcarrier/plenty";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    plz = {
+      url = "github:pcarrier/plz";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     edl-ng = {
       url = "github:strongtz/edl-ng";
       inputs.nixpkgs.follows = "nixpkgs";

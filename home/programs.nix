@@ -6,6 +6,7 @@
   tomorrowTheme,
   kimi-code,
   llm-agents,
+  plz,
   trusted ? false,
 }:
 let
@@ -71,6 +72,7 @@ lib.mkMerge [
       pkgs.agent-browser
       git-cow-worktree
       wtp
+      plz.packages.${system}.default
     ];
     programs = {
       zed-editor = {
@@ -394,15 +396,18 @@ lib.mkMerge [
         };
         functions = {
           fish_user_key_bindings.body = ''
+            ${lib.getExe plz.packages.${system}.default} init fish | source
             for mode in default insert
               bind --mode $mode enter 'commandline --insert \n' repaint
-              bind --mode $mode ctrl-enter execute
+              bind --mode $mode ctrl-enter __plz_execute
             end
           '';
           T.body = "$argv 2>&1 | ts";
           cm.body = ''g cm -m "$argv"'';
           nu.body = ''
-            set -l ref (git -C ${if pkgs.stdenv.hostPlatform.isDarwin then "~/src/sys" else "/src/sys"} rev-parse HEAD)
+            set -l ref (git -C ${
+              if pkgs.stdenv.hostPlatform.isDarwin then "~/src/sys" else "/src/sys"
+            } rev-parse HEAD)
             for host in $argv
               echo === $host ===
               ssh $host nh os switch github:pcarrier/sys/$ref --accept-flake-config

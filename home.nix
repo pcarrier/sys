@@ -8,6 +8,7 @@
   yas,
   tomorrowTheme,
   plenty,
+  plz,
   edl-ng,
   claude-desktop,
   codex-desktop,
@@ -96,6 +97,7 @@
           yas
           tomorrowTheme
           plenty
+          plz
           edl-ng
           claude-desktop
           codex-desktop

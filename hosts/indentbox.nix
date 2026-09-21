@@ -9,9 +9,10 @@ lib.bare {
     ../feat/nvidia.nix
     ../feat/waydroid.nix
     (
-      { yas, ... }:
+      { yas, llm-agents, ... }:
       {
         imports = [ yas.nixosModules.yas ];
+        environment.systemPackages = [ llm-agents.packages.x86_64-linux.hermes-agent ];
         services = {
           yas = {
             enable = true;

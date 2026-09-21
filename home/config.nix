@@ -8,6 +8,7 @@
   yas,
   tomorrowTheme,
   plenty,
+  plz,
   edl-ng,
   claude-desktop,
   codex-desktop,
@@ -52,6 +53,7 @@
       trusted
       kimi-code
       llm-agents
+      plz
       ;
   })
 ]

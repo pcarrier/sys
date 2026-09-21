@@ -1429,6 +1429,26 @@
         "type": "github"
       }
     },
+    "plz": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790034803,
+        "narHash": "sha256-W3wstTNffzFMRbjy9pSyjs9aLmsyDsa1TuM2zn/+TFY=",
+        "owner": "pcarrier",
+        "repo": "plz",
+        "rev": "5318e77be9d4f3db1f6b9e5881c1570f1a670127",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pcarrier",
+        "repo": "plz",
+        "type": "github"
+      }
+    },
     "pre-commit-hooks": {
       "inputs": {
         "flake-compat": [
@@ -1557,6 +1577,7 @@
         "nixpkgs": "nixpkgs_3",
         "nixpkgs-master": "nixpkgs-master",
         "plenty": "plenty",
+        "plz": "plz",
         "tomorrowTheme": "tomorrowTheme",
         "yas": "yas",
         "zen-browser": "zen-browser"

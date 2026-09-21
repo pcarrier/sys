@@ -9,6 +9,7 @@
   desktop,
 }:
 let
+  executor = llm-agents.packages.${system}.executor;
   wsConfig = pkgs.writeText "ws.yaml" ''
     version: "0.5"
     processes:
@@ -43,6 +44,7 @@ in
 lib.mkIf desktop {
   home.packages = with pkgs; [
     clip
+    executor
     ws
     claude-desktop.packages.${system}.default
     codex-desktop.packages.${system}.default
@@ -144,7 +146,33 @@ lib.mkIf desktop {
       };
     };
   };
+  systemd.user.services."sh.executor.daemon" = {
+    Unit.Description = "Executor MCP gateway";
+    Service = {
+      ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p %h/.executor";
+      ExecStart = "${lib.getExe executor} daemon run --foreground --port 4789 --hostname 127.0.0.1";
+      WorkingDirectory = "%h";
+      Environment = [
+        "EXECUTOR_SUPERVISED=1"
+        "EXECUTOR_DATA_DIR=%h/.executor"
+        "EXECUTOR_SCOPE_DIR=%h/.executor"
+        "EXECUTOR_SERVICE_VERSION=${executor.version}"
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
+      ];
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
   xdg = {
+    desktopEntries.executor = {
+      name = "Executor";
+      comment = "Manage MCP integrations and connections";
+      exec = "${lib.getExe executor} open";
+      icon = "applications-development";
+      categories = [ "Development" ];
+      terminal = false;
+    };
     portal = {
       enable = true;
       config.common = {

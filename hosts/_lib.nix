@@ -16,6 +16,7 @@ let
       baze
       yas
       plenty
+      plz
       edl-ng
       claude-desktop
       codex-desktop
