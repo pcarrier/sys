@@ -14,7 +14,17 @@ let
     inherit system;
     config.allowUnfree = true;
   };
-  opencode = llm-agents.packages.${system}.opencode2;
+  opencode = llm-agents.packages.${system}.opencode2.overrideAttrs (
+    old:
+    lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+      # OpenTUI loads clipboard backends with dlopen, so ELF dependency scanning
+      # misses them. Without these paths clipboard reads report "unsupported".
+      postFixup = (old.postFixup or "") + ''
+        wrapProgram $out/bin/opencode2 \
+          --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.wayland pkgs.libxcb ]}
+      '';
+    }
+  );
   gitPackage = pkgs.gitFull;
   git-cow-worktree = pkgs.buildGoModule {
     pname = "git-cow-worktree";
