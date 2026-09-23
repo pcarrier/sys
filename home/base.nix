@@ -71,6 +71,7 @@ lib.mkMerge [
           sysstat
         ]
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+          chatgpt
           raycast
         ];
       sessionVariables = {
