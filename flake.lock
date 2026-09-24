@@ -1819,11 +1819,11 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1790102005,
-        "narHash": "sha256-aEhLv4XErCwbU/rIgxsoHnSaDMXWZSrRd6k9b/4ofGo=",
+        "lastModified": 1790214845,
+        "narHash": "sha256-9R49ohhx5BHfMozQo28fjiurRh/p/Fc1wC3ck3p/S8o=",
         "owner": "pcarrier",
         "repo": "yas",
-        "rev": "db63103b8374c9b7e5e3d4ab486c5eb328f5f2da",
+        "rev": "8c108f06021e1f6d9dbdc5eeb9b68705b33ba8d4",
         "type": "github"
       },
       "original": {
