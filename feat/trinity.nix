@@ -65,7 +65,6 @@ in
     virtualHosts.${domain} = {
       enableACME = true;
       forceSSL = true;
-      basicAuthFile = "/etc/trinity.htpasswd";
       locations."/" = {
         proxyPass = "http://127.0.0.1:8301";
         proxyWebsockets = true;
