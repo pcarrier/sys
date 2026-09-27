@@ -1,29 +1,21 @@
-# Trinity's development stack, as it runs on the Mac: ~/src/trinity next to
+# Trinity's development stack, moved here from the Mac: ~/src/trinity next to
 # ~/src/flower, under process-compose in Trinity's dev shell (direnv), as
-# pcarrier. State stays in ~/src/trinity/.dev; secrets in its .env.local.
+# pcarrier. State stays in ~/src/trinity/.dev, secrets in its .env.local; the
+# unit starts once .env.local is there. `process-compose --use-uds
+# --unix-socket ~/src/trinity/.dev/pc.sock attach` (or `process logs NAME`).
 #
-# Before the first start: clone both repositories into ~/src, `direnv allow`
-# in ~/src/trinity, and bring .env.local and .dev over (or start fresh).
-# Then `sudo systemctl start trinity`; `process-compose --use-uds --unix-socket
-# ~/src/trinity/.dev/pc.sock attach` (or `process logs NAME`) from a shell.
-#
-# The web client and API stay on the tailnet, at https://indentbox.tail10cd.ts.net:8301,
-# with a Let's Encrypt certificate from Tailscale that every browser trusts:
-# with TRINITY_DEV_LOGIN anyone who reaches the gateway signs in as anyone.
-# In .env.local:
-#   TRINITY_URL=https://indentbox.tail10cd.ts.net:8301
+# Browsers reach it at https://trinity.pcarrier.com through nginx, behind HTTP
+# basic auth (/etc/trinity.htpasswd, outside the store, like /etc/code.htpasswd):
+# the stack keeps TRINITY_DEV_LOGIN, with which anyone who reaches the gateway
+# signs in as anyone. The gateway itself listens on loopback and the tailnet,
+# over plain HTTP, for the stack's own processes and the CLI. In .env.local:
+#   TRINITY_URL=http://127.0.0.1:8301
+#   TRINITY_PUBLIC_URL=https://trinity.pcarrier.com
 #   TRINITY_HOST=127.0.0.1,<`tailscale ip -4`>
-#   TRINITY_TLS_CERT_FILE=/var/lib/trinity-tls/cert.pem
-#   TRINITY_TLS_KEY_FILE=/var/lib/trinity-tls/key.pem
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ lib, pkgs, ... }:
 let
   root = "/home/pcarrier/src/trinity";
-  domain = "${config.networking.hostName}.tail10cd.ts.net";
+  domain = "trinity.pcarrier.com";
 in
 {
   # The stack's `sandboxes` process runs agents' sandbox computers in Docker.
@@ -33,22 +25,22 @@ in
   # Headless Chromium to check the web client over CDP.
   environment.systemPackages = [ pkgs.chromium ];
 
+  # Sessions and memory written on the Mac name /Users/pcarrier/… paths.
+  systemd.tmpfiles.rules = [
+    "d /Users 0755 root root -"
+    "L+ /Users/pcarrier - - - - /home/pcarrier"
+  ];
+
   systemd.services.trinity = {
     description = "Trinity development stack";
-    # Not started at boot yet: the Mac still runs the stack, and two stacks
-    # would share one Slack app's Socket Mode connection. At the cutover:
-    # wantedBy = [ "multi-user.target" ];
-    wants = [
-      "network-online.target"
-      "trinity-tls.service"
-    ];
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
     after = [
       "network-online.target"
       "docker.service"
       "tailscaled.service"
-      "trinity-tls.service"
     ];
-    unitConfig.ConditionPathExists = "${root}/.envrc";
+    unitConfig.ConditionPathExists = "${root}/.env.local";
     environment.PC_DISABLE_TUI = "1";
     serviceConfig = {
       User = "pcarrier";
@@ -67,47 +59,29 @@ in
     };
   };
 
-  # The gateway's certificate, renewed daily by tailscaled (which caches it
-  # and asks Let's Encrypt again only near expiry). A new one takes effect
-  # when the gateway restarts, so restart it when the certificate changed.
-  systemd.services.trinity-tls = {
-    description = "Tailscale certificate for Trinity's gateway";
-    wants = [ "network-online.target" ];
-    after = [
-      "network-online.target"
-      "tailscaled.service"
-    ];
-    path = [
-      config.services.tailscale.package
-      pkgs.coreutils
-      pkgs.process-compose
-      pkgs.util-linux
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      StateDirectory = "trinity-tls";
-      StateDirectoryMode = "0755";
-    };
-    script = ''
-      cd /var/lib/trinity-tls
-      before="$(cat cert.pem 2>/dev/null | sha256sum)"
-      tailscale cert --cert-file cert.pem --key-file key.pem ${domain}
-      chown pcarrier:users cert.pem key.pem
-      chmod 0644 cert.pem
-      chmod 0600 key.pem
-      if [ "$before" != "$(sha256sum < cert.pem)" ] && [ -S ${root}/.dev/pc.sock ]; then
-        runuser -u pcarrier -- process-compose --use-uds --unix-socket ${root}/.dev/pc.sock \
-          process restart gateway || true
-      fi
-    '';
-  };
-  systemd.timers.trinity-tls = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "daily";
-      OnBootSec = "1min";
-      Persistent = true;
-      RandomizedDelaySec = "1h";
+  services.nginx = {
+    enable = true;
+    recommendedProxySettings = true;
+    virtualHosts.${domain} = {
+      enableACME = true;
+      forceSSL = true;
+      basicAuthFile = "/etc/trinity.htpasswd";
+      locations."/" = {
+        proxyPass = "http://127.0.0.1:8301";
+        proxyWebsockets = true;
+        extraConfig = ''
+          proxy_buffering off;
+          proxy_request_buffering off;
+          client_max_body_size 1g;
+          # Watches (WebSocket and SSE) stay open while nothing changes.
+          proxy_read_timeout 1d;
+          proxy_send_timeout 1d;
+        '';
+      };
     };
   };
+  networking.firewall.allowedTCPPorts = [
+    80
+    443
+  ];
 }
