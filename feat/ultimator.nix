@@ -130,7 +130,16 @@ in
     dnsProvider = "namecheap";
     environmentFile = namecheapEnv;
     group = "nginx";
+    # Namecheap's own servers, not a caching resolver (the tailnet's), which may
+    # still hold the wildcard's CNAME for _acme-challenge.yas after lego writes
+    # the TXT record there.
+    dnsResolver = "dns1.registrar-servers.com:53";
   };
+  # The *.yas CNAME covers _acme-challenge.yas too, until the TXT record is
+  # there. lego would follow it and wait for the record at ultimator.app, while
+  # its Namecheap provider writes it at _acme-challenge.yas, which Let's
+  # Encrypt reads: don't follow CNAMEs.
+  systemd.services."acme-order-renew-${frames}".environment.LEGO_DISABLE_CNAME_SUPPORT = "true";
   networking.firewall.allowedTCPPorts = [
     80
     443
