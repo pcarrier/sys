@@ -8,7 +8,7 @@ lib.bare {
   extraModules = [
     ../feat/nvidia.nix
     ../feat/waydroid.nix
-    ../feat/trinity.nix
+    ../feat/ultimator.nix
     (
       { yas, llm-agents, ... }:
       {

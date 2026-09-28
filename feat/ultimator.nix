@@ -1,21 +1,21 @@
-# Trinity's development stack, moved here from the Mac: /src/trinity next to
-# /src/flower (under /src so agents' sandboxes, which bind it, read the code),
-# under process-compose in Trinity's dev shell (direnv), as pcarrier. State
-# stays in /src/trinity/.dev, secrets in its .env.local; the unit starts once
-# .env.local is there. `process-compose --use-uds --unix-socket
-# /src/trinity/.dev/pc.sock attach` (or `process logs NAME`).
+# Ultimator's development stack: /src/ultimator next to /src/flower (under /src
+# so agents' sandboxes, which bind it, read the code), under process-compose in
+# its dev shell (direnv), as pcarrier. State stays in /src/ultimator/.dev,
+# secrets in its .env.local; the unit starts once .env.local is there.
+# `process-compose --use-uds --unix-socket /src/ultimator/.dev/pc.sock attach`
+# (or `process logs NAME`).
 #
-# Browsers reach it at https://ultimator.app through nginx; Trinity's passkeys
-# guard it, and passkeys belong to that name. trinity.pcarrier.com, where it
-# lived before, and www.ultimator.app redirect there, keeping the path. The
-# gateway itself listens on loopback and the tailnet, over plain HTTP, for the
-# stack's own processes and the CLI. In .env.local:
-#   TRINITY_URL=http://127.0.0.1:8301
-#   TRINITY_PUBLIC_URL=https://ultimator.app
-#   TRINITY_HOST=127.0.0.1,indentbox.tail10cd.ts.net
+# Browsers reach it at https://ultimator.app through nginx; its passkeys guard
+# it, and passkeys belong to that name. trinity.pcarrier.com, its old name, and
+# www.ultimator.app redirect there, keeping the path. The gateway itself listens
+# on loopback and the tailnet, over plain HTTP, for the stack's own processes
+# and the CLI. In .env.local:
+#   ULTIMATOR_URL=http://127.0.0.1:8301
+#   ULTIMATOR_PUBLIC_URL=https://ultimator.app
+#   ULTIMATOR_HOST=127.0.0.1,indentbox.tail10cd.ts.net
 { lib, pkgs, ... }:
 let
-  root = "/src/trinity";
+  root = "/src/ultimator";
   domain = "ultimator.app";
   redirects = [
     "trinity.pcarrier.com"
@@ -36,8 +36,8 @@ in
     "L+ /Users/pcarrier - - - - /home/pcarrier"
   ];
 
-  systemd.services.trinity = {
-    description = "Trinity development stack";
+  systemd.services.ultimator = {
+    description = "Ultimator development stack";
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
     after = [
