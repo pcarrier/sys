@@ -13,6 +13,15 @@
 #   ULTIMATOR_URL=http://127.0.0.1:8301
 #   ULTIMATOR_PUBLIC_URL=https://ultimator.app
 #   ULTIMATOR_HOST=127.0.0.1,indentbox.tail10cd.ts.net
+#
+# Computers' YAS workspaces are framed from an origin of their own,
+# https://<computer>.yas.ultimator.app, which the same gateway serves by Host
+# (YAS runs a computer's own web pages on that origin, so never on
+# ultimator.app's). One wildcard certificate covers them: DNS-01 through
+# Namecheap's API, whose credentials (NAMECHEAP_API_USER, NAMECHEAP_API_KEY;
+# indentbox's address whitelisted there) live in /var/lib/secrets/acme-namecheap.env, root's
+# only. With the `*.yas` A record in place, in .env.local:
+#   ULTIMATOR_YAS_URL=https://*.yas.ultimator.app
 { lib, pkgs, ... }:
 let
   root = "/src/ultimator";
@@ -21,6 +30,14 @@ let
     "trinity.pcarrier.com"
     "www.ultimator.app"
   ];
+  frames = "yas.${domain}";
+  namecheapEnv = "/var/lib/secrets/acme-namecheap.env";
+  gateway = {
+    proxyPass = "http://127.0.0.1:8301";
+    extraConfig = ''
+      proxy_buffering off;
+    '';
+  };
 in
 {
   # The stack's `sandboxes` process runs agents' sandbox computers in Docker.
@@ -92,7 +109,21 @@ in
       forceSSL = true;
       globalRedirect = domain;
       redirectCode = 308;
-    });
+    })
+    # The frames: the gateway answers only the frame's own files there.
+    // {
+      "*.${frames}" = {
+        useACMEHost = frames;
+        forceSSL = true;
+        locations."/" = gateway;
+      };
+    };
+  };
+  security.acme.certs.${frames} = {
+    domain = "*.${frames}";
+    dnsProvider = "namecheap";
+    environmentFile = namecheapEnv;
+    group = "nginx";
   };
   networking.firewall.allowedTCPPorts = [
     80
