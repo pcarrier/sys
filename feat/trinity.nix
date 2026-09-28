@@ -1,21 +1,26 @@
-# Trinity's development stack, moved here from the Mac: ~/src/trinity next to
-# ~/src/flower, under process-compose in Trinity's dev shell (direnv), as
-# pcarrier. State stays in ~/src/trinity/.dev, secrets in its .env.local; the
-# unit starts once .env.local is there. `process-compose --use-uds
-# --unix-socket ~/src/trinity/.dev/pc.sock attach` (or `process logs NAME`).
+# Trinity's development stack, moved here from the Mac: /src/trinity next to
+# /src/flower (under /src so agents' sandboxes, which bind it, read the code),
+# under process-compose in Trinity's dev shell (direnv), as pcarrier. State
+# stays in /src/trinity/.dev, secrets in its .env.local; the unit starts once
+# .env.local is there. `process-compose --use-uds --unix-socket
+# /src/trinity/.dev/pc.sock attach` (or `process logs NAME`).
 #
-# Browsers reach it at https://trinity.pcarrier.com through nginx, behind HTTP
-# basic auth (/etc/trinity.htpasswd, outside the store, like /etc/code.htpasswd):
-# the stack keeps TRINITY_DEV_LOGIN, with which anyone who reaches the gateway
-# signs in as anyone. The gateway itself listens on loopback and the tailnet,
-# over plain HTTP, for the stack's own processes and the CLI. In .env.local:
+# Browsers reach it at https://ultimator.app through nginx; Trinity's passkeys
+# guard it, and passkeys belong to that name. trinity.pcarrier.com, where it
+# lived before, and www.ultimator.app redirect there, keeping the path. The
+# gateway itself listens on loopback and the tailnet, over plain HTTP, for the
+# stack's own processes and the CLI. In .env.local:
 #   TRINITY_URL=http://127.0.0.1:8301
-#   TRINITY_PUBLIC_URL=https://trinity.pcarrier.com
-#   TRINITY_HOST=127.0.0.1,<`tailscale ip -4`>
+#   TRINITY_PUBLIC_URL=https://ultimator.app
+#   TRINITY_HOST=127.0.0.1,indentbox.tail10cd.ts.net
 { lib, pkgs, ... }:
 let
-  root = "/home/pcarrier/src/trinity";
-  domain = "trinity.pcarrier.com";
+  root = "/src/trinity";
+  domain = "ultimator.app";
+  redirects = [
+    "trinity.pcarrier.com"
+    "www.ultimator.app"
+  ];
 in
 {
   # The stack's `sandboxes` process runs agents' sandbox computers in Docker.
@@ -62,22 +67,32 @@ in
   services.nginx = {
     enable = true;
     recommendedProxySettings = true;
-    virtualHosts.${domain} = {
+    virtualHosts = {
+      ${domain} = {
+        enableACME = true;
+        forceSSL = true;
+        locations."/" = {
+          proxyPass = "http://127.0.0.1:8301";
+          proxyWebsockets = true;
+          extraConfig = ''
+            proxy_buffering off;
+            proxy_request_buffering off;
+            client_max_body_size 1g;
+            # Watches (WebSocket and SSE) stay open while nothing changes.
+            proxy_read_timeout 1d;
+            proxy_send_timeout 1d;
+          '';
+        };
+      };
+    }
+    # Old links (Slack messages, bookmarks) land on the same page there; 308
+    # keeps the method and body, for clients that still post to the old name.
+    // lib.genAttrs redirects (_: {
       enableACME = true;
       forceSSL = true;
-      locations."/" = {
-        proxyPass = "http://127.0.0.1:8301";
-        proxyWebsockets = true;
-        extraConfig = ''
-          proxy_buffering off;
-          proxy_request_buffering off;
-          client_max_body_size 1g;
-          # Watches (WebSocket and SSE) stay open while nothing changes.
-          proxy_read_timeout 1d;
-          proxy_send_timeout 1d;
-        '';
-      };
-    };
+      globalRedirect = domain;
+      redirectCode = 308;
+    });
   };
   networking.firewall.allowedTCPPorts = [
     80
