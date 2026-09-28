@@ -44,6 +44,12 @@ in
   virtualisation.docker.enable = true;
   users.users.pcarrier.extraGroups = [ "docker" ];
 
+  # The gateway's YAS uplink relay (ULTIMATOR_UPLINK_PORT=4433 in .env.local):
+  # WebTransport over UDP, where computers' `yas uplink` producers hold their
+  # sessions, at https://ultimator.app:4433 with the self-signed certificate
+  # their relay addresses pin. Not 443: YAS's own WebTransport takes UDP 443 here.
+  networking.firewall.allowedUDPPorts = [ 4433 ];
+
   # Headless Chromium to check the web client over CDP.
   environment.systemPackages = [ pkgs.chromium ];
 
