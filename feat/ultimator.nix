@@ -66,7 +66,11 @@ in
   # WebTransport over UDP, where computers' `yas uplink` producers hold their
   # sessions, at https://ultimator.app:4433 with the self-signed certificate
   # their relay addresses pin. Not 443: YAS's own WebTransport takes UDP 443 here.
-  networking.firewall.allowedUDPPorts = [ 4433 ];
+  # And nginx's HTTP/3 for the web client, on 444 for the same reason.
+  networking.firewall.allowedUDPPorts = [
+    444
+    4433
+  ];
 
   # Headless Chromium to check the web client over CDP.
   environment.systemPackages = [ pkgs.chromium ];
@@ -158,6 +162,19 @@ in
       ${domain} = {
         enableACME = true;
         forceSSL = true;
+        # HTTP/3 on UDP 444 (UDP 443 is YAS's WebTransport, hosts/indentbox.nix),
+        # which browsers learn from Alt-Svc: one round trip to connect rather
+        # than TCP's and TLS's two, and no stall of every stream on one lost
+        # packet. Below 1024: Chrome ignores an alternative on a port from 1024
+        # up for an origin below it. No 0-RTT (ssl_early_data stays off): it
+        # would let a replayed POST run twice.
+        extraConfig = ''
+          listen 0.0.0.0:444 quic reuseport;
+          listen [::0]:444 quic reuseport;
+          http3 on;
+          quic_gso on;
+          add_header Alt-Svc 'h3=":444"; ma=86400' always;
+        '';
         locations."/" = {
           proxyPass = "http://127.0.0.1:8301";
           proxyWebsockets = true;
