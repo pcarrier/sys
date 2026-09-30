@@ -36,6 +36,9 @@
 #   ULTIMATOR_S3_REGION=garage
 #   ULTIMATOR_S3_ACCESS_KEY_ID=GK…
 #   ULTIMATOR_S3_SECRET_ACCESS_KEY=…
+# While `ultimatord blobs copy /src/ultimator/.dev/blobs` moves the old
+# directory store's blobs in, ULTIMATOR_BLOBS_FALLBACK=file:///src/ultimator/.dev/blobs
+# lets reads find those not moved yet (writes go to Garage alone).
 { lib, pkgs, ... }:
 let
   root = "/src/ultimator";
@@ -77,11 +80,16 @@ in
   systemd.services.ultimator = {
     description = "Ultimator development stack";
     wantedBy = [ "multi-user.target" ];
-    wants = [ "network-online.target" ];
+    # Garage holds the blobs; a stack started without it fails every blob read.
+    wants = [
+      "network-online.target"
+      "garage.service"
+    ];
     after = [
       "network-online.target"
       "docker.service"
       "tailscaled.service"
+      "garage.service"
     ];
     unitConfig.ConditionPathExists = "${root}/.env.local";
     environment.PC_DISABLE_TUI = "1";
