@@ -28,10 +28,12 @@ let
   ];
   tokenFile = "/var/lib/secrets/github-runner.token";
 
-  base = "/var/lib/github-runner";
+  base = "/var/lib/github-runner"; # the user's home
   root = "${base}/${host}"; # RUNNER_ROOT: .runner, .credentials; the runner's
   work = "${base}/_work/${host}"; # jobs' workspaces, emptied at each start
-  registered = "${base}/.${host}.registered"; # root's alone: what was registered
+  # Root's alone, what was registered (the token's copy too): in the user's home, which it may
+  # rename but not read, as the runner's own .credentials beside it are no safer.
+  registered = "${base}/.${host}.registered";
   logs = "/var/log/github-runner";
 
   # Apple's intermediate certificates for signing, which GitHub's own Macs have and a new Mac
@@ -93,7 +95,11 @@ let
     ]
   );
   env = [
-    "HOME=${work}"
+    # The user's home as directory services has it, which is where macOS's own frameworks look
+    # whatever HOME says: Xcode (simulators, provisioning profiles) and the Security framework, whose
+    # keychain search list and default keychain only stick when HOME is that directory and the user
+    # owns it ("Will not set default: UID=533 does not own directory").
+    "HOME=${base}"
     # As a login has them: XcodeGen, for one, stops without ("Couldn't find current username").
     "USER=${user}"
     "LOGNAME=${user}"
@@ -135,7 +141,9 @@ in
   system.activationScripts.launchd.text = lib.mkBefore ''
     echo >&2 "setting up the GitHub Actions runner..."
     install -d -m 0700 -o root -g wheel /var/lib/secrets
-    install -d -m 0755 -o root -g wheel ${base} ${base}/_work
+    # The user's home, its own (see HOME), private since jobs keep keys there for a while.
+    install -d -m 0700 -o ${toString id} -g ${toString id} ${base}
+    install -d -m 0755 -o root -g wheel ${base}/_work
     install -d -m 0700 -o ${toString id} -g ${toString id} ${root} ${work}
     install -d -m 0700 -o root -g wheel ${registered}
     install -d -m 0755 -o root -g wheel ${logs}
