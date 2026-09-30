@@ -9,6 +9,7 @@ lib.bare {
   extraModules = [
     ../feat/yas.nix
     ../feat/flatpak.nix
+    ../feat/github-runner.nix
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix
