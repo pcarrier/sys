@@ -90,6 +90,25 @@ in
   services.nginx = {
     enable = true;
     recommendedProxySettings = true;
+    # Access logs keep no query strings, for every virtual host here (logrotate
+    # keeps them 26 weeks): Ultimator's web client used to put people's sign-in
+    # tokens there (/blobs/…?token=, /drafts/…?token=), and queries still carry
+    # OAuth codes and states and short-lived grants. The path and the referrer's
+    # path stay; otherwise the lines are nginx's `combined`. (Error lines, in the
+    # journal, still quote a failed request whole.)
+    commonHttpConfig = ''
+      map $request_uri $request_path {
+        "~^(?<request_path_>[^?]*)" $request_path_;
+      }
+      map $http_referer $referer_path {
+        "" "-";
+        "~^(?<referer_path_>[^?]*)" $referer_path_;
+      }
+      log_format combined_noquery '$remote_addr - $remote_user [$time_local] '
+        '"$request_method $request_path $server_protocol" $status $body_bytes_sent '
+        '"$referer_path" "$http_user_agent"';
+      access_log /var/log/nginx/access.log combined_noquery;
+    '';
     virtualHosts = {
       ${domain} = {
         enableACME = true;
