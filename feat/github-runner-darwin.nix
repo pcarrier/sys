@@ -163,6 +163,10 @@ in
       KeepAlive = true;
       ThrottleInterval = 30;
       ProcessType = "Interactive";
+      # A security session of its own, as a login has: without one, codesign can't use
+      # the private key of a keychain a job makes and unlocks (errSecInternalComponent),
+      # which signing the desktop app does.
+      SessionCreate = true;
       WorkingDirectory = root;
       StandardOutPath = "${logs}/${host}.log";
       StandardErrorPath = "${logs}/${host}.log";
