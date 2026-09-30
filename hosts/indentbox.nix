@@ -73,7 +73,14 @@ lib.bare {
           "net.core.default_qdisc" = "fq";
           "net.ipv4.tcp_congestion_control" = "bbr";
           "net.ipv4.tcp_slow_start_after_idle" = 0;
+          # Writeback starts at 128 MB of dirty pages and writers wait past 1 GB, rather than at 10% and 20%
+          # of the memory free for them (some 3 and 6 GB): builds here write gigabytes at once, and flushing
+          # them in bursts held Flower's fsyncs (every Ultimator mutation waits on one) for 0.3 to 2.5 s.
+          "vm.dirty_background_bytes" = 134217728;
+          "vm.dirty_bytes" = 1073741824;
         };
+        # Builds free and rewrite gigabytes a day on a disk kept nearly full: tell the SSDs daily, not weekly.
+        services.fstrim.interval = "daily";
 
         # YAS is a Wayland-only compositor (no XWayland), so GUI apps launched
         # in a YAS terminal must use their Wayland backends — otherwise
