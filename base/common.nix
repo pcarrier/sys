@@ -36,6 +36,9 @@ in
     extra-substituters = [ "https://install.determinate.systems" ];
     extra-trusted-public-keys = [ "install.determinate.systems:ywrWBLviPMM0t4GBWfY8XFoQ1EYzp2vL44cBnN+dXOM=" ];
   };
+  # Dedup: nix-store --optimise hard-links the store's identical files, daily at 03:45 (+ up to
+  # 30 min), at idle CPU and IO priority, rather than auto-optimise-store's cost on every build.
+  nix.optimise.automatic = true;
   nixpkgs.config = {
     allowUnfree = true;
     allowBroken = true;

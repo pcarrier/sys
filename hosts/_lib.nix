@@ -158,6 +158,23 @@ let
             };
           };
           nix.enable = false;
+          # Dedup, as base/common.nix has NixOS do: nix.optimise asserts nix.enable, off here
+          # (Determinate runs Nix), so this is its launchd daemon, on Determinate's nix-store.
+          launchd.daemons.nix-optimise = {
+            command = "/nix/var/nix/profiles/default/bin/nix-store --optimise";
+            serviceConfig = {
+              RunAtLoad = false;
+              StartCalendarInterval = [
+                {
+                  Hour = 3;
+                  Minute = 45;
+                }
+              ];
+              ProcessType = "Background";
+              LowPriorityIO = true;
+              Nice = 19;
+            };
+          };
           nixpkgs.hostPlatform.system = system;
           networking.hostName = name;
           programs.fish.enable = true;
