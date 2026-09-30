@@ -63,9 +63,16 @@ lib.bare {
         };
         hardware.graphics.enable = true;
 
+        # BBR paces over fq and keeps its window across idle gaps, so pages
+        # opened from far away don't climb back up from slow start after
+        # each pause between requests.
+        boot.kernelModules = [ "tcp_bbr" ];
         boot.kernel.sysctl = {
           "net.ipv4.ip_forward" = 1;
           "net.ipv6.conf.all.forwarding" = 1;
+          "net.core.default_qdisc" = "fq";
+          "net.ipv4.tcp_congestion_control" = "bbr";
+          "net.ipv4.tcp_slow_start_after_idle" = 0;
         };
 
         # YAS is a Wayland-only compositor (no XWayland), so GUI apps launched
