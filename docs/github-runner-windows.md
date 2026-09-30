@@ -3,19 +3,68 @@
 crab (macOS, ARM64) and hound (Linux, X64) run xmit-dev's self-hosted runners
 from Nix: `feat/github-runner-darwin.nix` and `feat/github-runner.nix`. Windows
 isn't Nix-managed, so its runner is set up by hand, once, as described here.
-It registers with the same organisation. The Windows job xmit-dev runs today is
-the `windows-2025` leg of `.github/workflows/browser.yml` in
-xmit-dev/ultimator. It installs Rust 1.98.1 with `rustup`, then runs
-`cargo test -p ultimator-browser` against the Chrome installed in Program Files.
+It registers with the same organisation. The Windows job xmit-dev runs is
+the Windows leg of `.github/workflows/browser.yml` in xmit-dev/ultimator. It
+installs Rust 1.98.1 with `rustup`, then runs `cargo test -p ultimator-browser`
+against the Chrome installed in Program Files.
 
-A job gets this runner with `runs-on: [self-hosted, Windows, X64]`, or with
-`runs-on: [self-hosted, <vm-name>]` for this machine alone.
+## crab-win, the one in use
+
+xmit-dev's Windows runner today is **crab-win**: the Windows 11 VM (ARM64) in
+Parallels on crab. It has 4 vCPUs and 6 GiB, and its 256 GiB disk expands into
+crab's own. `browser.yml` sends it the Windows leg with
+`runs-on: [self-hosted, Windows, ARM64]`.
+
+- The runner is in `C:\actions-runner`. It runs as the service
+  `actions.runner.xmit-dev.crab-win`, as `NETWORK SERVICE`, and jobs run as
+  that account too.
+- [`github-runner-windows-setup.ps1`](github-runner-windows-setup.ps1)
+  installed what the job needs, the ARM64 builds of each:
+  - MSVC's ARM64 build tools and the Windows SDK (Build Tools 2022);
+  - Git for Windows, whose `bin` goes ahead of `System32` on the system PATH;
+  - Chrome's enterprise MSI;
+  - rustup for every account, in `C:\rust`, which `NETWORK SERVICE` may
+    write, since the workflow installs its own toolchain;
+  - long paths and Defender exclusions.
+
+  It then restarts the service, so the runner sees the new PATH. It runs
+  elevated and skips what's installed, so run it again for a new Git (change
+  its URL and SHA-256).
+- Admin goes through crab: `prlctl exec 'Windows 11' <command>` runs a command
+  in the guest as SYSTEM. Some things to know about it:
+  - give it `</dev/null`, or it swallows the rest of a script on stdin;
+  - it collapses `\\` to `\`, so write UNC paths as `C:\Mac\Home\…`;
+  - a long command line fails with "Unable to open new session".
+  - The guest sees only crab's `~/Desktop`, `~/Documents` and `~/Downloads`,
+    as `C:\Mac\Home\…`.
+
+  So the script went in through `~/Downloads`, and ran as a one-off SYSTEM
+  scheduled task, which keeps going when the ssh session ends. In bash on
+  crab (its login shell is fish), from a checkout of this repository:
+
+  ```bash
+  cp docs/github-runner-windows-setup.ps1 ~/Downloads/gha-setup.ps1
+  vm='Windows 11'
+  prlctl exec "$vm" powershell -NoProfile -Command "New-Item -ItemType Directory -Force C:\ProgramData\gha-setup | Out-Null; Copy-Item C:\Mac\Home\Downloads\gha-setup.ps1 C:\ProgramData\gha-setup\setup.ps1; Set-Content -Encoding ascii C:\ProgramData\gha-setup\run.cmd '@powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\gha-setup\setup.ps1'" </dev/null
+  rm ~/Downloads/gha-setup.ps1
+  prlctl exec "$vm" schtasks /create /f /tn gha-setup /ru SYSTEM /rl HIGHEST /sc once /st 23:59 /tr 'C:\ProgramData\gha-setup\run.cmd' </dev/null
+  prlctl exec "$vm" schtasks /run /tn gha-setup </dev/null
+  prlctl exec "$vm" cmd /c type 'C:\ProgramData\gha-setup\setup.log' </dev/null   # ends with DONE
+  prlctl exec "$vm" schtasks /delete /tn gha-setup /f </dev/null   # else it runs again at 23:59
+  ```
+
+- The rest of this document describes building another one from scratch, an
+  x86_64 VM on hound, as GitHub's `windows-2025` is.
+
+## Another one, on hound
+
+A job gets such a runner with `runs-on: [self-hosted, Windows, X64]`, or with
+`runs-on: [self-hosted, <vm-name>]` for that machine alone.
 
 ## 1. The VM
 
 Put it on **hound**: it's x86_64 with KVM, so the VM builds and tests the same
-x86_64 Windows that GitHub's `windows-2025` runs. A Windows VM on crab would be
-ARM64.
+x86_64 Windows that GitHub's `windows-2025` runs, where crab-win is ARM64.
 
 | | |
 |---|---|
