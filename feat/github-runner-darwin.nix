@@ -41,9 +41,13 @@ let
       name = host;
     }
   );
-  # What jobs find on PATH: the runner's own needs and what actions reach for,
-  # then Determinate's Nix and the system's. No Xcode command line tools here:
-  # /usr/bin/git and friends are stubs, so Nix's come first.
+  # What jobs find on PATH: the runner's own needs, what actions reach for and
+  # what xmit-dev/ultimator's macOS workflows call (rustup, npx, xcodegen), then
+  # Determinate's Nix and the system's, whose /usr/bin shims reach the Xcode
+  # command line tools (clang, lipo, notarytool, stapler). Those
+  # aren't Nix's: `softwareupdate` installs them, as Chrome for browser.yml
+  # goes in /Applications and a full Xcode for mobile-ios.yml comes from the
+  # App Store.
   path = lib.makeBinPath (
     with pkgs;
     [
@@ -59,9 +63,12 @@ let
       gnutar
       gzip
       jq
+      nodejs
       openssh
+      rustup
       unzip
       which
+      xcodegen
       xz
       zip
       zstd
