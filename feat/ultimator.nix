@@ -22,6 +22,20 @@
 # indentbox's address whitelisted there) live in /var/lib/secrets/acme-namecheap.env, root's
 # only. With the `*.yas` A record in place, in .env.local:
 #   ULTIMATOR_YAS_URL=https://*.yas.ultimator.app
+#
+# The stack's blobs (sealed history, attachments, long outputs, pictures) live
+# in Garage, an S3-compatible object store, on loopback alone: one node, one
+# copy, synced writes, as the directory store it replaced. Its RPC secret and
+# admin token (GARAGE_RPC_SECRET, GARAGE_ADMIN_TOKEN) live in
+# /var/lib/secrets/garage.env, root's only; `sudo garage …` administers it
+# (status, bucket info ultimator, key info ultimator). The stack's key, made
+# with `garage key create ultimator` and allowed on bucket `ultimator`, goes
+# in .env.local:
+#   ULTIMATOR_BLOBS=s3://ultimator
+#   ULTIMATOR_S3_ENDPOINT=http://127.0.0.1:3900
+#   ULTIMATOR_S3_REGION=garage
+#   ULTIMATOR_S3_ACCESS_KEY_ID=GK…
+#   ULTIMATOR_S3_SECRET_ACCESS_KEY=…
 { lib, pkgs, ... }:
 let
   root = "/src/ultimator";
@@ -32,6 +46,7 @@ let
   ];
   frames = "yas.${domain}";
   namecheapEnv = "/var/lib/secrets/acme-namecheap.env";
+  garageEnv = "/var/lib/secrets/garage.env";
   gateway = {
     proxyPass = "http://127.0.0.1:8301";
     extraConfig = ''
@@ -84,6 +99,28 @@ in
       KillMode = "mixed";
       TimeoutStopSec = 90;
       LimitNOFILE = 1048576;
+    };
+  };
+
+  services.garage = {
+    enable = true;
+    package = pkgs.garage_2;
+    environmentFile = garageEnv;
+    settings = {
+      replication_factor = 1;
+      db_engine = "lmdb";
+      # Written through before S3 answers, as the directory store synced its files: the log's
+      # sealed events leave Flower once their copy is here.
+      metadata_fsync = true;
+      data_fsync = true;
+      metadata_auto_snapshot_interval = "6h";
+      rpc_bind_addr = "127.0.0.1:3901";
+      rpc_public_addr = "127.0.0.1:3901";
+      s3_api = {
+        s3_region = "garage";
+        api_bind_addr = "127.0.0.1:3900";
+      };
+      admin.api_bind_addr = "127.0.0.1:3903";
     };
   };
 
