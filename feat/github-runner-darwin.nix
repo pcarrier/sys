@@ -34,6 +34,24 @@ let
   registered = "${base}/.${host}.registered"; # root's alone: what was registered
   logs = "/var/log/github-runner";
 
+  # Apple's intermediate certificates for signing, which GitHub's own Macs have and a new Mac
+  # lacks: without them codesign can't build the chain to Apple's root ("unable to build chain to
+  # self-signed root") and stops with errSecInternalComponent. The System keychain gets them, as
+  # an admin's double-click on Apple's .cer would put them there.
+  appleIntermediate =
+    name: hash:
+    pkgs.fetchurl {
+      url = "https://www.apple.com/certificateauthority/${name}.cer";
+      name = "${name}.cer";
+      inherit hash;
+    };
+  appleIntermediates = [
+    # Developer ID, G2: what desktop-macos.yml's Developer ID Application certificate chains to.
+    (appleIntermediate "DeveloperIDG2CA" "sha256-8WzTxUx/g86kvxo+aggZyKqo5KFSj9FEcV81BkPS3zo=")
+    # Worldwide Developer Relations, G3: what mobile-ios.yml's Apple Distribution one chains to.
+    (appleIntermediate "AppleWWDRCAG3" "sha256-3PIYeMd/QZjktGFPA9aW2JxmxmAI1CROG5kWGqyRYB8=")
+  ];
+
   runner = pkgs.github-runner;
   registration = pkgs.writeText "github-runner-${host}.json" (
     builtins.toJSON {
@@ -76,16 +94,23 @@ let
   );
   env = [
     "HOME=${work}"
+    # As a login has them: XcodeGen, for one, stops without ("Couldn't find current username").
+    "USER=${user}"
+    "LOGNAME=${user}"
     "RUNNER_ROOT=${root}"
     "PATH=${path}:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     "LANG=en_US.UTF-8"
     "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
     "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
   ];
-  # sudo resets the environment; env sets what the runner gets. Registration
-  # alone passes the token through, in the environment rather than argv.
-  asRunner = "/usr/bin/sudo -u ${user} -- /usr/bin/env -i ${lib.escapeShellArgs env}";
-  registerAsRunner = "/usr/bin/sudo --preserve-env=ACTIONS_RUNNER_INPUT_PAT,ACTIONS_RUNNER_INPUT_TOKEN -u ${user} -- /usr/bin/env ${lib.escapeShellArgs env}";
+  # launchctl asuser runs it in the user's own bootstrap (user/533), as a login's processes run, rather
+  # than the system's, where a daemon starts: there macOS has no per-user directories for the user
+  # (confstr's DARWIN_USER_TEMP_DIR and friends), and Chrome stops at once ("Failed to get the path
+  # for 1001"). sudo resets the environment; env sets what the runner gets. Registration alone passes
+  # the token through, in the environment rather than argv.
+  asUser = "/bin/launchctl asuser ${toString id}";
+  asRunner = "${asUser} /usr/bin/sudo -u ${user} -- /usr/bin/env -i ${lib.escapeShellArgs env}";
+  registerAsRunner = "${asUser} /usr/bin/sudo --preserve-env=ACTIONS_RUNNER_INPUT_PAT,ACTIONS_RUNNER_INPUT_TOKEN -u ${user} -- /usr/bin/env ${lib.escapeShellArgs env}";
 in
 {
   users = {
@@ -114,6 +139,13 @@ in
     install -d -m 0700 -o ${toString id} -g ${toString id} ${root} ${work}
     install -d -m 0700 -o root -g wheel ${registered}
     install -d -m 0755 -o root -g wheel ${logs}
+    for cert in ${toString appleIntermediates}; do
+      sum=$(/usr/bin/shasum -a 256 "$cert" | /usr/bin/cut -d ' ' -f 1)
+      if ! /usr/bin/security find-certificate -a -Z /Library/Keychains/System.keychain |
+        /usr/bin/grep -qi "SHA-256 hash: $sum"; then
+        /usr/bin/security add-certificates -k /Library/Keychains/System.keychain "$cert"
+      fi
+    done
   '';
 
   launchd.daemons.github-runner = {
@@ -163,9 +195,8 @@ in
       KeepAlive = true;
       ThrottleInterval = 30;
       ProcessType = "Interactive";
-      # A security session of its own, as a login has: without one, codesign can't use
-      # the private key of a keychain a job makes and unlocks (errSecInternalComponent),
-      # which signing the desktop app does.
+      # A security (audit) session of its own, as a login has, rather than the one every system
+      # daemon shares: the keychains a job makes and unlocks to sign stay the job's.
       SessionCreate = true;
       WorkingDirectory = root;
       StandardOutPath = "${logs}/${host}.log";
