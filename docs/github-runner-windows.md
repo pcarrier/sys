@@ -1,28 +1,28 @@
 # A GitHub Actions runner on a Windows VM
 
-crab (macOS, ARM64) and hound (Linux, X64) run yas-run's self-hosted runners
+crab (macOS, ARM64) and hound (Linux, X64) run xmit-dev's self-hosted runners
 from Nix: `feat/github-runner-darwin.nix` and `feat/github-runner.nix`. Windows
 isn't Nix-managed, so its runner is set up by hand, once, as described here.
-It serves the same organisation, and the same jobs as
-`.github/workflows/_build-windows.yml` in yas-run/yas: it builds the web UI
-(wasm-pack, pnpm, bun), then `cargo build --release -p yas-cli`, then the
-workspace's tests, and zips `yas.exe` with 7-Zip.
+It registers with the same organisation. The Windows job xmit-dev runs today is
+the `windows-2025` leg of `.github/workflows/browser.yml` in
+xmit-dev/ultimator. It installs Rust 1.98.1 with `rustup`, then runs
+`cargo test -p ultimator-browser` against the Chrome installed in Program Files.
 
 A job gets this runner with `runs-on: [self-hosted, Windows, X64]`, or with
 `runs-on: [self-hosted, <vm-name>]` for this machine alone.
 
 ## 1. The VM
 
-Put it on **hound**. It's x86_64 with KVM, so the VM builds the
-`windows_x86_64` artifacts that yas ships. A Windows VM on crab would be ARM64
-and would build something else.
+Put it on **hound**: it's x86_64 with KVM, so the VM builds and tests the same
+x86_64 Windows that GitHub's `windows-2025` runs. A Windows VM on crab would be
+ARM64.
 
 | | |
 |---|---|
 | OS | **Windows Server 2025** (Desktop Experience). It's what `windows-2025` runs, and it needs no TPM. The evaluation edition runs 180 days (`slmgr /dlv`); after that, rearm it or license it. Windows 11 Pro works too, but needs the TPM below. |
 | CPU | 8–12 vCPUs, `host-passthrough` |
-| Memory | 16–24 GiB. Linking `yas-cli` and running the tests in parallel wants 16. |
-| Disk | 200 GiB VirtIO, qcow2 on `tank`. A cold Rust target dir plus `node_modules` comes to about 30 GiB. |
+| Memory | 16–24 GiB. Rust links and Chrome both want room. |
+| Disk | 200 GiB VirtIO, qcow2 on `tank`. Cargo's target directories grow fast. |
 | Firmware | UEFI (OVMF). Secure Boot is optional. |
 | Network | libvirt's NAT (`default` network). The runner only dials out to GitHub. |
 
@@ -88,33 +88,36 @@ on its own afterwards.
 
 ### Tools the Windows jobs don't install themselves
 
-The actions in `_build-windows.yml` download Rust (`dtolnay/rust-toolchain`),
-wasm-pack, pnpm, Node and Bun into the runner's tool cache on each run. Four
-things have to already be on the machine, as they are on GitHub's image:
+GitHub's image already has these, and `browser.yml` counts on them:
 
 ```powershell
 winget install --scope machine -e --id Git.Git              # bash, for `shell: bash` steps
-winget install --scope machine -e --id 7zip.7zip            # the "Package zips" step
+winget install --scope machine -e --id Google.Chrome        # the browser the test drives, in Program Files
 winget install --scope machine -e --id Microsoft.PowerShell # pwsh, the default `run:` shell
 winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override `
   "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
                                                            # MSVC and the Windows SDK, which rustc's msvc target links with
 ```
 
-Then put Git's `bin` and 7-Zip on the **system** PATH, ahead of
-`C:\Windows\System32`. If `System32\bash.exe` (WSL) came first, `shell: bash`
-steps would run in WSL.
+Then put Git's `bin` on the **system** PATH, ahead of `C:\Windows\System32`.
+If `System32\bash.exe` (WSL) came first, `shell: bash` steps would run in WSL.
 
 ```powershell
 $p = [Environment]::GetEnvironmentVariable("Path", "Machine")
-[Environment]::SetEnvironmentVariable("Path",
-  "C:\Program Files\Git\bin;C:\Program Files\7-Zip;$p", "Machine")
+[Environment]::SetEnvironmentVariable("Path", "C:\Program Files\Git\bin;$p", "Machine")
 git config --system core.longpaths true
 ```
 
-`dtolnay/rust-toolchain` needs `rustup`. If the first job reports it missing,
-install it as `gha`: `runas /user:gha "winget install -e --id Rustlang.Rustup"`.
-It installs per user, into `C:\Users\gha\.cargo`.
+The workflow calls `rustup` itself, so rustup has to be installed for the
+account the jobs run as. It installs per user, into `C:\Users\gha\.cargo`, and
+puts that on gha's PATH:
+
+```powershell
+runas /user:gha "winget install -e --id Rustlang.Rustup"
+```
+
+(Add 7-Zip, Node and so on when a job wants them. `actions/setup-node` and the
+like download into the runner's tool cache on their own.)
 
 ### Faster builds
 
@@ -134,10 +137,10 @@ On a machine with the org-admin `gh` login, get a registration token. It is
 good for an hour:
 
 ```sh
-gh api -X POST orgs/yas-run/actions/runners/registration-token --jq .token
+gh api -X POST orgs/xmit-dev/actions/runners/registration-token --jq .token
 ```
 
-(Or: github.com/organizations/yas-run/settings/actions/runners → **New
+(Or: github.com/organizations/xmit-dev/settings/actions/runners → **New
 runner** → Windows, where the page shows the token.)
 
 In the VM, in an elevated PowerShell, get the latest release from
@@ -153,7 +156,7 @@ Invoke-WebRequest -OutFile runner.zip `
 Expand-Archive runner.zip -DestinationPath .; rm runner.zip
 
 .\config.cmd --unattended `
-  --url https://github.com/yas-run `
+  --url https://github.com/xmit-dev `
   --token <TOKEN> `
   --name <vm-name> `
   --labels <vm-name> `
@@ -165,7 +168,7 @@ Expand-Archive runner.zip -DestinationPath .; rm runner.zip
 ```
 
 `config.cmd` grants `gha` "Log on as a service". It installs a service named
-`actions.runner.yas-run.<vm-name>` that starts at boot:
+`actions.runner.xmit-dev.<vm-name>` that starts at boot:
 `Get-Service actions.runner.*`. Its logs are in `C:\actions-runner\_diag`.
 
 Unlike the Nix runners, which are pinned (`--disableupdate`) and move with
@@ -175,7 +178,7 @@ that way. GitHub stops giving jobs to runners that fall too far behind.
 Check that it's online:
 
 ```sh
-gh api orgs/yas-run/actions/runners --jq '.runners[] | "\(.name) \(.os) \(.status) \([.labels[].name]|join(","))"'
+gh api orgs/xmit-dev/actions/runners --jq '.runners[] | "\(.name) \(.os) \(.status) \([.labels[].name]|join(","))"'
 ```
 
 A job can then use `runs-on: [self-hosted, Windows, X64]` in place of
@@ -183,14 +186,14 @@ A job can then use `runs-on: [self-hosted, Windows, X64]` in place of
 
 ## 4. Safety
 
-yas-run/yas is public, and this runner keeps its state between jobs. The org's
-Default runner group allows public repositories, so any of the org's
-workflows can land here. Two things keep strangers' code off the VM:
+The runner keeps its state between jobs, and whatever a job leaves behind is
+there for the next one. What reaches it:
 
-- The repository asks for approval before running workflows from **any**
-  outside contributor (Settings → Actions → General → "Require approval for
-  all outside collaborators"). Read a fork's workflow changes before
-  approving its run.
+- The org's Default runner group keeps to **private** repositories, which is
+  GitHub's default. So only xmit-dev's private repositories (xmit-dev/ultimator
+  among them) can send jobs here, and forks of its public ones can't. Keep it
+  that way. If a public repository needs it, give it its own runner group, and
+  require approval for all outside contributors' workflow runs.
 - It's a VM: nothing of hound's is inside it. Once it's set up, take a
   snapshot (`virsh snapshot-create-as <vm-name> clean`), and revert to it if
   anything looks off.
@@ -198,7 +201,7 @@ workflows can land here. Two things keep strangers' code off the VM:
 ## Removing it
 
 ```powershell
-# token from: gh api -X POST orgs/yas-run/actions/runners/remove-token --jq .token
+# token from: gh api -X POST orgs/xmit-dev/actions/runners/remove-token --jq .token
 cd C:\actions-runner
 .\config.cmd remove --token <REMOVE_TOKEN>
 ```

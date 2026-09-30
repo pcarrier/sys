@@ -1,10 +1,10 @@
-# A GitHub Actions runner for the yas-run organisation, named after the host
+# A GitHub Actions runner for the xmit-dev organisation, named after the host
 # and labelled `nix` and the host's name, next to GitHub's own `self-hosted`,
 # `Linux` and `X64` (or `ARM64`): `runs-on: [self-hosted, hound]`.
 #
 # It registers with /var/lib/secrets/github-runner.token, which holds either a
 # registration token (org › Settings › Actions › Runners › New runner, or
-# `gh api -X POST orgs/yas-run/actions/runners/registration-token --jq .token`;
+# `gh api -X POST orgs/xmit-dev/actions/runners/registration-token --jq .token`;
 # good for an hour) or a fine-grained PAT with read and write on the org's
 # self-hosted runners. The runner keeps its own credentials in
 # /var/lib/github-runner/<host> once registered, so a registration token is only
@@ -12,9 +12,8 @@
 # service then registers anew, replacing the old runner of the same name.
 # Write the file without a trailing newline (`printf %s`).
 #
-# yas-run/yas is public: the org's Default runner group allows public
-# repositories, and the repository asks approval before running workflows from
-# any outside contributor.
+# The org's Default runner group keeps to private repositories (GitHub's
+# default), so forks of xmit-dev's public ones never reach these machines.
 {
   config,
   pkgs,
@@ -45,7 +44,7 @@ in
 
   services.github-runners.${host} = {
     enable = true;
-    url = "https://github.com/yas-run";
+    url = "https://github.com/xmit-dev";
     tokenFile = "/var/lib/secrets/github-runner.token";
     name = host;
     replace = true;

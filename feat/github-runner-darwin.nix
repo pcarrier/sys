@@ -1,4 +1,4 @@
-# A GitHub Actions runner for the yas-run organisation on a Mac, named after
+# A GitHub Actions runner for the xmit-dev organisation on a Mac, named after
 # the host and labelled `nix` and the host's name, next to GitHub's own
 # `self-hosted`, `macOS` and `ARM64`: `runs-on: [self-hosted, crab]`.
 # feat/github-runner.nix is the NixOS one; the token file works the same way.
@@ -21,7 +21,7 @@ let
   # uid and gid 533, as nix-darwin's module picks: free on these Macs, and
   # hidden from the login window.
   id = 533;
-  url = "https://github.com/yas-run";
+  url = "https://github.com/xmit-dev";
   labels = [
     "nix"
     host
