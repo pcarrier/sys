@@ -25,41 +25,40 @@ lib.bare {
               trustedProxyIps = [ "127.0.0.1" ];
             };
           };
-          nginx = {
-            enable = true;
-            recommendedProxySettings = true;
-            virtualHosts = {
-              "yas.pierre.dev.indent.sh" = {
-                enableACME = true;
-                forceSSL = true;
-                locations."/" = {
-                  proxyPass = "http://127.0.0.1:3264/";
-                  proxyWebsockets = true;
-                  extraConfig = ''
-                    proxy_buffering off;
-                    proxy_request_buffering off;
-                    tcp_nodelay on;
-                  '';
-                };
-              };
-              # Dev edge (YAS built from source, run by hand on :10000).
-              # Mirrors yasdev.pcarrier.com in feat/yas.nix.
-              "yasdev.pierre.dev.indent.sh" = {
-                enableACME = true;
-                forceSSL = true;
-                locations."/" = {
-                  proxyPass = "http://127.0.0.1:10000/";
-                  proxyWebsockets = true;
-                  extraConfig = ''
-                    proxy_buffering off;
-                    proxy_request_buffering off;
-                    tcp_nodelay on;
-                  '';
-                };
-              };
+          # Behind Caddy (feat/ultimator.nix), which logs them to its access
+          # log (`import logged`, `logFormat = null`) and redirects port 80.
+          caddy.virtualHosts = {
+            "yas.pierre.dev.indent.sh" = {
+              hostName = "https://yas.pierre.dev.indent.sh";
+              useACMEHost = "yas.pierre.dev.indent.sh";
+              logFormat = null;
+              extraConfig = ''
+                import logged
+                reverse_proxy 127.0.0.1:3264 {
+                  flush_interval -1
+                }
+              '';
+            };
+            # Dev edge (YAS built from source, run by hand on :10000).
+            # Mirrors yasdev.pcarrier.com in feat/yas.nix.
+            "yasdev.pierre.dev.indent.sh" = {
+              hostName = "https://yasdev.pierre.dev.indent.sh";
+              useACMEHost = "yasdev.pierre.dev.indent.sh";
+              logFormat = null;
+              extraConfig = ''
+                import logged
+                reverse_proxy 127.0.0.1:10000 {
+                  flush_interval -1
+                }
+              '';
             };
           };
           tailscale.enable = true;
+        };
+        # HTTP-01 through the webroot Caddy serves on port 80.
+        security.acme.certs = {
+          "yas.pierre.dev.indent.sh".webroot = "/var/lib/acme/acme-challenge";
+          "yasdev.pierre.dev.indent.sh".webroot = "/var/lib/acme/acme-challenge";
         };
         hardware.graphics.enable = true;
 
@@ -101,32 +100,20 @@ lib.bare {
           80
           443
         ];
-        # WebTransport is advertised on the standard HTTPS port. Keep the YAS
-        # process on an unprivileged port and redirect only the UDP traffic;
-        # TCP/443 continues to terminate at nginx.
+        # YAS's own WebTransport, on its own port. UDP 443 used to be
+        # redirected here (nftables, prerouting and output); since 10-01 it is
+        # Caddy's HTTP/3 (feat/ultimator.nix).
         networking.firewall.allowedUDPPorts = [
-          443
           10001
         ];
         networking.nftables = {
           enable = true;
-          tables.yas-webtransport-redirect = {
-            family = "inet";
-            content = ''
-              chain prerouting {
-                type nat hook prerouting priority dstnat; policy accept;
-                udp dport 443 redirect to :10001
-              }
-
-              # Connections originating on indentbox route its public address
-              # through lo, bypassing prerouting. Redirect only local
-              # destinations here so normal outbound HTTP/3 stays untouched.
-              chain output {
-                type nat hook output priority dstnat; policy accept;
-                fib daddr type local udp dport 443 redirect to :10001
-              }
-            '';
-          };
+          # The redirect's table, gone from `tables`, which only cleans up the
+          # tables it still lists.
+          extraDeletions = ''
+            table inet yas-webtransport-redirect;
+            delete table inet yas-webtransport-redirect;
+          '';
         };
         networking.firewall.interfaces.tailscale0 = {
           allowedTCPPortRanges = [

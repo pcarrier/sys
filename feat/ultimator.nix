@@ -5,7 +5,7 @@
 # `process-compose --use-uds --unix-socket /src/ultimator/.dev/pc.sock attach`
 # (or `process logs NAME`).
 #
-# Browsers reach it at https://ultimator.app through nginx; its passkeys guard
+# Browsers reach it at https://ultimator.app through Caddy; its passkeys guard
 # it, and passkeys belong to that name. trinity.pcarrier.com, its old name, and
 # www.ultimator.app redirect there, keeping the path. The gateway itself listens
 # on loopback and the tailnet, over plain HTTP, for the stack's own processes
@@ -50,12 +50,19 @@ let
   frames = "yas.${domain}";
   namecheapEnv = "/var/lib/secrets/acme-namecheap.env";
   garageEnv = "/var/lib/secrets/garage.env";
-  gateway = {
-    proxyPass = "http://127.0.0.1:8301";
-    extraConfig = ''
-      proxy_buffering off;
-    '';
-  };
+  # Responses go out as the gateway writes them (watches, the log), request
+  # bodies stream in, and streams open when Caddy reloads (certificate renewals
+  # reload it) get ten minutes to end on their own rather than being cut.
+  gateway = ''
+    reverse_proxy 127.0.0.1:8301 {
+      flush_interval -1
+      stream_close_delay 10m
+    }
+  '';
+  # Certificates stay lego's (security.acme), as under nginx: HTTP-01 through
+  # the webroot that Caddy's port 80 serves (below), DNS-01 for the frames'
+  # wildcard.
+  webroot = "/var/lib/acme/acme-challenge";
 in
 {
   # The stack's `sandboxes` process runs agents' sandbox computers in Docker.
@@ -65,9 +72,11 @@ in
   # The gateway's YAS uplink relay (ULTIMATOR_UPLINK_PORT=4433 in .env.local):
   # WebTransport over UDP, where computers' `yas uplink` producers hold their
   # sessions, at https://ultimator.app:4433 with the self-signed certificate
-  # their relay addresses pin. Not 443: YAS's own WebTransport takes UDP 443 here.
-  # And nginx's HTTP/3 for the web client, on 444 for the same reason.
+  # their relay addresses pin. Not 443: Caddy's HTTP/3 takes UDP 443.
+  # UDP 444 is where nginx served HTTP/3 (Alt-Svc h3=":444", kept by browsers
+  # for a day): Caddy answers there too until those entries have expired.
   networking.firewall.allowedUDPPorts = [
+    443
     444
     4433
   ];
@@ -136,86 +145,128 @@ in
     };
   };
 
-  services.nginx = {
+  # Caddy terminates HTTPS for every name here (hosts/indentbox.nix adds YAS's
+  # own), over HTTP/1.1, HTTP/2 and HTTP/3 (one round trip to connect rather
+  # than TCP's and TLS's two, and no stall of every stream on one lost packet).
+  # It replaced nginx on 10-01: Apple's QUIC client gives itself no connection
+  # ID (a zero-length one), and once such a client's address changed (a NAT
+  # rebinding, Wi-Fi to cellular, the app coming back on screen), nginx's QUIC
+  # dropped every packet it sent, wanting a connection ID of the client's for
+  # the new path that the client can't give: the phone app's requests hung
+  # until iOS gave up on the connection, 5 to 26 s later. quic-go, under Caddy,
+  # moves the connection to the new path. No 0-RTT: it would let a replayed
+  # POST run twice. Its admin API, which reloads use, listens on a socket only
+  # caddy opens rather than on localhost:2019, where anyone here could change
+  # what it serves (and serve its keys).
+  #
+  # The access log (/var/log/caddy/access.log, JSON, kept 26 weeks) keeps no
+  # query strings and no headers but the user agent and the referrer's path:
+  # Ultimator's web client used to put people's sign-in tokens in queries
+  # (/blobs/…?token=, /drafts/…?token=), and queries still carry OAuth codes and
+  # states and short-lived grants. Each site logs there with `import logged`
+  # and `logFormat = null`, here and in hosts/indentbox.nix: the module's
+  # default logFormat writes a file of the site's own, headers whole. (Error
+  # lines, in the journal, may still quote a request.)
+  services.caddy = {
     enable = true;
-    recommendedProxySettings = true;
-    # Access logs keep no query strings, for every virtual host here (logrotate
-    # keeps them 26 weeks): Ultimator's web client used to put people's sign-in
-    # tokens there (/blobs/…?token=, /drafts/…?token=), and queries still carry
-    # OAuth codes and states and short-lived grants. The path and the referrer's
-    # path stay; otherwise the lines are nginx's `combined`. (Error lines, in the
-    # journal, still quote a failed request whole.)
-    commonHttpConfig = ''
-      map $request_uri $request_path {
-        "~^(?<request_path_>[^?]*)" $request_path_;
+    globalConfig = ''
+      admin "unix//var/lib/caddy/admin.sock|0600"
+      auto_https off
+      log access {
+        output file /var/log/caddy/access.log {
+          roll_size 100MiB
+          roll_keep 1000
+          roll_keep_for 4368h
+        }
+        format filter {
+          wrap json
+          fields {
+            request>uri regexp `\?.*` ""
+            request>headers delete
+            resp_headers delete
+            referer regexp `\?.*` ""
+          }
+        }
+        include http.log.access
       }
-      map $http_referer $referer_path {
-        "" "-";
-        "~^(?<referer_path_>[^?]*)" $referer_path_;
+      servers {
+        0rtt off
       }
-      log_format combined_noquery '$remote_addr - $remote_user [$time_local] '
-        '"$request_method $request_path $server_protocol" $status $body_bytes_sent '
-        '"$referer_path" "$http_user_agent"';
-      access_log /var/log/nginx/access.log combined_noquery;
+      servers :444 {
+        protocols h3
+        0rtt off
+      }
+    '';
+    extraConfig = ''
+      (logged) {
+        log
+        log_append user_agent {http.request.header.User-Agent}
+        log_append referer {http.request.header.Referer}
+      }
     '';
     virtualHosts = {
-      ${domain} = {
-        enableACME = true;
-        forceSSL = true;
-        # HTTP/3 on UDP 444 (UDP 443 is YAS's WebTransport, hosts/indentbox.nix),
-        # which browsers learn from Alt-Svc: one round trip to connect rather
-        # than TCP's and TLS's two, and no stall of every stream on one lost
-        # packet. Below 1024: Chrome ignores an alternative on a port from 1024
-        # up for an origin below it. No 0-RTT (ssl_early_data stays off): it
-        # would let a replayed POST run twice.
+      # Port 80, for every name: lego's HTTP-01 answers, and HTTPS for the rest.
+      "http://" = {
+        logFormat = null;
         extraConfig = ''
-          listen 0.0.0.0:444 quic reuseport;
-          listen [::0]:444 quic reuseport;
-          http3 on;
-          quic_gso on;
-          add_header Alt-Svc 'h3=":444"; ma=86400' always;
+          import logged
+          handle /.well-known/acme-challenge/* {
+            root * ${webroot}
+            file_server
+          }
+          handle {
+            redir https://{host}{uri} 301
+          }
         '';
-        locations."/" = {
-          proxyPass = "http://127.0.0.1:8301";
-          proxyWebsockets = true;
-          extraConfig = ''
-            proxy_buffering off;
-            proxy_request_buffering off;
-            client_max_body_size 1g;
-            # Watches (WebSocket and SSE) stay open while nothing changes.
-            proxy_read_timeout 1d;
-            proxy_send_timeout 1d;
-          '';
-        };
+      };
+      ${domain} = {
+        hostName = "https://${domain}";
+        serverAliases = [ "https://${domain}:444" ];
+        useACMEHost = domain;
+        logFormat = null;
+        extraConfig = ''
+          import logged
+          ${gateway}
+        '';
+      };
+      # The frames: the gateway answers only the frame's own files there.
+      "*.${frames}" = {
+        hostName = "https://*.${frames}";
+        useACMEHost = frames;
+        logFormat = null;
+        extraConfig = ''
+          import logged
+          ${gateway}
+        '';
       };
     }
     # Old links (Slack messages, bookmarks) land on the same page there; 308
     # keeps the method and body, for clients that still post to the old name.
-    // lib.genAttrs redirects (_: {
-      enableACME = true;
-      forceSSL = true;
-      globalRedirect = domain;
-      redirectCode = 308;
+    // lib.genAttrs redirects (name: {
+      hostName = "https://${name}";
+      useACMEHost = name;
+      logFormat = null;
+      extraConfig = ''
+        import logged
+        redir https://${domain}{uri} 308
+      '';
+    });
+  };
+  security.acme.certs =
+    lib.genAttrs ([ domain ] ++ redirects) (_: {
+      inherit webroot;
     })
-    # The frames: the gateway answers only the frame's own files there.
     // {
-      "*.${frames}" = {
-        useACMEHost = frames;
-        forceSSL = true;
-        locations."/" = gateway;
+      ${frames} = {
+        domain = "*.${frames}";
+        dnsProvider = "namecheap";
+        environmentFile = namecheapEnv;
+        # Namecheap's own servers, not a caching resolver (the tailnet's), which may
+        # still hold the wildcard's CNAME for _acme-challenge.yas after lego writes
+        # the TXT record there.
+        dnsResolver = "dns1.registrar-servers.com:53";
       };
     };
-  };
-  security.acme.certs.${frames} = {
-    domain = "*.${frames}";
-    dnsProvider = "namecheap";
-    environmentFile = namecheapEnv;
-    group = "nginx";
-    # Namecheap's own servers, not a caching resolver (the tailnet's), which may
-    # still hold the wildcard's CNAME for _acme-challenge.yas after lego writes
-    # the TXT record there.
-    dnsResolver = "dns1.registrar-servers.com:53";
-  };
   # The *.yas CNAME covers _acme-challenge.yas too, until the TXT record is
   # there. lego would follow it and wait for the record at ultimator.app, while
   # its Namecheap provider writes it at _acme-challenge.yas, which Let's
