@@ -283,8 +283,12 @@
       WorkingDirectory = "/src/ultimator/.dev/workspace";
       # nix develop supplies the pinned toolchain without sourcing .env.local
       # or direnv's server credentials. Preserve the user's login environment.
-      UnsetEnvironment = [ "FLOWER_ADMIN_TOKEN" ];
-      ExecStart = "${pkgs.fish}/bin/fish --login --command 'set -e FLOWER_ADMIN_TOKEN; exec ${pkgs.nix}/bin/nix develop /src/ultimator --command /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json'";
+      UnsetEnvironment = [
+        "FLOWER_ADMIN_TOKEN"
+        "ULTIMATOR_TOKEN"
+        "ULTIMATOR_DIRECTORY_TOKEN"
+      ];
+      ExecStart = "${pkgs.fish}/bin/fish --login --command 'set -e FLOWER_ADMIN_TOKEN; set -e ULTIMATOR_TOKEN; set -e ULTIMATOR_DIRECTORY_TOKEN; exec ${pkgs.nix}/bin/nix develop /src/ultimator --command /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json'";
       Restart = "on-failure";
       RestartSec = "3s";
       TimeoutStopSec = "90s";
