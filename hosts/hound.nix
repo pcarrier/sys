@@ -10,6 +10,8 @@ lib.bare {
     ../feat/yas.nix
     ../feat/flatpak.nix
     ../feat/github-runner.nix
+    ../feat/hound-devbox.nix
+    ../feat/waydroid.nix
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix
