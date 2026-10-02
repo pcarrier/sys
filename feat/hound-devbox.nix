@@ -5,6 +5,12 @@
 let
   # The running hound kernel uses nftables, not the removed legacy xtables.
   # Keep Waydroid's rule semantics, changing only its preferred two binaries.
+  # Enforce executable paths AFTER fish login and nix develop, which otherwise
+  # normalize PATH and drop systemd's service.path. No global shell changes.
+  devboxStart = pkgs.writeShellScript "start-devbox-local-compute" ''
+    export PATH=${pkgs.lib.makeBinPath [ pkgs.pipewire pkgs.wireplumber pkgs.dbus pkgs.xwayland-satellite ]}:$PATH
+    exec /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json
+  '';
   waydroidNetScript = "${pkgs.waydroid}/lib/waydroid/data/scripts/.waydroid-net.sh-wrapped";
   waydroidNftCompat = pkgs.writeTextFile {
     name = "waydroid-net-hound-nft-compat.sh";
@@ -312,7 +318,7 @@ in
         "ULTIMATOR_TOKEN"
         "ULTIMATOR_DIRECTORY_TOKEN"
       ];
-      ExecStart = "${pkgs.fish}/bin/fish --login --command 'set -e FLOWER_ADMIN_TOKEN; set -e ULTIMATOR_TOKEN; set -e ULTIMATOR_DIRECTORY_TOKEN; exec ${pkgs.nix}/bin/nix develop /src/ultimator --command /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json'";
+      ExecStart = "${pkgs.fish}/bin/fish --login --command 'set -e FLOWER_ADMIN_TOKEN; set -e ULTIMATOR_TOKEN; set -e ULTIMATOR_DIRECTORY_TOKEN; exec ${pkgs.nix}/bin/nix develop /src/ultimator --command ${devboxStart}'";
       Restart = "on-failure";
       RestartSec = "3s";
       TimeoutStopSec = "90s";
