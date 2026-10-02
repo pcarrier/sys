@@ -2,6 +2,11 @@
 # Ultimator/Flower/Garage stack remains on indentbox. Never import its server
 # module here or replace HOUND's existing nginx/YAS/runner services.
 { pkgs, ... }:
+let
+  # Exact already-running standalone YAS build copied from indentbox; keep
+  # this workload isolated from HOUND's existing packaged YAS instances.
+  yasIndentbox = /nix/store/ia4nnc0chixzxnqnai3hd24n8gbicqy9-yas-0.3.1;
+in
 {
   virtualisation.docker = {
     enable = true;
@@ -86,6 +91,63 @@
     # already-authorized UID socket access without restarting their desktops
     # or all detached jobs simply to refresh Docker group membership.
     serviceConfig.ExecStartPost = [ "${pkgs.acl}/bin/setfacl -m u:pcarrier:rw /run/docker.sock" ];
+  };
+
+  # Relocated standalone YAS endpoint: preserve its original authentication
+  # and default instance data, but do not change HOUND's existing YAS servers.
+  systemd.services.yas-indentbox = {
+    description = "Standalone YAS relocated from indentbox";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    unitConfig.ConditionPathExists = [
+      "/var/lib/devbox/yas-indentbox/ready"
+      "/var/lib/devbox/yas-indentbox/yas.env"
+    ];
+    path = [
+      yasIndentbox
+      pkgs.pipewire
+      pkgs.dbus
+      pkgs.xwayland-satellite
+    ];
+    environment = {
+      HOME = "/home/pcarrier";
+      XDG_CONFIG_HOME = "/var/lib/devbox/yas-indentbox/config";
+      XDG_STATE_HOME = "/var/lib/devbox/yas-indentbox/state";
+      XDG_CACHE_HOME = "/var/lib/devbox/yas-indentbox/cache";
+      XDG_DATA_HOME = "/var/lib/devbox/yas-indentbox/data";
+      XDG_RUNTIME_DIR = "/run/yas-indentbox";
+      DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
+      YAS_SOCK = "/run/yas-indentbox/yas-default.sock";
+      YAS_EDGE = "1";
+      YAS_ADDR = "100.77.9.102:13264";
+      YAS_TRUSTED_PROXY_IPS = "100.110.157.123,127.0.0.1";
+      YAS_AUDIO = "1";
+      YAS_FONT_EXPORT = "1";
+      NIXOS_OZONE_WL = "1";
+      ELECTRON_OZONE_PLATFORM_HINT = "wayland";
+      MOZ_ENABLE_WAYLAND = "1";
+      GDK_BACKEND = "wayland";
+      QT_QPA_PLATFORM = "wayland";
+      SDL_VIDEODRIVER = "wayland";
+    };
+    serviceConfig = {
+      User = "pcarrier";
+      Group = "users";
+      WorkingDirectory = "/home/pcarrier";
+      EnvironmentFile = "/var/lib/devbox/yas-indentbox/yas.env";
+      RuntimeDirectory = "yas-indentbox";
+      RuntimeDirectoryMode = "0700";
+      ExecStart = "${yasIndentbox}/bin/yas server --name default --socket /run/yas-indentbox/yas-default.sock";
+      Restart = "on-failure";
+      RestartSec = "3s";
+      UMask = "0077";
+      LimitNOFILE = "1048576:1048576";
+      TasksMax = "infinity";
+    };
   };
 
   systemd.services.ultimator-devbox = {
