@@ -2,6 +2,19 @@
 # Ultimator/Flower/Garage stack remains on indentbox. Never import its server
 # module here or replace HOUND's existing nginx/YAS/runner services.
 { pkgs, ... }:
+let
+  # The running hound kernel uses nftables, not the removed legacy xtables.
+  # Keep Waydroid's rule semantics, changing only its preferred two binaries.
+  waydroidNetScript = "${pkgs.waydroid}/lib/waydroid/data/scripts/.waydroid-net.sh-wrapped";
+  waydroidNftCompat = pkgs.writeTextFile {
+    name = "waydroid-net-hound-nft-compat.sh";
+    executable = true;
+    text = builtins.replaceStrings
+      [ "command -v iptables-legacy" "command -v ip6tables-legacy" ]
+      [ "command -v iptables-nft" "command -v ip6tables-nft" ]
+      (builtins.readFile waydroidNetScript);
+  };
+in
 {
   virtualisation.docker = {
     enable = true;
@@ -118,6 +131,13 @@
       "/var/lib/waydroid"
       "/home/pcarrier/.local/share/waydroid"
     ];
+  };
+
+  # Scope compatibility to Waydroid's own mount namespace, never mutate the
+  # installed package, global firewall, Docker, or unrelated Android hosts.
+  systemd.services.waydroid-container = {
+    restartIfChanged = false;
+    serviceConfig.BindReadOnlyPaths = [ "${waydroidNftCompat}:${waydroidNetScript}" ];
   };
 
   # tower.nix deliberately snapshots/replicates the parents nonrecursively.
@@ -241,6 +261,8 @@
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
     requires = [ "user@1000.service" ];
+    # YAS needs these executables, not merely their dlopen libraries.
+    path = [ pkgs.pipewire pkgs.wireplumber pkgs.dbus pkgs.xwayland-satellite ];
     after = [
       "network-online.target"
       "user@1000.service"
@@ -272,6 +294,8 @@
       ULTIMATOR_URL = "https://ultimator.app";
       ULTIMATOR_PUBLIC_URL = "https://ultimator.app";
       ULTIMATOR_YAS_BIN = "/srv/devbox/yas-bin/yas";
+      YAS_AUDIO = "1";
+      YAS_FONT_EXPORT = "1";
       XDG_STATE_HOME = "/var/lib/devbox/state";
       XDG_CACHE_HOME = "/var/lib/devbox/cache";
       XDG_RUNTIME_DIR = "/run/user/1000";
