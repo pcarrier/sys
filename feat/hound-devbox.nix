@@ -8,6 +8,8 @@
     # The migrated kind nodes already use containerd overlayfs. Do not place
     # their /var volumes on ZFS or silently switch snapshotter formats.
     storageDriver = "overlay2";
+    # Keep HOUND's old inactive /var/lib/docker metadata untouched.
+    daemon.settings."data-root" = "/var/lib/docker-devbox";
   };
   users.users.pcarrier = {
     extraGroups = [ "docker" ];
@@ -25,7 +27,7 @@
   # creation/formatting is a separate, guarded preparation step: activation
   # must NEVER format a pre-existing image or a real device.
   fileSystems = {
-    "/var/lib/docker" = {
+    "/var/lib/docker-devbox" = {
       device = "/var/lib/devbox/docker-data.ext4";
       fsType = "ext4";
       options = [
@@ -78,7 +80,13 @@
     };
   };
 
-  systemd.services.docker.unitConfig.RequiresMountsFor = [ "/var/lib/docker" ];
+  systemd.services.docker = {
+    unitConfig.RequiresMountsFor = [ "/var/lib/docker-devbox" ];
+    # Existing user managers keep their old supplementary groups. Grant the
+    # already-authorized UID socket access without restarting their desktops
+    # or all detached jobs simply to refresh Docker group membership.
+    serviceConfig.ExecStartPost = [ "${pkgs.acl}/bin/setfacl -m u:pcarrier:rw /run/docker.sock" ];
+  };
 
   systemd.services.ultimator-devbox = {
     description = "Ultimator devbox computer (local HOUND compute)";
