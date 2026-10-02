@@ -16,6 +16,12 @@ let
     export PATH=${pkgs.lib.makeBinPath [ pkgs.pipewire pkgs.wireplumber pkgs.dbus pkgs.xwayland-satellite ]}:$PATH
     exec /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json
   '';
+  waydroidSessionStart = pkgs.writeShellScript "start-waydroid-on-devbox-desktop" (
+    builtins.replaceStrings
+      [ "/nix/store/0r99vylsrphb6c2pw6fdyi8labmp2pj2-nodejs-26.10.0/bin/node" ]
+      [ "${pkgs.nodejs}/bin/node" ]
+      (builtins.readFile ./hound-waydroid-session.sh)
+  );
   waydroidNetScript = "${pkgs.waydroid}/lib/waydroid/data/scripts/.waydroid-net.sh-wrapped";
   waydroidNftCompat = pkgs.writeTextFile {
     name = "waydroid-net-hound-nft-compat.sh";
@@ -249,6 +255,30 @@ in
   systemd.services.waydroid-container = {
     restartIfChanged = false;
     serviceConfig.BindReadOnlyPaths = [ "${waydroidNftCompat}:${waydroidNetScript}" ];
+  };
+
+  # The system manager runs this user process with correct cross-service stop
+  # order, before its private YAS disappears, and binds fresh sockets on start.
+  systemd.services.waydroid-devbox-session = {
+    description = "Hound imported Android on the private devbox desktop";
+    wantedBy = [ "ultimator-devbox.service" ];
+    after = [ "ultimator-devbox.service" "waydroid-container.service" "user@1000.service" ];
+    requires = [ "waydroid-container.service" "user@1000.service" ];
+    bindsTo = [ "ultimator-devbox.service" ];
+    partOf = [ "ultimator-devbox.service" ];
+    unitConfig.ConditionPathExists = "/var/lib/devbox/waydroid-session-ready";
+    unitConfig.RequiresMountsFor = [ "/var/lib/waydroid" "/home/pcarrier/.local/share/waydroid" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "pcarrier";
+      Group = "users";
+      ExecStart = waydroidSessionStart;
+      UMask = "0077";
+      TimeoutStopSec = 90;
+      KillMode = "control-group";
+      Restart = "on-failure";
+      RestartSec = 10;
+    };
   };
 
   # tower.nix deliberately snapshots/replicates the parents nonrecursively.
