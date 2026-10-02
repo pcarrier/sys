@@ -27,6 +27,13 @@
   # creation/formatting is a separate, guarded preparation step: activation
   # must NEVER format a pre-existing image or a real device.
   fileSystems = {
+    # The coordinator evidence contains genuine named/default ACL fixtures.
+    # Keep them on a separate backed-up child, never widen tank/var's policy.
+    "/var/lib/devbox/migration-evidence" = {
+      device = "tank/var/devbox-migration-evidence-20261002";
+      fsType = "zfs";
+      depends = [ "/var" ];
+    };
     # These migration-owned children retain their own POSIX ACL/xattr policy.
     # Their mountpoint property is legacy, like /var and /home: order explicit
     # mounts after those parents instead of racing zfs-mount at boot. Never
@@ -116,12 +123,25 @@
   # tower.nix deliberately snapshots/replicates the parents nonrecursively.
   # These children therefore need their own perso retention and both existing
   # backup destinations. Do not broaden the parents' policy to recursive.
+  systemd.tmpfiles.rules = [
+    "L /var/lib/devbox/workspace/migration-hound - pcarrier users - /var/lib/devbox/migration-evidence/coordinator"
+  ];
+
   services.sanoid.datasets = {
+    "tank/var/devbox-migration-evidence-20261002".useTemplate = [ "perso" ];
     "tank/var/devbox-waydroid-stage-20261002T082100Z".useTemplate = [ "perso" ];
     "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
     "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
   };
   services.syncoid.commands = {
+    migration-evidence-to-tonk = {
+      source = "tank/var/devbox-migration-evidence-20261002";
+      target = "tonk/backups/var/devbox-migration-evidence-20261002";
+    };
+    migration-evidence-to-tunk = {
+      source = "tank/var/devbox-migration-evidence-20261002";
+      target = "root@hare:tunk/backups/var/devbox-migration-evidence-20261002";
+    };
     waydroid-stage-to-tonk = {
       source = "tank/var/devbox-waydroid-stage-20261002T082100Z";
       target = "tonk/backups/var/devbox-waydroid-stage-20261002T082100Z";
@@ -228,6 +248,7 @@
     unitConfig = {
       RequiresMountsFor = [
         "/src/ultimator/.dev/workspace"
+        "/var/lib/devbox/migration-evidence"
         "/src/flower"
         "/src/yas"
         "/srv/devbox/bin"
