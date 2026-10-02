@@ -2,11 +2,6 @@
 # Ultimator/Flower/Garage stack remains on indentbox. Never import its server
 # module here or replace HOUND's existing nginx/YAS/runner services.
 { pkgs, ... }:
-let
-  # Exact already-running standalone YAS build copied from indentbox; keep
-  # this workload isolated from HOUND's existing packaged YAS instances.
-  yasIndentbox = /nix/store/ia4nnc0chixzxnqnai3hd24n8gbicqy9-yas-0.3.1;
-in
 {
   virtualisation.docker = {
     enable = true;
@@ -106,9 +101,9 @@ in
     unitConfig.ConditionPathExists = [
       "/var/lib/devbox/yas-indentbox/ready"
       "/var/lib/devbox/yas-indentbox/yas.env"
+      "/var/lib/devbox/yas-indentbox/package/bin/yas"
     ];
     path = [
-      yasIndentbox
       pkgs.pipewire
       pkgs.dbus
       pkgs.xwayland-satellite
@@ -141,7 +136,7 @@ in
       EnvironmentFile = "/var/lib/devbox/yas-indentbox/yas.env";
       RuntimeDirectory = "yas-indentbox";
       RuntimeDirectoryMode = "0700";
-      ExecStart = "${yasIndentbox}/bin/yas server --name default --socket /run/yas-indentbox/yas-default.sock";
+      ExecStart = "/var/lib/devbox/yas-indentbox/package/bin/yas server --name default --socket /run/yas-indentbox/yas-default.sock";
       Restart = "on-failure";
       RestartSec = "3s";
       UMask = "0077";
