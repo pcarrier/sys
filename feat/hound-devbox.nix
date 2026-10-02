@@ -1,7 +1,12 @@
 # HOUND runs the agent computer on LOCAL protected storage. The public
 # Ultimator/Flower/Garage stack remains on indentbox. Never import its server
 # module here or replace HOUND's existing nginx/YAS/runner services.
-{ pkgs, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 let
   # The running hound kernel uses nftables, not the removed legacy xtables.
   # Keep Waydroid's rule semantics, changing only its preferred two binaries.
@@ -20,6 +25,106 @@ let
       [ "command -v iptables-nft" "command -v ip6tables-nft" ]
       (builtins.readFile waydroidNetScript);
   };
+  # Root-only, child-only, lifetime-scoped delegation for these eight jobs.
+  # The module's independent stop hooks otherwise revoke a paired sender.
+  migrationSyncoidDelegation = pkgs.writeShellScript "migration-syncoid-delegation" ''
+    export PATH=${
+      lib.makeBinPath [
+        pkgs.coreutils
+        pkgs.util-linux
+      ]
+    }
+    set -euo pipefail
+    [ "$#" -eq 2 ] || exit 64
+    action=$1
+    job=$2
+    case "$job" in
+      migration-evidence-to-tonk) source='tank/var/devbox-migration-evidence-20261002'; target='tonk/backups/var/devbox-migration-evidence-20261002' ;;
+      migration-evidence-to-tunk) source='tank/var/devbox-migration-evidence-20261002'; target="" ;;
+      waydroid-stage-to-tonk) source='tank/var/devbox-waydroid-stage-20261002T082100Z'; target='tonk/backups/var/devbox-waydroid-stage-20261002T082100Z' ;;
+      waydroid-stage-to-tunk) source='tank/var/devbox-waydroid-stage-20261002T082100Z'; target="" ;;
+      waydroid-system-to-tonk) source='tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; target='tonk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z' ;;
+      waydroid-system-to-tunk) source='tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; target="" ;;
+      waydroid-user-to-tonk) source='tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; target='tonk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z' ;;
+      waydroid-user-to-tunk) source='tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; target="" ;;
+      *) echo 'Refusing non-migration job' >&2; exit 64 ;;
+    esac
+    case "$action" in enter|leave) ;; *) exit 64 ;; esac
+    zfs=/run/booted-system/sw/bin/zfs
+    state=/run/devbox-migration-syncoid
+    install -d -m 0700 "$state"
+    exec 9>"$state/lock"
+    flock -x 9
+    clients="$state/''${source##*/}"
+    install -d -m 0700 "$clients"
+    if [ "$action" = enter ]; then
+      # Refuse missing children; NEVER fall back to a parent delegation.
+      "$zfs" list -H "$source" >/dev/null
+      [ "$("$zfs" get -H -o value acltype "$source")" = posix ]
+      [ "$("$zfs" get -H -o value xattr "$source")" = sa ]
+      if [ -n "$target" ]; then
+        "$zfs" list -H "$target" >/dev/null
+        [ "$("$zfs" get -H -o value mounted "$target")" = no ]
+        [ "$("$zfs" get -H -o value readonly "$target")" = on ]
+        [ "$("$zfs" get -H -o value acltype "$target")" = posix ]
+        [ "$("$zfs" get -H -o value xattr "$target")" = sa ]
+      fi
+      # Register before granting; ExecStopPost also cleans failed starts.
+      touch "$clients/$job"
+      "$zfs" allow -ld -u syncoid send,hold "$source"
+      if [ -n "$target" ]; then
+        "$zfs" allow -l -u syncoid receive,create,mount "$target"
+      fi
+    else
+      rm -f "$clients/$job"
+      if [ -n "$target" ]; then
+        "$zfs" unallow -l -u syncoid receive,create,mount "$target"
+      fi
+      # Both destinations share a source. Only the last client may revoke it.
+      shopt -s nullglob
+      remaining=("$clients/"*)
+      if [ "''${#remaining[@]}" -eq 0 ]; then
+        "$zfs" unallow -ld -u syncoid send,hold "$source"
+      fi
+    fi
+  '';
+  migrationSyncoidRun = pkgs.writeShellScript "migration-syncoid-verified" ''
+    export PATH=${
+      lib.makeBinPath [
+        pkgs.coreutils
+        pkgs.gnugrep
+      ]
+    }
+    set -euo pipefail
+    [ "$#" -eq 1 ] || exit 64
+    job=$1
+    case "$job" in
+      migration-evidence-to-tonk) source='tank/var/devbox-migration-evidence-20261002'; target='tonk/backups/var/devbox-migration-evidence-20261002'; host="" ;;
+      migration-evidence-to-tunk) source='tank/var/devbox-migration-evidence-20261002'; target='tunk/backups/var/devbox-migration-evidence-20261002'; host="root@hare" ;;
+      waydroid-stage-to-tonk) source='tank/var/devbox-waydroid-stage-20261002T082100Z'; target='tonk/backups/var/devbox-waydroid-stage-20261002T082100Z'; host="" ;;
+      waydroid-stage-to-tunk) source='tank/var/devbox-waydroid-stage-20261002T082100Z'; target='tunk/backups/var/devbox-waydroid-stage-20261002T082100Z'; host="root@hare" ;;
+      waydroid-system-to-tonk) source='tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; target='tonk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; host="" ;;
+      waydroid-system-to-tunk) source='tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; target='tunk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z'; host="root@hare" ;;
+      waydroid-user-to-tonk) source='tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; target='tonk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; host="" ;;
+      waydroid-user-to-tunk) source='tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; target='tunk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z'; host="root@hare" ;;
+      *) echo 'Refusing non-migration job' >&2; exit 64 ;;
+    esac
+    zfs=/run/booted-system/sw/bin/zfs
+    snapshot=$("$zfs" list -H -t snapshot -o name -s creation -r -d 1 "$source" | grep -F "$source@" | tail -1)
+    [ -n "$snapshot" ]
+    expected=$("$zfs" get -Hp -o value guid "$snapshot")
+    if [ -n "$host" ]; then destination="$host:$target"; else destination=$target; fi
+    ${config.services.syncoid.package}/bin/syncoid --sendoptions "" --recvoptions u --no-privilege-elevation --no-sync-snap --no-rollback --identifier="$job" "$source" "$destination"
+    # Syncoid may exit zero after zfs send emits permission-denied warnings.
+    # A job succeeds only if the pinned source snapshot actually reached target.
+    if [ -n "$host" ]; then
+      actual=$(${pkgs.openssh}/bin/ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" "zfs get -Hp -o value guid '$target@''${snapshot#*@}'")
+    else
+      actual=$("$zfs" get -Hp -o value guid "$target@''${snapshot#*@}")
+    fi
+    [ "$expected" = "$actual" ] || { echo "Snapshot GUID mismatch for $job" >&2; exit 1; }
+    printf 'VERIFIED %s source/target snapshot GUID=%s snapshot=%s\n' "$job" "$actual" "$snapshot"
+  '';
 in
 {
   virtualisation.docker = {
@@ -150,6 +255,7 @@ in
   # These children therefore need their own perso retention and both existing
   # backup destinations. Do not broaden the parents' policy to recursive.
   systemd.tmpfiles.rules = [
+    "d /run/devbox-migration-syncoid 0700 root root - -"
     "L /var/lib/devbox/workspace/migration-hound - pcarrier users - /var/lib/devbox/migration-evidence/coordinator"
   ];
 
@@ -159,39 +265,146 @@ in
     "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
     "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
   };
+  # Sanoid owns snapshot creation/retention. Replication never races to create
+  # the same sync snapshot, prunes snapshots, rolls back, or mounts receivers.
+  # Backup children are provisioned explicitly; absent children fail closed.
   services.syncoid.commands = {
     migration-evidence-to-tonk = {
       source = "tank/var/devbox-migration-evidence-20261002";
       target = "tonk/backups/var/devbox-migration-evidence-20261002";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=migration-evidence-to-tonk"
+      ];
     };
     migration-evidence-to-tunk = {
       source = "tank/var/devbox-migration-evidence-20261002";
       target = "root@hare:tunk/backups/var/devbox-migration-evidence-20261002";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=migration-evidence-to-tunk"
+      ];
     };
     waydroid-stage-to-tonk = {
       source = "tank/var/devbox-waydroid-stage-20261002T082100Z";
       target = "tonk/backups/var/devbox-waydroid-stage-20261002T082100Z";
-    };
-    waydroid-system-to-tonk = {
-      source = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
-      target = "tonk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
-    };
-    waydroid-user-to-tonk = {
-      source = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
-      target = "tonk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-stage-to-tonk"
+      ];
     };
     waydroid-stage-to-tunk = {
       source = "tank/var/devbox-waydroid-stage-20261002T082100Z";
       target = "root@hare:tunk/backups/var/devbox-waydroid-stage-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-stage-to-tunk"
+      ];
+    };
+    waydroid-system-to-tonk = {
+      source = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      target = "tonk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-system-to-tonk"
+      ];
     };
     waydroid-system-to-tunk = {
       source = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
       target = "root@hare:tunk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-system-to-tunk"
+      ];
+    };
+    waydroid-user-to-tonk = {
+      source = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      target = "tonk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-user-to-tonk"
+      ];
     };
     waydroid-user-to-tunk = {
       source = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
       target = "root@hare:tunk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      recvOptions = "u";
+      extraArgs = [
+        "--no-sync-snap"
+        "--no-rollback"
+        "--identifier=waydroid-user-to-tunk"
+      ];
     };
+  };
+  systemd.services.syncoid-migration-evidence-to-tonk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} migration-evidence-to-tonk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter migration-evidence-to-tonk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave migration-evidence-to-tonk" ];
+  };
+  systemd.services.syncoid-migration-evidence-to-tunk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} migration-evidence-to-tunk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter migration-evidence-to-tunk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave migration-evidence-to-tunk" ];
+  };
+  systemd.services.syncoid-waydroid-stage-to-tonk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-stage-to-tonk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-stage-to-tonk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-stage-to-tonk" ];
+  };
+  systemd.services.syncoid-waydroid-stage-to-tunk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-stage-to-tunk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-stage-to-tunk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-stage-to-tunk" ];
+  };
+  systemd.services.syncoid-waydroid-system-to-tonk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-system-to-tonk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-system-to-tonk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-system-to-tonk" ];
+  };
+  systemd.services.syncoid-waydroid-system-to-tunk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-system-to-tunk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-system-to-tunk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-system-to-tunk" ];
+  };
+  systemd.services.syncoid-waydroid-user-to-tonk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-user-to-tonk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-user-to-tonk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-user-to-tonk" ];
+  };
+  systemd.services.syncoid-waydroid-user-to-tunk.serviceConfig = {
+    ExecStart = lib.mkForce [ "${migrationSyncoidRun} waydroid-user-to-tunk" ];
+    # Writable only to root hooks; syncoid cannot enter this 0700 directory.
+    BindPaths = [ "/run/devbox-migration-syncoid" ];
+    ExecStartPre = lib.mkForce [ "+${migrationSyncoidDelegation} enter waydroid-user-to-tunk" ];
+    ExecStopPost = lib.mkForce [ "+${migrationSyncoidDelegation} leave waydroid-user-to-tunk" ];
   };
 
   systemd.services.docker = {
