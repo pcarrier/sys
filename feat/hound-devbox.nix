@@ -27,6 +27,25 @@
   # creation/formatting is a separate, guarded preparation step: activation
   # must NEVER format a pre-existing image or a real device.
   fileSystems = {
+    # These migration-owned children retain their own POSIX ACL/xattr policy.
+    # Their mountpoint property is legacy, like /var and /home: order explicit
+    # mounts after those parents instead of racing zfs-mount at boot. Never
+    # change the parents' ACL policy or depend on their nonrecursive backups.
+    "/var/lib/devbox/migration-backups/desktop/waydroid-acl-20261002T082100Z" = {
+      device = "tank/var/devbox-waydroid-stage-20261002T082100Z";
+      fsType = "zfs";
+      depends = [ "/var" ];
+    };
+    "/var/lib/waydroid" = {
+      device = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      fsType = "zfs";
+      depends = [ "/var" ];
+    };
+    "/home/pcarrier/.local/share/waydroid" = {
+      device = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      fsType = "zfs";
+      depends = [ "/home" ];
+    };
     "/var/lib/docker-devbox" = {
       device = "/var/lib/devbox/docker-data.ext4";
       fsType = "ext4";
@@ -77,6 +96,55 @@
         "/src/ultimator"
         "/var/lib/devbox/workspace"
       ];
+    };
+  };
+
+  # Fail closed if either migrated tree is absent. The coordinator's existing
+  # runtime mask remains authoritative during preparation; this configuration
+  # does not remove it or launch Waydroid/Android.
+  systemd.services.waydroid-container.unitConfig = {
+    RequiresMountsFor = [
+      "/var/lib/waydroid"
+      "/home/pcarrier/.local/share/waydroid"
+    ];
+    ConditionPathIsMountPoint = [
+      "/var/lib/waydroid"
+      "/home/pcarrier/.local/share/waydroid"
+    ];
+  };
+
+  # tower.nix deliberately snapshots/replicates the parents nonrecursively.
+  # These children therefore need their own perso retention and both existing
+  # backup destinations. Do not broaden the parents' policy to recursive.
+  services.sanoid.datasets = {
+    "tank/var/devbox-waydroid-stage-20261002T082100Z".useTemplate = [ "perso" ];
+    "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
+    "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z".useTemplate = [ "perso" ];
+  };
+  services.syncoid.commands = {
+    waydroid-stage-to-tonk = {
+      source = "tank/var/devbox-waydroid-stage-20261002T082100Z";
+      target = "tonk/backups/var/devbox-waydroid-stage-20261002T082100Z";
+    };
+    waydroid-system-to-tonk = {
+      source = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      target = "tonk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+    };
+    waydroid-user-to-tonk = {
+      source = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      target = "tonk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+    };
+    waydroid-stage-to-tunk = {
+      source = "tank/var/devbox-waydroid-stage-20261002T082100Z";
+      target = "root@hare:tunk/backups/var/devbox-waydroid-stage-20261002T082100Z";
+    };
+    waydroid-system-to-tunk = {
+      source = "tank/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+      target = "root@hare:tunk/backups/var/devbox-waydroid-system-waydroid-acl-20261002T082100Z";
+    };
+    waydroid-user-to-tunk = {
+      source = "tank/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
+      target = "root@hare:tunk/backups/home/devbox-waydroid-user-waydroid-acl-20261002T082100Z";
     };
   };
 
