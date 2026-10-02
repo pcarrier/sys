@@ -126,6 +126,8 @@
       ULTIMATOR_URL = "https://ultimator.app";
       ULTIMATOR_PUBLIC_URL = "https://ultimator.app";
       ULTIMATOR_YAS_BIN = "/srv/devbox/yas-bin/yas";
+      XDG_STATE_HOME = "/var/lib/devbox/state";
+      XDG_CACHE_HOME = "/var/lib/devbox/cache";
       XDG_RUNTIME_DIR = "/run/user/1000";
       DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
     };
