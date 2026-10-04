@@ -9,6 +9,7 @@ let
     name = "ultimator-project-sandbox";
     runtimeInputs = with pkgs; [
       coreutils
+      diffutils
       gnugrep
       util-linux
       systemd
