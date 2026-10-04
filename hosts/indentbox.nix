@@ -6,6 +6,7 @@ lib.bare {
   system = "x86_64-linux";
   hardware = ../hw/indentbox.nix;
   extraModules = [
+    ../feat/sandbox-ssh.nix
     ../feat/nvidia.nix
     ../feat/waydroid.nix
     ../feat/ultimator.nix

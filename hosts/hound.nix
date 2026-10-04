@@ -7,6 +7,7 @@ lib.bare {
   emulated = [ "aarch64-linux" ];
   hardware = ../hw/tower.nix;
   extraModules = [
+    ../feat/sandbox-ssh.nix
     ../feat/yas.nix
     ../feat/flatpak.nix
     ../feat/github-runner.nix
