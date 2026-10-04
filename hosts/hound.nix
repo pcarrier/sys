@@ -11,6 +11,9 @@ lib.bare {
     ../feat/flatpak.nix
     ../feat/github-runner.nix
     ../feat/hound-devbox.nix
+    ../feat/ultimator-hound-cluster.nix
+    ../feat/ultimator-sandboxes-local.nix
+    ../feat/sandbox-ssh.nix
     ../feat/waydroid.nix
     ../feat/libk.nix
     ../feat/mail.nix
