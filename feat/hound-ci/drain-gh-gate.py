@@ -19,6 +19,7 @@ def blocked(args):
     method = None
     body = False
     endpoint = None
+    hostname = "github.com"
     i = 1
     value_options = {'-H', '--header', '-q', '--jq', '-t', '--template', '--hostname', '--cache', '--preview'}
     while i < len(args):
@@ -31,10 +32,16 @@ def blocked(args):
             method = value.split('=', 1)[1].upper()
         elif value.startswith('-X') and len(value) > 2:
             method = value[2:].upper()
+        elif value == '--hostname':
+            if i + 1 < len(args): hostname = args[i + 1]
+            i += 2; continue
+        elif value.startswith('--hostname='):
+            hostname = value.split('=', 1)[1]
         elif value in ('-F', '-f', '--field', '--raw-field', '--input'):
-            body = True; i += 2; continue
+            if value != '--input' or (i + 1 < len(args) and args[i + 1]): body = True
+            i += 2; continue
         elif value.startswith(('--field=', '--raw-field=', '--input=')) or (value.startswith(('-F', '-f')) and len(value) > 2):
-            body = True
+            if value != '--input=': body = True
         elif value in value_options:
             i += 2; continue
         elif not value.startswith('-') and endpoint is None:
@@ -43,7 +50,8 @@ def blocked(args):
     normalized = endpoint.removeprefix('/') if endpoint else None
     if normalized and normalized.startswith('https://api.github.com/'):
         normalized = normalized.removeprefix('https://api.github.com/')
-    return normalized == ROUTE and (method or ('POST' if body else 'GET')) == 'POST'
+    if normalized: normalized = normalized.split('?', 1)[0]
+    return hostname == 'github.com' and normalized == ROUTE and (method or ('POST' if body else 'GET')) == 'POST'
 
 
 def main():

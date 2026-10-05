@@ -58,12 +58,12 @@ class DrainTests(unittest.TestCase):
         self.assertFalse(drain.namespaces_valid([{'namespace_inode':2}]*4,1))
 
     def test_pinned_identity_rejects_exit_pid_reuse_and_service_swap(self):
-        entry={'pidfd':123,'nsfd':124,'pid':100,'slot':1,'starttime':'first','namespace_inode':9}
-        with patch.object(drain.select,'select',return_value=([123],[],[])):
+        entry={'pidfd':123,'nsfd':124,'pid':100,'slot':1,'starttime':'first','namespace_inode':9,'control_group':'/hound-ci.slice/hound-ci-1.service'}
+        with patch.object(drain,'properties',return_value={'MainPID':'100','Restart':'no','ControlGroup':'/hound-ci.slice/hound-ci-1.service'}),patch.object(drain.select,'select',return_value=([123],[],[])):
             with self.assertRaises(RuntimeError):drain.identity(entry)
-        with patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain,'starttime',return_value='second'):
+        with patch.object(drain,'properties',return_value={'MainPID':'100','Restart':'no','ControlGroup':'/hound-ci.slice/hound-ci-1.service'}),patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain,'starttime',return_value='second'):
             with self.assertRaises(RuntimeError):drain.identity(entry)
-        with patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain,'starttime',return_value='first'),patch.object(drain,'properties',return_value={'MainPID':'101'}):
+        with patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain,'starttime',return_value='first'),patch.object(drain,'properties',return_value={'MainPID':'101','ControlGroup':'/hound-ci.slice/hound-ci-1.service'}):
             with self.assertRaises(RuntimeError):drain.identity(entry)
 
     def test_nsenter_uses_inherited_fd_not_relooked_up_pid(self):
@@ -89,9 +89,45 @@ class DrainTests(unittest.TestCase):
         with patch.object(drain,'identity'),patch.object(drain,'entered',return_value=SimpleNamespace(returncode=0,stderr=b'')):
             with self.assertRaises(RuntimeError):drain.gate_namespace({'nsfd':123},Path('/nix/store/gate'))
 
+    def test_nonexecutable_or_noncanonical_gate_fails_before_mount(self):
+        for mode in (0o100444,0o100644,0o100755):
+            with patch.object(Path,'resolve',return_value=Path('/nix/store/test-gate')),patch.object(Path,'lstat',return_value=SimpleNamespace(st_mode=mode,st_uid=0)):
+                with self.assertRaises(RuntimeError):drain.validated_gate(Path('/nix/store/test-gate'),'unused')
+        with self.assertRaises(RuntimeError):drain.validated_gate(Path('/nix/store/../outside'),'unused')
+
+    def test_partial_bind_intent_survives_remount_failure(self):
+        stages=[]
+        def entered(entry,argv,check=True):
+            if 'remount,bind,ro' in argv:raise RuntimeError('measured synthetic remount failure')
+            return SimpleNamespace(stdout=b'')
+        with patch.object(drain,'identity'),patch.object(drain,'entered',side_effect=entered):
+            with self.assertRaises(RuntimeError):drain.gate_namespace({},Path('/nix/store/gate'),stages.append)
+        self.assertEqual(stages,['private-intent','private','bind-intent','bound','readonly-intent'])
+
+    def test_postgate_natural_exit_not_pid_replacement(self):
+        entry={'pidfd':123,'pid':100,'slot':1}
+        with patch.object(drain.select,'select',return_value=([123],[],[])),patch.object(drain,'properties',return_value={'MainPID':'0','Restart':'no'}):
+            self.assertFalse(drain.identity(entry,allow_exit=True))
+        for values in ({'MainPID':'101','Restart':'no'},{'MainPID':'0','Restart':'always'}):
+            with patch.object(drain.select,'select',return_value=([123],[],[])),patch.object(drain,'properties',return_value=values):
+                with self.assertRaises(RuntimeError):drain.identity(entry,allow_exit=True)
+
+    def test_loaded_hold_or_cgroup_drift_fails(self):
+        entry={'pidfd':123,'pid':100,'slot':1,'control_group':'/hound-ci.slice/hound-ci-1.service'}
+        for values in ({'MainPID':'100','Restart':'always','ControlGroup':entry['control_group']},
+                       {'MainPID':'100','Restart':'no','ControlGroup':'/unexpected'}):
+            with patch.object(drain,'properties',return_value=values),patch.object(drain.select,'select',return_value=([],[],[])):
+                with self.assertRaises(RuntimeError):drain.identity(entry,require_hold=True)
+
+    def test_manifest_is_file_and_directory_fsynced(self):
+        with tempfile.TemporaryDirectory() as root,patch.object(drain,'STATE',Path(root)),patch.object(drain.os,'fsync',wraps=drain.os.fsync) as sync:
+            drain.save({'phase':'bind-intent'})
+            self.assertEqual(sync.call_count,2)
+            self.assertEqual((Path(root)/'manifest.json').stat().st_mode&0o777,0o600)
+
     def test_source_order_and_no_signal_restart_credentials_or_payload_reads(self):
         source=Path(__file__).with_name('drain-old.py').read_text()
-        self.assertLess(source.index("properties(entry['slot'])['Restart'] != 'no'"),source.index('gate_namespace(entry, gate)\n            manifest'))
+        self.assertLess(source.index("properties(entry['slot'])['Restart'] != 'no'"),source.index('gate_namespace(entry, gate, receipt)'))
         self.assertNotIn('os.kill(',source)
         self.assertNotIn("['systemctl', 'stop'",source)
         self.assertNotIn("['systemctl', 'start'",source)

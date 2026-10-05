@@ -421,8 +421,10 @@ legacy migration helper, not an enabled service or guest payload:
    read-only over the old public gh wrapper. Never write a Nix-store file or
    mount in the host/other controller namespaces.
 4. Reject ONLY gh API POST requests to
-   `repos/xmit-dev/ultimator/actions/runners/generate-jitconfig`, including gh's
-   body/input-inferred POST form. No arguments, stdin, environment, credentials,
+   `repos/xmit-dev/ultimator/actions/runners/generate-jitconfig`, including the tested
+   canonical body/input-inferred POST forms. The guarantee is deliberately
+   limited to the immutable legacy supervisor's fixed argv contract, not every
+   possible gh CLI placeholder/clustered-option/enterprise invocation. No arguments, stdin, environment, credentials,
    JIT or guest console data are read/logged. Other calls, including exact old
    registration DELETE cleanup, exec the original immutable non-shadowed gh ELF
    with the original wrapper's argv0/telemetry semantics and untouched stdin.
@@ -443,8 +445,9 @@ legacy migration helper, not an enabled service or guest payload:
    private new overlays/JITs, GitHub registration, cache hits and real results.
 
 The helper deliberately does **not** automatically unmount/restore/start on a
-partial failure. Its root0700 state and0600 phase manifest record exactly which
-identities/gates were armed. Transport EOF requires one bounded phase/PID
+partial failure. Its root0700 state and0600 fsynced phase manifest record per-slot drop-in
+written/loaded and gate intent/bound/read-only/probe stages (including partial
+mutation). An early pre-hold failure must not be reported as a loaded hold. Transport EOF requires one bounded phase/PID
 reconciliation before any continuation, never duplicate arming. A rollback
 must be explicit and must not restart/reclaim old slots during handoff. Existing
 job/controller failures remain honest; a post-job next-JIT refusal is intentional
