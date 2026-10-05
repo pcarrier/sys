@@ -69,12 +69,77 @@ storage-health proof or authority for TRIM/ZFS repair, pool changes, or changes
 to existing datasets. Source tests and bounded, low-priority unit derivation
 builds do not establish storage health.
 
-As initially submitted, this change is a **draft, not an online worker pool**.
-Ubuntu guest/tool preflight, real GitHub jobs, four simultaneous workers,
-post-job overlay reset/replacement, crash cleanup and runtime network isolation
-have not yet been proved. No host generation was switched, and no existing
-service was restarted. Update this section with exact UTC evidence only after
-those checks pass and the hold clears.
+## Verified operational readiness — October 5, 2026
+
+The core pool is **qualified and active**, not just Nix-built:
+
+- **06:16:36 UTC:** trusted Ubuntu 24.04.5 image baked successfully; independent
+  child exit `0`, actual native Docker/namespace-Chrome/WebKit/tool preflights,
+  cloud-init clean exit `0`, and the sealing marker all passed. The base is
+  root:root **0444**, never contains host credentials or runner registrations.
+- Actual QEMU `/proc` attestation passed for the baker and all four slots:
+  expected separate uid/gid, KVM-only supplementary membership, **all five
+  capability sets zero**, `NoNewPrivs=1`, and seccomp active. Unknown/pre-exec
+  metadata fails closed. The root controller carries only the already-bounded
+  UID-transition bit across interpreter exec, then drops it before QEMU.
+- **06:29:58 UTC GitHub API:** four repository runners simultaneously
+  **online/busy**, exact labels `[self-hosted, Linux, X64, hound-ci]`:
+  ids **25, 27, 26, 28** for slots 1, 2, 3, 4. Actual Rust and TypeScript jobs
+  were assigned, not merely queued or inferred from service state.
+- Slot 1 executed the connector, Workflow validation, and Pinned dependencies
+  in **distinct fresh VMs/JIT names**, erased each disk/seed and replaced it.
+  GitHub independently confirmed Workflow validation and dependencies succeeded.
+- The connector initialized real PostgreSQL/ClickHouse containers successfully,
+  then failed an application relay-backpressure assertion (240 pass/1 fail/1
+  skip). **This is not an all-green CI claim or a proven baseline issue.** No
+  fixture assertions, buffers, retries or deadlines were weakened to hide it.
+- All four users were denied host gh-credential reads and host Docker-socket
+  writes. A real slot-2 seed had an own-user positive read control while slot 1
+  was denied. Guest pre-JIT host/private denial checks passed; the dedicated
+  nft table recorded **47 host-local + 14 private-address rejects** by 06:28:58.
+- Actual `multi-user.target` Wants includes only the five new firewall/slot
+  services; attachments and GC roots persist without replacing Nix's `/etc`
+  tree. Aggregate 72 GiB/24 CPU-equivalent ceilings and the 512 GiB quota were
+  verified. Legacy hound runner **PID 942213** and host **profile 230** unchanged;
+  no shared Docker/YAS/devbox/production restart or whole-host switch.
+
+The companion workflow PR **xmit-dev/ultimator#231 is not merged**. Main routing
+still requires Pierre's explicit merge decision. Its graph has ten expanded
+core jobs (including the aggregate gate created after needs finish), plus the
+connector; queued jobs continue as the four slots free. Full test-suite success
+is distinct from infrastructure readiness.
+
+### Sealed image fingerprint and versions
+
+Public ledger recovered from a separate, bounded **no-JIT** clone; the base was
+never mounted on the host and running worker disks were not disturbed:
+
+- Baked **2026-10-05 06:16:32 UTC**; base SHA256
+  `0e856d33b2e9c08e54863b3916d7a3aef7fce69d513f7f163450e3a015d9056b`.
+- Node **24.21.0**, Rust **1.99.0**, Helm **3.19.0**, GitHub runner **2.337.0**.
+- Docker **29.1.3**, gh **2.102.0**, Google Chrome **154.0.8037.97**,
+  PowerShell **7.6.6**, Python **3.12.3**.
+- Official upstream Ubuntu-cloud-image SHA256 remains separately pinned in
+  `supervisor.py`; the baked-image fingerprint is not that upstream hash.
+
+### Preserved first failures and limitations
+
+The first pre-VM chmod-owner failure and missing effective UID-transition
+capability were measured, fixed without broadening the bounding set, and kept
+under CI-owned failure directories. A later real guest completed native APT
+then exited before sealing. Its original wrapper masked the child status and
+serial-only output omitted stderr. Those diagnostics were corrected with an
+independent child, private regular-file/result witnesses, explicit status and
+separate shutdown. The next instrumented bake passed. **Needrestart causality
+was not established; its policy was not disabled or changed.**
+
+Host I/O/ZFS health was not certified by this rollout; Pierre explicitly
+released the precautionary CI hold at 03:55 UTC. No global storage repair was
+performed. Public-internet egress and kernel/QEMU residual risks remain as
+stated above. Exact-name recovery for an uncertain JIT POST can still miss a
+registration appearing only after a single empty reconciliation response; this
+nonblocking unused-runner orphan limitation is not a permission to poll or
+broadly delete registrations.
 
 ## Narrow deployment after clearance
 
