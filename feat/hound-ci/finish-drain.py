@@ -127,6 +127,7 @@ CAPTURE_TIMEOUT = 1800
 # the UID-1000 home config nor any other account can route or forge gh output.
 # (A compromised UID 1000 is out of scope: pcarrier is in the docker group.)
 COLLECTOR_GID = 2000001005
+SUBGID_MODE = 0o644
 GH_CONFIG_DIR = Path('/run/hound-ci-actions-gh')
 GH_CONFIG = b'version: "1"\ngit_protocol: https\nprompt: disabled\n'
 GH_HOSTS_SCHEMA = 'github.com-login-oauth_token-v1'
@@ -1243,7 +1244,10 @@ def collector_gid_unshared():
     else:
         raise RuntimeError('Private collector GID is an existing group')
     require(all(account.pw_gid != COLLECTOR_GID for account in pwd.getpwall()), 'Private collector GID is a primary group')
-    data = read_root_bytes(Path('/etc/subgid'), 65536) if os.path.lexists('/etc/subgid') else b''
+    # /etc/subgid is an ordinary root:root 0644 single-link file (NOT a store
+    # file, so the immutable no-write-bit default would refuse it: the
+    # 22:31 UTC root rehearsal caught this). Any other shape HOLDs.
+    data = read_root_bytes(Path('/etc/subgid'), 65536, SUBGID_MODE) if os.path.lexists('/etc/subgid') else b''
     for line in data.decode('utf-8').splitlines():
         fields = line.split(':')
         require(len(fields) == 3 and fields[1].isdigit() and fields[2].isdigit(), 'Unparseable subordinate GID range')

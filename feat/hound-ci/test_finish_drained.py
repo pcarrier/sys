@@ -2281,8 +2281,21 @@ class PinnedGhConfigTests(unittest.TestCase):
         accounts = [SimpleNamespace(pw_gid=100), SimpleNamespace(pw_gid=1000)]
         subgid = b'pcarrier:100000:65536\ndauriac:165536:65536\n'
         with absent, patch.object(finish.pwd, 'getpwall', return_value=accounts), \
-             patch.object(finish.os.path, 'lexists', return_value=True), patch.object(finish, 'read_root_bytes', return_value=subgid):
+             patch.object(finish.os.path, 'lexists', return_value=True), patch.object(finish, 'read_root_bytes', return_value=subgid) as read:
             finish.collector_gid_unshared()
+        # The live /etc/subgid is root:root 0644: read with that EXACT mode.
+        read.assert_called_once_with(Path('/etc/subgid'), 65536, 0o644)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'subgid'; path.write_bytes(subgid); path.chmod(0o644)
+            real = os.fstat
+            owned = lambda fd: os.stat_result(tuple(real(fd))[:4] + (0, 0) + tuple(real(fd))[6:])
+            with patch.object(finish, 'root_directory'), patch.object(finish.os, 'fstat', side_effect=owned):
+                self.assertEqual(finish.read_root_bytes(path, 65536, finish.SUBGID_MODE), subgid)
+                with self.assertRaisesRegex(RuntimeError, 'mode invalid'):
+                    finish.read_root_bytes(path, 65536)  # the store-file default refuses 0644
+                path.chmod(0o664)
+                with self.assertRaisesRegex(RuntimeError, 'mode invalid'):
+                    finish.read_root_bytes(path, 65536, finish.SUBGID_MODE)
         for grp_patch, users, ranges in ((patch.object(finish.grp, 'getgrgid', return_value=object()), accounts, subgid),
                                          (absent, accounts + [SimpleNamespace(pw_gid=finish.COLLECTOR_GID)], subgid),
                                          (absent, accounts, b'x:2000000000:65536\n'), (absent, accounts, b'garbage\n')):
