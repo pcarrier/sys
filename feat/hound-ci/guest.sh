@@ -4,6 +4,16 @@ set -euo pipefail
 trap 'systemctl poweroff' EXIT
 export PATH=/home/runner/.cargo/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=/home/runner
+# Keep the current generation usable until the explicitly approved switch.
+# Old images use the runner-owned normal cache; only qualified seeds use /opt.
+if [[ -f /etc/hound-ci/cache-manifest.json ]]; then
+  export RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+else
+  export RUNNER_TOOL_CACHE=/opt/actions-runner/_work/_tool
+  runuser -u runner -- mkdir -p "$RUNNER_TOOL_CACHE"
+fi
+export CARGO_HOME=/home/runner/.cargo
+export RUSTUP_HOME=/home/runner/.rustup
 systemctl start docker
 . /etc/os-release
 test "$ID" = ubuntu && test "$VERSION_ID" = 24.04
@@ -31,12 +41,18 @@ for host in ('10.0.2.2', '192.168.1.150', '100.77.9.102', '169.254.169.254'):
             continue
         raise SystemExit('Host/private network unexpectedly reachable')
 PY
+# Bounded offline ledger/preflight rejects partial seeds before receiving a job.
+if [[ -f /etc/hound-ci/cache-manifest.json ]]; then
+  python3 /opt/hound-ci-cache.py preflight --pins /etc/hound-ci/cache-pins.json
+fi
 printf 'HOUND_CI_GUEST_PREFLIGHT_OK\n'
 # JIT is scoped to one runner/id and one job, not an hour-long reusable registration token.
 jit="$(jq -r .jit /etc/hound-ci-registration.json)"
 rm -f /etc/hound-ci-registration.json
 cd /opt/actions-runner
 # Avoid secret arguments in host process lists: this command executes only inside VM.
-runuser -u runner -- env HOME=/home/runner PATH="$PATH" ./run.sh --jitconfig "$jit"
+runuser -u runner -- env -i HOME=/home/runner USER=runner LOGNAME=runner \
+  LANG=C.UTF-8 PATH="$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" \
+  RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" ./run.sh --jitconfig "$jit"
 unset jit
 printf 'HOUND_CI_GUEST_JOB_FINISHED\n'
