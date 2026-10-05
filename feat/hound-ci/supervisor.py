@@ -51,8 +51,9 @@ def boot(directory, disk, iso, user, memory, cpus, hours):
     os.chown(directory, 0, account.pw_gid)
     directory.chmod(0o750)
     for path in (disk, iso):
-        os.chown(path, account.pw_uid, account.pw_gid)
+        # Root has CAP_CHOWN, not CAP_FOWNER: chmod while still the owner.
         path.chmod(0o600)
+        os.chown(path, account.pw_uid, account.pw_gid)
     # Host service owns the log; the guest cannot append outside its virtual console.
     log = directory / 'console.log'
     with log.open('wb') as console:
@@ -165,8 +166,8 @@ def base(args):
     if not all(marker in log.read_bytes() for marker in (b'HOUND_CI_PROVISION_OK', b'HOUND_CI_IMAGE_SEALED_OK')):
         raise RuntimeError('Guest image preflight/sealing did not pass; image not published')
     final = STATE / 'base.qcow2'
-    disk.chmod(0o444)
     os.chown(disk, 0, 0)
+    disk.chmod(0o444)
     disk.rename(final)
     iso.unlink()
     message('image provisioning/preflight passed; immutable base published')

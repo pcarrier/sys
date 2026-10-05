@@ -65,6 +65,11 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(api.call_args_list[-1].args[0], ['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/1'])
             self.assertFalse(path.exists())
 
+    def test_chmod_is_done_by_owner_without_extra_capabilities(self):
+        code = Path(__file__).with_name('supervisor.py').read_text()
+        self.assertLess(code.index('path.chmod(0o600)'), code.index('os.chown(path, account.pw_uid, account.pw_gid)'))
+        self.assertLess(code.index('os.chown(disk, 0, 0)'), code.index('disk.chmod(0o444)'))
+
     def test_storage_admission_fails_closed(self):
         with patch.object(supervisor.os, 'statvfs', return_value=SimpleNamespace(f_bavail=1, f_frsize=4096)):
             with self.assertRaises(RuntimeError):
