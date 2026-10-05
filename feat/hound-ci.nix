@@ -57,6 +57,9 @@ let
       "CAP_SETGID"
       "CAP_SETPCAP"
     ];
+    # NNP interpreter exec otherwise loses the already-bounded UID-transition
+    # bit. Measured with the exact unit; setpriv clears ambient/bounding before QEMU.
+    AmbientCapabilities = [ "CAP_SETUID" ];
     DevicePolicy = "closed";
     DeviceAllow = [ "/dev/kvm rw" ];
     ReadWritePaths = [ "/var/lib/hound-ci" ];
