@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Host-free legacy drain tests. No mount, signal, API or credential access."""
 import importlib.util
+import io
+import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from contextlib import ExitStack
 from types import SimpleNamespace
 
 
@@ -332,6 +336,206 @@ class DrainTests(unittest.TestCase):
         self.assertEqual(result['observation_started_monotonic_us'],'123')
         self.assertEqual(result['first_registration_read']['after_monotonic_us'],'123')
         self.assertGreater(result['observation_started_utc'],result['utc'])
+
+    # ---- Pre-arm readiness: idle runners, history caps (read-only, pre-mutation)
+    REG={slot:{'repo':'xmit-dev/ultimator','id':100+slot,'name':f'hound-ci-{slot}-00000000000{slot}'} for slot in range(1,5)}
+    PROPS={slot:{'MainPID':str(1000+slot),'Restart':'always','InvocationID':f'{slot:x}'*32,'ControlGroup':f'/hound.slice/hound-ci.slice/hound-ci-{slot}.service'} for slot in range(1,5)}
+
+    def runners(self,**changes):
+        rows=[{'id':100+slot,'name':f'hound-ci-{slot}-00000000000{slot}','status':'online','busy':True,'os':'Linux','labels':[]} for slot in range(1,5)]
+        rows.append({'id':7,'name':'other-runner','status':'offline','busy':False})
+        for slot,change in changes.items():rows[int(slot[1:])-1].update(change)
+        return rows
+
+    def readiness(self,stack,rows=None,registrations=None,starts=None,props=None):
+        registrations=registrations or (lambda slot:self.REG[slot])
+        stack.enter_context(patch.object(drain,'properties',side_effect=props or (lambda slot:self.PROPS[slot])))
+        stack.enter_context(patch.object(drain,'public_registration',side_effect=registrations))
+        counts=stack.enter_context(patch.object(drain,'vm_starts',side_effect=lambda slot,pid,inv:(starts or {}).get(slot,75)))
+        listing=stack.enter_context(patch.object(drain,'runner_liveness',return_value=self.runners() if rows is None else rows))
+        return counts,listing
+
+    def test_readiness_requires_all_four_listed_online_busy_with_the_exact_registration(self):
+        with ExitStack() as stack:
+            counts,listing=self.readiness(stack)
+            ready=drain.readiness()
+        listing.assert_called_once_with()
+        self.assertEqual(ready['registrations'],{str(k):v for k,v in self.REG.items()})
+        self.assertEqual(ready['vm_starts'],{'1':75,'2':75,'3':75,'4':75})
+        self.assertEqual(ready['controllers']['2'],{'pid':1002,'invocation_id':'2'*32})
+        self.assertEqual(ready['liveness_source'],'uid1000-ordinary-gh-config')
+        for rows,message in ((self.runners(s2={'busy':False}),'slot 2 runner is online/idle'),
+                             (self.runners(s3={'status':'offline'}),'slot 3 runner is offline/busy'),
+                             (self.runners(s4={'name':'hound-ci-4-ffffffffffff'}),'slot 4 registered runner is not listed'),
+                             ([row for row in self.runners() if row['id']!=101],'slot 1 registered runner is not listed')):
+            with ExitStack() as stack:
+                self.readiness(stack,rows=rows)
+                with self.subTest(message=message),self.assertRaisesRegex(drain.NotReady,message):drain.readiness()
+        for missing in (None,{**self.REG[3],'id':None}):
+            with ExitStack() as stack:
+                _,listing=self.readiness(stack,registrations=lambda slot:missing if slot==3 else self.REG[slot])
+                with self.assertRaisesRegex(drain.NotReady,'slot 3 has no positive runner registration'):drain.readiness()
+                listing.assert_not_called()
+
+    def test_readiness_rereads_registration_and_controller_after_the_GET(self):
+        reads={slot:0 for slot in range(1,5)}
+        def registration(slot):
+            reads[slot]+=1
+            return self.REG[slot] if slot!=2 or reads[slot]==1 else None  # R ended during the GET
+        with ExitStack() as stack:
+            self.readiness(stack,registrations=registration)
+            with self.assertRaisesRegex(drain.NotReady,'slot 2 changed during the readiness check'):drain.readiness()
+        calls={slot:0 for slot in range(1,5)}
+        def props(slot):
+            calls[slot]+=1
+            return self.PROPS[slot] if slot!=4 or calls[slot]==1 else {**self.PROPS[4],'InvocationID':'f'*32}
+        with ExitStack() as stack:
+            self.readiness(stack,props=props)
+            with self.assertRaisesRegex(drain.NotReady,'slot 4 changed'):drain.readiness()
+
+    def test_history_half_caps_are_pinned_to_the_waiter_and_checked_before_the_GET(self):
+        waiter=module('waiter_caps','wait-drained.py')
+        self.assertEqual((drain.WAITER_SLOT_HISTORY,drain.WAITER_ALL_HISTORY),(waiter.MAX_VM_HISTORY,waiter.MAX_ALL_VM_HISTORY))
+        self.assertEqual((drain.PREARM_SLOT_STARTS,drain.PREARM_ALL_STARTS),(1024,2048))
+        for starts,message in (({1:1025},'slot 1 VM history 1025'),({1:1024,2:1024,3:1},'All-slot VM history')):
+            with ExitStack() as stack:
+                _,listing=self.readiness(stack,starts=starts)
+                with self.subTest(starts=starts),self.assertRaisesRegex(RuntimeError,message):drain.readiness()
+                listing.assert_not_called()
+        with ExitStack() as stack:
+            self.readiness(stack,starts={1:1024,2:1024,3:0,4:0})
+            drain.readiness()
+
+    def test_vm_starts_counts_only_the_pinned_invocation_pid_and_slot_root_STARTs(self):
+        inv='1'*32
+        def row(message,**changes):
+            value={'MESSAGE':message,'_PID':'1001','_UID':'0','_SYSTEMD_UNIT':'hound-ci-1.service','_SYSTEMD_INVOCATION_ID':inv,'__CURSOR':'c'}
+            value.update(changes);return json.dumps(value).encode()
+        start='HOUND_CI slot=1 name=hound-ci-1-0123456789ab repo=xmit-dev/ultimator disposable VM started'
+        lines=[row(start),row(start.replace(' repo=xmit-dev/ultimator','')),row(start,_PID='1002'),row(start,_UID='1000'),
+               row(start,_SYSTEMD_INVOCATION_ID='2'*32),row(start,_SYSTEMD_UNIT='hound-ci-2.service'),
+               row(start.replace('slot=1','slot=2')),row('HOUND_CI slot=1 VM stopped; preflight=True; runner completed=True; erasing disk'),
+               row(start+' extra'),row(start.replace('repo=xmit-dev/ultimator','repo=o/r')),json.dumps({'MESSAGE':[1,2],'__CURSOR':'c'}).encode()]
+        with patch.object(drain,'bounded_child',return_value=b'\n'.join(lines)+b'\n') as child:
+            self.assertEqual(drain.vm_starts(1,1001,inv),2)
+        argv=child.call_args.args[0]
+        self.assertEqual(argv[:6],['journalctl','--boot','--utc','--no-pager','--no-tail','--output=json'])
+        self.assertEqual(argv[-1],'_SYSTEMD_INVOCATION_ID='+inv)
+        self.assertEqual(child.call_args.args[1:],(drain.JOURNAL_LIMIT,drain.JOURNAL_TIMEOUT))
+        with patch.object(drain,'bounded_child',return_value=b'{"x":"'+b'a'*drain.MAX_ROW+b'"}\n'),self.assertRaisesRegex(RuntimeError,'row bound'):
+            drain.vm_starts(1,1001,inv)
+        for pid,invocation in ((1,inv),(1001,'x'*32)):
+            with patch.object(drain,'bounded_child') as child,self.assertRaisesRegex(RuntimeError,'identity unavailable'):
+                drain.vm_starts(1,pid,invocation)
+            child.assert_not_called()
+
+    def test_runner_liveness_is_one_uid1000_GET_complete_in_one_page(self):
+        listing={'total_count':5,'runners':self.runners()}
+        with patch.object(drain,'bounded_child',return_value=json.dumps(listing).encode()) as child:
+            rows=drain.runner_liveness()
+        self.assertEqual(rows[0],{'id':101,'name':'hound-ci-1-000000000001','status':'online','busy':True})
+        argv=child.call_args.args[0]
+        self.assertEqual(argv[:4],[drain.SETPRIV,'--reuid=1000','--regid=100','--clear-groups'])
+        self.assertIn('--no-new-privs',argv)
+        self.assertEqual(argv[-7:],[str(drain.GH_ELF),'api','--hostname','github.com','--method','GET',drain.RUNNERS_ROUTE])
+        self.assertEqual(child.call_args.kwargs['env']['HOME'],'/home/pcarrier')
+        self.assertEqual(child.call_args.kwargs['cwd'],'/var/empty')
+        self.assertEqual(child.call_args.args[1:],(drain.LIVENESS_LIMIT,drain.LIVENESS_TIMEOUT))
+        for bad in ({'total_count':101,'runners':[]},{'total_count':6,'runners':self.runners()},{'runners':[]},[],
+                    {'total_count':1,'runners':[{'id':1,'name':'a','status':'online','busy':'true'}]},
+                    {'total_count':2,'runners':[{'id':1,'name':'a','status':'online','busy':True}]*2}):
+            with patch.object(drain,'bounded_child',return_value=json.dumps(bad).encode()),self.subTest(bad=bad),self.assertRaises(RuntimeError):
+                drain.runner_liveness()
+
+    def test_bounded_child_kills_only_its_own_child_on_oversize_timeout_or_failure(self):
+        python=sys.executable
+        self.assertEqual(drain.bounded_child([python,'-c','print("ok")'],100,10),b'ok\n')
+        with self.assertRaisesRegex(RuntimeError,'oversized'):drain.bounded_child([python,'-c','print("x"*200)'],100,10)
+        with self.assertRaisesRegex(RuntimeError,'timeout'):drain.bounded_child([python,'-c','import time; time.sleep(30)'],100,0.3)
+        with self.assertRaisesRegex(RuntimeError,'failed'):drain.bounded_child([python,'-c','raise SystemExit(3)'],100,10)
+        killed=[]
+        real=drain.subprocess.Popen
+        def spawn(*args,**kwargs):
+            child=real(*args,**kwargs);killed.append(child);return child
+        with patch.object(drain.subprocess,'Popen',side_effect=spawn),self.assertRaisesRegex(RuntimeError,'timeout'):
+            drain.bounded_child([python,'-c','import time; time.sleep(30)'],100,0.3)
+        self.assertIsNotNone(killed[0].returncode)  # killed and reaped, no orphan
+
+    def test_idle_risk_flags_new_registrations_and_slow_binds_never_refuses(self):
+        R=self.REG[1];new={'repo':'xmit-dev/ultimator','id':None,'name':'hound-ci-1-ffffffffffff'}
+        self.assertEqual(drain.idle_risk(R,R,0,9999999,R),[])
+        self.assertEqual(drain.idle_risk(R,None,0,9999999,None),[])
+        self.assertEqual(drain.idle_risk(R,R,0,10000000,R),['bind-later-than-legacy-sleep'])
+        self.assertEqual(drain.idle_risk(R,new,0,1,new),['new-registration-before-bind'])
+        self.assertEqual(drain.idle_risk(R,None,0,1,new),['new-registration-after-gate'])
+        self.assertEqual(drain.idle_risk(R,R,0,1,{**new,'id':5}),['new-registration-after-gate'])
+
+    def arm_fixture(self,stack,folder,ready=None,registrations=None):
+        state=Path(folder)/'state'
+        stack.enter_context(patch.object(drain,'STATE',state))
+        stack.enter_context(patch.object(drain,'fixed_dropin_paths',return_value=[Path(folder)/f'd{slot}'/'x.conf' for slot in range(1,5)]))
+        for name in ('validated_gate','reviewed_source','identity','run'):
+            stack.enter_context(patch.object(drain,name))
+        stack.enter_context(patch.object(drain,'write_hold',side_effect=lambda entry,manifest:manifest['dropins'].append({'slot':entry['slot'],'stage':'written-not-yet-loaded'})))
+        stack.enter_context(patch.object(drain.os,'geteuid',return_value=0))
+        stack.enter_context(patch.object(drain,'digest',return_value='d'*64))
+        stack.enter_context(patch.object(drain,'current_boot_id',return_value=BOOT))
+        stack.enter_context(patch.object(drain,'GH_ELF',SimpleNamespace(open=lambda mode:io.BytesIO(b'\x7fELF'))))
+        real_stat=os.stat
+        stack.enter_context(patch.object(drain.os,'stat',side_effect=lambda path,*a,**k:SimpleNamespace(st_ino=1) if str(path).endswith('/ns/mnt') else real_stat(path,*a,**k)))
+        stack.enter_context(patch.object(drain,'properties',side_effect=lambda slot:{**self.PROPS[slot],'Restart':'no'}))
+        readiness=stack.enter_context(patch.object(drain,'readiness',side_effect=ready or (lambda:{'controllers':{str(s):{'pid':1000+s,'invocation_id':f'{s:x}'*32} for s in range(1,5)},'registrations':{str(k):v for k,v in self.REG.items()}})))
+        stack.enter_context(patch.object(drain,'pin',side_effect=lambda slot:{'slot':slot,'pid':1000+slot,'invocation_id':f'{slot:x}'*32,'boot_id':BOOT,'namespace_inode':10+slot,'pidfd':-1,'nsfd':-1}))
+        stack.enter_context(patch.object(drain,'namespaces_valid',return_value=True))
+        stack.enter_context(patch.object(drain.os,'close'))
+        stack.enter_context(patch.object(drain,'current_qemu',side_effect=lambda entry:{'registration':self.REG[entry['slot']],'qemu':None,'utc':'u','observation_boot_id':BOOT,
+            'observation_started_monotonic_us':'1','observation_started_utc':'u','first_registration_read':{'present':True}}))
+        def gate(entry,gate_path,receipt):
+            receipt('bind-intent');receipt('bound');receipt('armed')
+        stack.enter_context(patch.object(drain,'gate_namespace',side_effect=gate))
+        stack.enter_context(patch.object(drain,'public_registration',side_effect=registrations or (lambda slot:self.REG[slot])))
+        return state,readiness
+
+    def test_arm_checks_readiness_before_ANY_mutation_and_records_it(self):
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            def not_ready():raise drain.NotReady('slot 2 runner is online/idle, not online/busy')
+            state,_=self.arm_fixture(stack,folder,ready=not_ready)
+            with self.assertRaises(drain.NotReady):drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+            self.assertFalse(state.exists());drain.write_hold.assert_not_called();drain.run.assert_not_called();drain.pin.assert_not_called()
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            state,readiness=self.arm_fixture(stack,folder)
+            drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+            manifest=json.loads((state/'manifest.json').read_text())
+        self.assertEqual(manifest['readiness']['registrations']['3'],self.REG[3])
+        for slot in '1234':
+            gate=manifest['gates'][slot]
+            self.assertEqual((gate['registration_pre_bind'],gate['idle_risk']),(self.REG[int(slot)],[]))
+            self.assertLessEqual(int(gate['pre_bind_monotonic_us']),int(gate['bound_monotonic_us']))
+
+    def test_arm_flags_a_new_pre_bind_registration_and_refuses_a_changed_controller(self):
+        new={'repo':'xmit-dev/ultimator','id':None,'name':'hound-ci-2-ffffffffffff'}
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            state,_=self.arm_fixture(stack,folder,registrations=lambda slot:new if slot==2 else self.REG[slot])
+            printed=stack.enter_context(patch('builtins.print'))
+            drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+            manifest=json.loads((state/'manifest.json').read_text())
+        self.assertEqual(manifest['gates']['2']['idle_risk'],['new-registration-before-bind'])
+        self.assertEqual(manifest['phase'],'armed-awaiting-job-completion')  # flagged, never refused
+        self.assertIn('HOUND_CI_DRAIN_IDLE_RISK slot=2 new-registration-before-bind',[c.args[0] for c in printed.call_args_list])
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            moved=lambda:{'controllers':{str(s):{'pid':1000+s+(s==3),'invocation_id':f'{s:x}'*32} for s in range(1,5)},'registrations':{str(k):v for k,v in self.REG.items()}}
+            state,_=self.arm_fixture(stack,folder,ready=moved)
+            with self.assertRaisesRegex(RuntimeError,'Controller changed after the readiness check'):
+                drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+            drain.write_hold.assert_not_called()
+
+    def test_main_maps_not_ready_to_exit_75_with_one_line(self):
+        argv=['drain-old.py','--gate','/nix/store/g','--gate-sha256','g','--waiter-source','/nix/store/w','--waiter-sha256','w','--validator-source','/nix/store/v','--validator-sha256','v']
+        with patch.object(drain.sys,'argv',argv),patch.object(drain,'require_pinned_interpreter'),patch.object(drain,'wrapper_resolves_gate'),\
+             patch.object(drain,'arm',side_effect=drain.NotReady('slot 1 runner is online/idle, not online/busy')),patch('builtins.print') as printed:
+            with self.assertRaises(SystemExit) as stopped:drain.main()
+        self.assertEqual(stopped.exception.code,75)
+        self.assertEqual(printed.call_args.args[0],'HOUND_CI_DRAIN_NOT_READY slot 1 runner is online/idle, not online/busy; nothing changed, re-invoke later')
 
     def test_production_gate_isolated_shebang(self):
         first=Path(__file__).with_name('drain-gh-gate.py').read_text().splitlines()[0]

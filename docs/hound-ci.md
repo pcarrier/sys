@@ -544,8 +544,17 @@ legacy migration helper, not an enabled service or guest payload:
   (creating nothing) until a minute after it closes. Each window is listed
   until two consecutive complete passes agree exactly (at most three): newly
   visible runs may appear (shifted duplicates are skipped by ID), but a run
-  disappearing, a shrinking total, or more than 1000 results (GitHub's filter
-  cap) HOLDs. Every listed run's `created_at` must lie in its window.
+  disappearing or a shrinking total HOLDs. Every listed run's `created_at` must
+  lie in its window.
+- **Window splitting.** A window whose `total_count` reaches 1000 (GitHub's
+  filter cap, never a complete count) or that does not converge within three
+  passes is split into two exact halves, listed depth-first; the paging proof
+  records the split with the calls it spent (`workflow_runs_split`). Halves
+  stop at 60 s (a smaller window HOLDs) and at most 1024 leaf windows. The
+  validator recomputes the same recursive partition: every plan window must be
+  listed or split, every leaf's converged total must be < 1000 and equal its
+  run count, nothing outside the partition may appear, and split calls enter the
+  exact request accounting.
 - Completed runs last updated before earliest-START − 5 s are listed but not
   job-scanned: all their jobs completed before any adopted VM started, which the
   validator rejects anyway. Every other run (any non-`completed` status
@@ -564,15 +573,43 @@ legacy migration helper, not an enabled service or guest payload:
   requiring a single-link regular file owned by UID 1000 (so the copy discloses
   nothing new); it is never printed, logged, hashed into a receipt or exported.
   The collector runs as UID 1000 with the private GID 2000001005, which no
-  account, group or subordinate-GID range holds (checked at capture): other
-  accounts (gid 100 is shared with `dauriac`) cannot read the copy and a
-  hostile UID-1000 process can neither read it nor ptrace the collector
-  (ptrace also requires matching GIDs; Yama scope is 1). HOME, GH_CONFIG_DIR
+  account, group or subordinate-GID range holds (checked at capture), so other
+  accounts (gid 100 is shared with `dauriac`) cannot read the copy. **This is
+  not a boundary against a compromised UID 1000**: pcarrier is in the `docker`
+  group (root-equivalent) and already owns the token, so a hostile UID-1000
+  process could obtain it or interfere anyway. The pinned copy defends against
+  other accounts and against casual or accidental config overrides in
+  `~/.config/gh`, nothing more. HOME, GH_CONFIG_DIR
   and all XDG paths point at the pinned directory; the update notifier and
   prompts are off. The directory is removed after the capture and must not
   pre-exist. Token integrity does not affect authenticity (TLS to
   api.github.com plus response repository identity); keyring-only storage
   HOLDs. This is a deliberate exception to "no credential reads by root".
+- **Cleanup on every path.** The copy is created under umask 077 with
+  termination signals blocked until its ownership is recorded; SIGTERM, SIGINT,
+  SIGHUP and SIGQUIT unwind through the capture's cleanup (signals stay blocked
+  across fork+exec, so no unrecorded collector child exists, and during
+  kill/reap/check/removal, so a second signal cannot interrupt it). Errors and
+  timeouts take the same path; parse errors never carry file contents. SIGKILL
+  or power loss can leave the directory on tmpfs: the next capture or rehearsal
+  then HOLDs with one line, `rm -r -- /run/hound-ci-actions-gh`, and never
+  removes a directory it did not create.
+- **Retrying a failed capture.** `actions-capture/` is one-shot. After a
+  failed or interrupted capture, root `finish-drain.py
+  --archive-failed-capture` renames it to `actions-capture-failed-N` (N ≤ 8,
+  never edited or deleted, state directory fsynced) only if no
+  `actions-terminal.json`/`.tmp` exists and no pinned gh copy remains; then
+  `--capture` may run again. `--certify` reads only `actions-capture/`.
+- **Pre-arm rehearsal.** Root `finish-drain.py --rehearse` (pinned Python
+  `-I -B`, from the staged store source) runs the real pinned-config path with
+  no manifest and writes no rollout state: it installs the pinned gh copy,
+  launches the unchanged bootstrap as UID 1000/GID 2000001005, feeds it a
+  `pinned-collector-rehearsal` request (horizon ending a minute ago, earliest
+  START an hour ago), and the child lists every window of the 31-day horizon
+  (with splitting) and reads attempts and complete job pages for qualifying
+  runs (no direct job GETs). Root checks the requests against 4096 calls and
+  the time against the 30-minute capture timeout, requires the copy removed,
+  and prints windows/leaves/splits/runs/requests/elapsed.
 
 ### Bounds and operating rules
 
@@ -587,6 +624,32 @@ legacy migration helper, not an enabled service or guest payload:
   checks the reviewed old wrapper (SHA-pinned): its exported PATH reaches the
   gated gh directory before any other `gh`, and every loaded ExecStart is that
   wrapper.
+- **Idle-runner precondition (pre-arm, read-only).** Before creating any
+  state, `drain-old` reads each slot's registration R (positive id required)
+  and makes ONE UID-1000 GET of
+  `repos/xmit-dev/ultimator/actions/runners?per_page=100` through setpriv with
+  pcarrier's ordinary gh config (a liveness-only signal: it authorizes nothing
+  and certifies nothing, so the pinned copy is not needed). All four R must be
+  listed with the same id and name, `online` and `busy`; R and each controller's
+  PID/InvocationID are re-read after the GET. Otherwise it prints
+  `HOUND_CI_DRAIN_NOT_READY <reason>` and exits 75 with nothing changed; the
+  operator re-invokes later. Soundness: a runner listed busy exists, so its
+  DELETE, the record unlink, the legacy 10 s sleep and only then the next record
+  write and JIT POST follow, and every current VM is mid-job and ends with that
+  job. Immediately before each slot's bind, the registration is re-read: R (with
+  the bind less than 10 s later) or absent means no new POST preceded the gate.
+  A new name before the bind, a slow bind, or a new name after the gate is
+  recorded as `idle_risk` in the manifest and warned (`HOUND_CI_DRAIN_IDLE_RISK`),
+  never refused.
+- **End path of an idle runner.** A JIT VM that never receives a job runs until
+  the legacy 8 h VM lifetime: "VM lifetime exceeded" with no STOP line, the
+  worker exits 1, and the waiter HOLDs on the unclosed VM. The same holds for a
+  nonzero QEMU exit or a failed QEMU attestation. Reconciling such a slot needs
+  separate authorization.
+- **History pre-arm caps.** Before arming, `drain-old` counts this boot's root
+  VM STARTs per pinned (InvocationID, PID) from the journal (bounded 64 MiB,
+  64 KiB rows) and refuses unless each slot has ≤ 1024 and all four ≤ 2048, half
+  the waiter's caps (test-pinned to the waiter's constants).
 - A tracked NEW controller may atomically replace its registration file
   mid-read; activation reads that slot's record by inode content, untracked
   slots stay strict.

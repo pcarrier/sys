@@ -68,6 +68,7 @@ from pathlib import Path
 import re
 import select
 import selectors
+import signal
 import stat
 import subprocess
 import sys
@@ -114,6 +115,8 @@ SEARCH_CAP = 1000
 MAX_WINDOW_PAGES = 10
 MAX_PASSES = 3
 MAX_WINDOWS = 160
+MAX_LEAF_WINDOWS = 1024
+MIN_WINDOW_SECONDS = 60
 GITHUB_SECOND = '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 MAX_CALLS = 4096
 PYTHON = Path('/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3')
@@ -122,6 +125,7 @@ CAPTURE_TIMEOUT = 1800
 # Pinned gh configuration for the root-launched collector (P1-4): root-owned,
 # readable only by a GID no account/group/subordinate range holds, so neither
 # the UID-1000 home config nor any other account can route or forge gh output.
+# (A compromised UID 1000 is out of scope: pcarrier is in the docker group.)
 COLLECTOR_GID = 2000001005
 GH_CONFIG_DIR = Path('/run/hound-ci-actions-gh')
 GH_CONFIG = b'version: "1"\ngit_protocol: https\nprompt: disabled\n'
@@ -449,8 +453,11 @@ def accepted_vms(manifest):
             selected_by_gate = any(reg is not None and reg['name'] == name for reg in registrations)
             if stop >= arm_boundary or selected_by_gate or vm is history[-1]:
                 require(vm['security_verified'] is True, 'Adopted VM lacks actual root QEMU verification')
-                require(vm['qemu_pid'] not in all_pids, 'Repeated adopted QEMU process identity')
-                all_pids.add(vm['qemu_pid'])
+                # A PID alone may be reused across thousands of VMs in one boot;
+                # the process identity is (PID, its root START monotonic).
+                process = (vm['qemu_pid'], start)
+                require(process not in all_pids, 'Repeated adopted QEMU process identity')
+                all_pids.add(process)
                 ids = {reg['id'] for reg in registrations
                        if reg is not None and reg['name'] == name and reg['id'] is not None}
                 require(len(ids) <= 1, 'Root registration IDs disagree')
@@ -626,6 +633,35 @@ def response_job(row, attempt=None):
             'conclusion': row['conclusion'], 'completed_at': row['completed_at']}
 
 
+class WindowSplit(RuntimeError):
+    """A run window must be listed as two halves (cap reached or no convergence)."""
+    calls = 0
+
+
+def split_window(window):
+    require(window[1] - window[0] + 1 >= 2 * MIN_WINDOW_SECONDS, 'Run window cannot be split further; HOLD')
+    middle = window[0] + (window[1] - window[0] + 1) // 2
+    return (window[0], middle - 1), (middle, window[1])
+
+
+def list_windows(api, plan):
+    """Deterministic depth-first listing of the plan's windows, splitting on demand."""
+    leaves, pending = [], list(plan['windows'])
+    while pending:
+        window = pending.pop(0)
+        route = window_route(*window)
+        try:
+            rows = api.window(route)
+        except WindowSplit as split:
+            halves = split_window(window)
+            api.pages.append({'route': route, 'key': 'workflow_runs_split', 'calls': split.calls})
+            pending[:0] = list(halves)
+            continue
+        leaves.append((window, rows))
+        require(len(leaves) <= MAX_LEAF_WINDOWS, 'Run window leaf bound exceeded')
+    return leaves
+
+
 class GitHub:
     """Finite ordinary GETs only; no automatic retries, polling or credential reads."""
     def __init__(self, expected_sha, pinned_config=False):
@@ -670,7 +706,9 @@ class GitHub:
             else:
                 require(total is None or row['total_count'] >= total, 'Run window shrank while collecting; HOLD')
                 total = row['total_count']
-                require(total <= SEARCH_CAP, 'Run window exceeds GitHub filtered-listing cap; HOLD')
+                if total >= SEARCH_CAP:
+                    # 1000 may be GitHub's truncation, never a complete count.
+                    raise WindowSplit('Run window reaches the filtered-listing cap')
             for item in row[key]:
                 require(isinstance(item, dict), 'Paged record malformed')
                 identity = integer(item.get('id'), 'Paged response ID')
@@ -694,7 +732,20 @@ class GitHub:
         return rows
 
     def window(self, route):
-        """Closed created-window listing: bounded passes until two agree exactly."""
+        """Closed created-window listing: bounded passes until two agree exactly.
+
+        Reaching the filtered-listing cap or not converging raises WindowSplit
+        carrying the calls spent; the caller splits the window in two halves.
+        A disappearing run or shrinking total is an anomaly and HOLDs.
+        """
+        start = self.calls
+        try:
+            return self._window(route)
+        except WindowSplit as split:
+            split.calls = self.calls - start
+            raise
+
+    def _window(self, route):
         passes, previous = [], None
         for _ in range(MAX_PASSES):
             rows, total, pages = self.scan(route, 'workflow_runs', strict=False)
@@ -708,7 +759,7 @@ class GitHub:
                                        'pages': pages, 'passes': passes})
                     return rows
             previous = (ids, total)
-        raise RuntimeError('Run window did not converge within bounded passes; HOLD')
+        raise WindowSplit('Run window did not converge within bounded passes')
 
 
 
@@ -773,6 +824,12 @@ def enumeration_plan(manifest, adopted):
     earliest_us = min(int(vm['final_accepted_vm']['start_realtime']) for vm in adopted)
     allowance = ACTIONS_CLOCK_SKEW_SECONDS * 1000000
     until = -(-(micros(manifest['drained_utc']) + allowance) // 1000000)
+    return closed_windows(earliest_us, until)
+
+
+def closed_windows(earliest_us, until):
+    """The plan shared by collection, validation and the pre-arm rehearsal."""
+    allowance = ACTIONS_CLOCK_SKEW_SECONDS * 1000000
     since = (earliest_us // 1000000 - RERUN_HORIZON_SECONDS) // RUN_WINDOW_SECONDS * RUN_WINDOW_SECONDS
     windows = []
     start = since
@@ -821,8 +878,8 @@ def collect(manifest, api):
     matches = {name: [] for name in targets}
     known_ids = {vm['runner_id'] for vm in adopted if vm['runner_id'] is not None}
     runs = {}
-    for window in plan['windows']:
-        for run in api.window(window_route(*window)):
+    for window, rows in list_windows(api, plan):
+        for run in rows:
             entry = run_entry(run, window, plan)
             require(entry['run_id'] not in runs, 'Run listed in two disjoint windows')
             runs[entry['run_id']] = entry
@@ -866,18 +923,150 @@ def collect(manifest, api):
     return result
 
 
+REHEARSAL_KIND = 'pinned-collector-rehearsal'
+REHEARSAL_RESULT = 'pinned-collector-rehearsal-result'
+FAILED_CAPTURES = 8
+
+
+def rehearsal_request(now):
+    """Root-built input: a closed horizon ending a minute ago, earliest START an hour ago."""
+    until = int(now) - 60
+    return {'schema': 1, 'kind': REHEARSAL_KIND, 'until': until, 'earliest_us': (until - 3600) * 1000000,
+            'validator_source': str(Path(__file__)), 'gh_sha256': digest(read_root_bytes(GH_ELF, 64 * 1024 * 1024))}
+
+
+def validate_rehearsal_request(request, now):
+    exact(request, {'schema', 'kind', 'until', 'earliest_us', 'validator_source', 'gh_sha256'}, 'Rehearsal request')
+    require(request['schema'] == 1 and request['kind'] == REHEARSAL_KIND and type(request['until']) is int and
+            type(request['earliest_us']) is int and request['until'] <= now - 60 and
+            0 < request['until'] * 1000000 - request['earliest_us'] <= 86400 * 1000000 and
+            isinstance(request['gh_sha256'], str) and re.fullmatch('[0-9a-f]{64}', request['gh_sha256']),
+            'Rehearsal request invalid (windows must be closed past intervals)')
+    return closed_windows(request['earliest_us'], request['until'])
+
+
+def rehearse_collect(request, api):
+    """The capture's enumeration and job-page scan, minus manifest and direct job GETs.
+
+    Same windows (31-day re-run horizon), splitting, listing passes, scan
+    threshold and attempt + complete job-page GETs as collect(). Nothing is
+    certified: it measures requests and time against MAX_CALLS/CAPTURE_TIMEOUT.
+    """
+    started = time.monotonic()
+    plan = validate_rehearsal_request(request, datetime.now(timezone.utc).timestamp())
+    runs = {}
+    leaves = list_windows(api, plan)
+    for window, rows in leaves:
+        for run in rows:
+            entry = run_entry(run, window, plan)
+            require(entry['run_id'] not in runs, 'Run listed in two disjoint windows')
+            runs[entry['run_id']] = entry
+    scanned = attempts = 0
+    for run_id in sorted(runs):
+        run = runs[run_id]
+        if not run['scanned']:
+            continue
+        scanned += 1
+        for attempt in range(1, run['run_attempt'] + 1):
+            route = f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}'
+            response = api.get(route)
+            require(isinstance(response, dict) and response.get('id') == run_id and response.get('run_attempt') == attempt,
+                    'Run attempt RESPONSE identity mismatch')
+            api.paged(route + '/jobs', 'jobs')
+            attempts += 1
+    elapsed = time.monotonic() - started
+    return {'schema': 1, 'kind': REHEARSAL_RESULT, 'windows': len(plan['windows']), 'leaves': len(leaves),
+            'splits': sum(1 for page in api.pages if page['key'] == 'workflow_runs_split'),
+            'runs': len(runs), 'scanned_runs': scanned, 'scanned_attempts': attempts,
+            'request_count': api.calls, 'elapsed_ms': int(elapsed * 1000),
+            'max_calls': MAX_CALLS, 'capture_timeout_seconds': CAPTURE_TIMEOUT}
+
+
+def validate_rehearsal_result(result):
+    exact(result, {'schema', 'kind', 'windows', 'leaves', 'splits', 'runs', 'scanned_runs', 'scanned_attempts',
+                   'request_count', 'elapsed_ms', 'max_calls', 'capture_timeout_seconds'}, 'Rehearsal result')
+    require(result['schema'] == 1 and result['kind'] == REHEARSAL_RESULT and
+            all(type(result[key]) is int and result[key] >= 0 for key in result if key not in ('kind',)),
+            'Rehearsal result malformed')
+    require(result['request_count'] <= MAX_CALLS and result['elapsed_ms'] < CAPTURE_TIMEOUT * 1000 and
+            result['windows'] <= result['leaves'] <= MAX_LEAF_WINDOWS,
+            'Rehearsal exceeds the capture request/time bounds; HOLD before arming')
+    return result
+
+
+def rehearse():
+    """Root pre-arm rehearsal of the pinned-config collector. Writes no rollout state.
+
+    Installs the same root-owned pinned gh copy, spawns the same setpriv'd
+    bootstrap from this reviewed store source, and removes the copy on every
+    catchable path (run_producer). Refuses while a capture or certificate runs.
+    """
+    require(sys.flags.isolated and sys.flags.dont_write_bytecode, 'Root CLI requires fixed Python -I -B')
+    require(str(Path(sys.executable).resolve(strict=True)) == python_executable(), 'Root CLI is not the fixed Nix Python')
+    require(os.getuid() == os.geteuid() == 0, 'Requires the root operator')
+    require(os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino,
+            'Must run in the original host mount namespace')
+    source = Path(__file__)
+    sha = digest(read_root_bytes(source, SOURCE_LIMIT))
+    validate_operator_source(source, sha)
+    request = rehearsal_request(time.time())
+    validate_rehearsal_request(request, time.time())
+    data = canonical(request) + b'\n'
+    output, actual = run_producer({'validator_source': str(source), 'validator_sha256': sha}, data)
+    result = validate_rehearsal_result(decode(output))
+    require(output == canonical(result) + b'\n', 'Rehearsal stdout is not exact normalized public JSON')
+    require(not os.path.lexists(GH_CONFIG_DIR), 'Pinned gh copy survived the rehearsal; HOLD')
+    print('HOUND_CI_ACTIONS_REHEARSED ' + ' '.join(f'{key}={result[key]}' for key in (
+        'windows', 'leaves', 'splits', 'runs', 'scanned_runs', 'scanned_attempts', 'request_count',
+        'elapsed_ms', 'max_calls', 'capture_timeout_seconds')) + f' child_exit={actual["child_exit"]} gh_copy_removed=1', flush=True)
+    return result
+
+
+def archive_failed_capture():
+    """Root: set aside ONE failed/interrupted actions-capture so a capture can retry.
+
+    Only when no certificate (or its temporary) exists and no pinned gh copy
+    remains. Renamed to actions-capture-failed-N (N <= FAILED_CAPTURES), never
+    deleted or edited; certify reads only actions-capture.
+    """
+    manifest = read_public_json(STATE / 'manifest.json')
+    root_operator(manifest)
+    folder = capture_paths()[0]
+    root_directory(STATE)
+    require(stat.S_IMODE(STATE.lstat().st_mode) == 0o700, 'Exclusive root rollout state must remain 0700')
+    root_directory(folder)
+    for name in ('actions-terminal.json', 'actions-terminal.tmp'):
+        require(not os.path.lexists(STATE / name), 'A certificate exists/is being written; never archive its capture')
+    require(not os.path.lexists(GH_CONFIG_DIR), stale_gh_config())
+    targets = [STATE / f'actions-capture-failed-{index}' for index in range(1, FAILED_CAPTURES + 1)]
+    free = [path for path in targets if not os.path.lexists(path)]
+    require(free, 'Failed-capture archive bound reached; reconcile by hand')
+    os.rename(folder, free[0])
+    fd = os.open(STATE, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    print(f'HOUND_CI_ACTIONS_CAPTURE_ARCHIVED {free[0].name}', flush=True)
+    return free[0]
+
+
 def validate_paging(pages, plan):
+    """Return ({route: page}, leaf windows): an exact recursive partition of the plan."""
     require(isinstance(pages, list) and pages, 'Complete Actions pagination proof missing')
-    windows = {window_route(*window): window for window in plan['windows']}
     routes, by_route = set(), {}
     for page in pages:
         require(isinstance(page, dict), 'Paging malformed')
         route = page.get('route')
         require(isinstance(route, str) and route not in routes, 'Paging duplicate/invalid route')
-        if page.get('key') == 'workflow_runs':
+        if page.get('key') == 'workflow_runs_split':
+            exact(page, {'route', 'key', 'calls'}, 'Run window split')
+            require(type(page['calls']) is int and 1 <= page['calls'] <= MAX_PASSES * MAX_WINDOW_PAGES,
+                    'Run window split call count invalid')
+        elif page.get('key') == 'workflow_runs':
             exact(page, {'route', 'key', 'total_count', 'pages', 'passes'}, 'Run window paging')
             passes = page['passes']
-            require(route in windows and type(page['total_count']) is int and 0 <= page['total_count'] <= SEARCH_CAP and
+            require(type(page['total_count']) is int and 0 <= page['total_count'] < SEARCH_CAP and
                     isinstance(passes, list) and 2 <= len(passes) <= MAX_PASSES and
                     all(type(count) is int and 1 <= count <= MAX_WINDOW_PAGES for count in passes) and
                     type(page['pages']) is int and page['pages'] == passes[-1] == max(1, (page['total_count'] + 99) // 100),
@@ -890,8 +1079,22 @@ def validate_paging(pages, plan):
                     'Paging incomplete/duplicate')
         routes.add(route)
         by_route[route] = page
-    require(set(windows) <= routes, 'A deterministic run window was not listed')
-    return by_route
+    leaves, pending, seen = [], list(plan['windows']), set()
+    while pending:
+        window = pending.pop(0)
+        route = window_route(*window)
+        page = by_route.get(route)
+        require(page is not None and page['key'] in ('workflow_runs', 'workflow_runs_split'),
+                'A deterministic run window was neither listed nor split')
+        seen.add(route)
+        if page['key'] == 'workflow_runs_split':
+            pending[:0] = list(split_window(window))
+        else:
+            leaves.append(window)
+            require(len(leaves) <= MAX_LEAF_WINDOWS, 'Run window leaf bound exceeded')
+    require({route for route, page in by_route.items() if page['key'] != 'jobs'} == seen,
+            'Run window paging outside the deterministic partition')
+    return by_route, leaves
 
 
 def validate_collection(report, manifest, cleanup_receipts=None):
@@ -915,11 +1118,11 @@ def validate_collection(report, manifest, cleanup_receipts=None):
     adopted = accepted_vms(manifest)
     plan = enumeration_plan(manifest, adopted)
     require(micros(report['collected_utc']) > plan['until'] * 1000000, 'Collection predates closed run windows')
-    page_by_route = validate_paging(report['paging'], plan)
+    page_by_route, leaves = validate_paging(report['paging'], plan)
     runs = report['runs']
-    require(isinstance(runs, list) and len(runs) <= SEARCH_CAP * MAX_WINDOWS, 'Complete run scope missing')
-    required_routes = {window_route(*window) for window in plan['windows']}
-    per_window = {route: 0 for route in required_routes}
+    require(isinstance(runs, list) and len(runs) <= SEARCH_CAP * MAX_LEAF_WINDOWS, 'Complete run scope missing')
+    per_window = {window_route(*window): 0 for window in leaves}
+    required_routes = set(per_window) | {route for route, page in page_by_route.items() if page['key'] == 'workflow_runs_split'}
     run_ids, previous = set(), 0
     attempts = 0
     for run in runs:
@@ -928,7 +1131,7 @@ def validate_collection(report, manifest, cleanup_receipts=None):
         require(run['run_id'] > previous, 'Run scope must be strictly ordered by ID without duplicates')
         previous = run['run_id']
         created = micros(run['created_at'])
-        homes = [window for window in plan['windows']
+        homes = [window for window in leaves
                  if window[0] * 1000000 <= created <= window[1] * 1000000 + 999999]
         require(len(homes) == 1, 'Run created_at outside every deterministic window')
         listed = {'id': run['run_id'], 'url': f'https://api.github.com/repos/{REPO}/actions/runs/{run["run_id"]}',
@@ -946,7 +1149,8 @@ def validate_collection(report, manifest, cleanup_receipts=None):
     require(set(page_by_route) == required_routes,
             'All scanned run attempts must be completely paged, without gaps or extras')
     rows = report['jobs']
-    listing_calls = sum(sum(page['passes']) if page['key'] == 'workflow_runs' else page['pages']
+    listing_calls = sum(sum(page['passes']) if page['key'] == 'workflow_runs' else
+                        page['calls'] if page['key'] == 'workflow_runs_split' else page['pages']
                         for page in page_by_route.values())
     require(report['request_count'] == listing_calls + attempts + len(adopted),
             'Exact finite request accounting missing')
@@ -1027,10 +1231,10 @@ exec(compile(source, path, 'exec'), {'__name__': '__main__', '__file__': path})
 def collector_gid_unshared():
     """COLLECTOR_GID must be held by NO account, group or subordinate range.
 
-    Only our setpriv'd collector child carries it, so a hostile UID-1000
-    process (gid 100, shared with another account on this host) can neither
-    read the pinned gh config's credential copy nor ptrace the collector
-    (ptrace/proc access requires matching real/effective/saved GIDs too).
+    Only our setpriv'd collector child carries it, so other accounts (gid 100
+    is shared with another account on this host) cannot read the pinned gh
+    config's credential copy. NOT a boundary against a compromised UID 1000:
+    pcarrier is in the docker group (root-equivalent) and owns the token.
     """
     try:
         grp.getgrgid(COLLECTOR_GID)
@@ -1055,7 +1259,8 @@ def operator_token():
     other overrides could forge Actions metadata). The walk opens every
     component no-follow from '/', and the file must be a single-link regular
     file OWNED by UID 1000: its bytes are already UID 1000's, so the copy can
-    never disclose anything new. Token integrity is irrelevant to proof
+    never disclose anything new. The pinned copy guards against other accounts
+    and casual config overrides, not a compromised UID 1000 (docker group). Token integrity is irrelevant to proof
     authenticity (TLS to api.github.com plus response repository identity);
     only routing/config knobs matter, and those come from GH_CONFIG below.
     The token is never printed, logged, hashed into a receipt or exported.
@@ -1075,7 +1280,12 @@ def operator_token():
         require(len(data) == meta.st_size, 'Operator gh hosts file changed during read')
     finally:
         os.close(fd)
-    lines = data.decode('utf-8').split('\n')
+    try:
+        lines = data.decode('utf-8').split('\n')
+    except UnicodeDecodeError:
+        # Never let a codec error (which carries the bytes) reach a traceback.
+        raise RuntimeError('Operator gh hosts file is not UTF-8') from None
+    del data
     starts = [index for index, line in enumerate(lines) if line == 'github.com:']
     require(len(starts) == 1, 'Operator gh hosts lacks one exact github.com block')
     values, indent = {}, None
@@ -1098,16 +1308,32 @@ def operator_token():
     return values['user'], values['oauth_token']
 
 
-def install_gh_config():
-    """Create the root-owned, collector-GID-readable pinned gh configuration."""
+def install_gh_config(ownership=None):
+    """Create the root-owned, collector-GID-readable pinned gh configuration.
+
+    ownership['created'] becomes True atomically with the directory's creation
+    (termination signals blocked across mkdir+flag), so the caller's finally
+    removes exactly what THIS capture created and never a stale/foreign one.
+    """
+    ownership = {} if ownership is None else ownership
     collector_gid_unshared()
     root_directory(GH_CONFIG_DIR.parent)
-    require(not os.path.lexists(GH_CONFIG_DIR), 'Pinned gh config directory exists/interrupted; reconcile, never reuse')
+    require(not os.path.lexists(GH_CONFIG_DIR), stale_gh_config())
     login, token = operator_token()
     hosts = (f'github.com:\n    users:\n        {login}:\n            oauth_token: {token}\n'
              f'    oauth_token: {token}\n    user: {login}\n    git_protocol: https\n').encode('ascii')
     del token
-    os.mkdir(GH_CONFIG_DIR, 0o700)
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
+    previous_umask = os.umask(0o077)  # Nothing is ever created wider than 0700/0600.
+    try:
+        try:
+            os.mkdir(GH_CONFIG_DIR, 0o700)
+        except FileExistsError:
+            raise RuntimeError(stale_gh_config()) from None  # Foreign/stale: never removed here.
+        ownership['created'] = True
+    finally:
+        os.umask(previous_umask)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
     try:
         os.chown(GH_CONFIG_DIR, 0, COLLECTOR_GID)
         os.chmod(GH_CONFIG_DIR, 0o750)
@@ -1116,7 +1342,9 @@ def install_gh_config():
             try:
                 os.fchown(fd, 0, COLLECTOR_GID)
                 os.fchmod(fd, 0o440)
-                os.write(fd, content)
+                view = memoryview(content)
+                while view:
+                    view = view[os.write(fd, view):]
                 os.fsync(fd)
             finally:
                 os.close(fd)
@@ -1125,6 +1353,23 @@ def install_gh_config():
     except BaseException:
         remove_gh_config()
         raise
+
+
+def stale_gh_config():
+    return ('Stale pinned gh config ' + str(GH_CONFIG_DIR) + ' from an interrupted capture: HOLD. '
+            'Remediation: confirm no finish-drain capture runs, then as root `rm -r -- ' + str(GH_CONFIG_DIR) +
+            '` (it holds only a token copy); the one-shot actions-capture/ stays and needs separate reconciliation.')
+
+
+class CaptureSignal(BaseException):
+    """A termination signal during capture: unwinds through every finally."""
+
+
+def raise_capture_signal(number, frame):
+    raise CaptureSignal(f'Capture interrupted by signal {number}; UNKNOWN/HOLD')
+
+
+CAPTURE_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT)
 
 
 def check_gh_config(root=False):
@@ -1305,14 +1550,25 @@ def run_producer(manifest, data):
     ack_read, ack_write = os.pipe2(os.O_CLOEXEC)
     child = None
     deadline = time.monotonic() + CAPTURE_TIMEOUT
-    installed = False
+    require(not os.path.lexists(GH_CONFIG_DIR), stale_gh_config())
+    ownership = {}
+    # Catchable termination signals unwind through the finally below, so the
+    # token copy is removed on success, error, timeout AND signal. SIGKILL or
+    # power loss leaves it on tmpfs (cleared at boot); the next capture then
+    # HOLDs with stale_gh_config()'s one-line remediation.
+    handlers = {number: signal.signal(number, raise_capture_signal) for number in CAPTURE_SIGNALS}
     try:
-        install_gh_config()
-        installed = True
+        install_gh_config(ownership)
         argv = producer_argv(manifest, ready_write, ack_read)
-        child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 env=producer_environment(), cwd='/var/empty', close_fds=True,
-                                 pass_fds=(ready_write, ack_read))
+        # Termination signals are blocked across fork+exec and the assignment,
+        # so a CaptureSignal can never leave an unrecorded (orphaned) child.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
+        try:
+            child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     env=producer_environment(), cwd='/var/empty', close_fds=True,
+                                     pass_fds=(ready_write, ack_read))
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         integer(child.pid, 'Actual collector PID')
         os.close(ready_write); ready_write = None
         os.close(ack_read); ack_read = None
@@ -1326,22 +1582,33 @@ def run_producer(manifest, data):
         return output, {'child_pid': child.pid, 'child_exit': code, 'boundary': boundary,
                         'ready_fd': argv[-2], 'ack_fd': argv[-1], 'argv_sha256': digest(canonical(argv))}
     finally:
-        if child is not None:
-            # Only our own collector, NEVER controller/QEMU/busy-job signals.
-            if child.returncode is None:
-                child.kill()
-            child.wait()
-            for stream in (child.stdin, child.stdout):
-                if stream is not None and not stream.closed:
-                    stream.close()
-        for fd in (ready_read, ready_write, ack_read, ack_write):
-            if fd is not None:
-                os.close(fd)
-        if installed:
+        # Cleanup runs with termination signals BLOCKED (a second signal can't
+        # interrupt the kill/reap/removal); any pending one is delivered only
+        # after the original handlers are back, i.e. after cleanup finished.
+        cleanup_mask = signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
+        try:
             try:
-                check_gh_config(root=True)  # Unchanged throughout the capture.
+                if child is not None:
+                    # Only our own collector, NEVER controller/QEMU/busy-job signals.
+                    if child.returncode is None:
+                        child.kill()
+                    child.wait()  # Reap: no zombie or orphan of ours survives.
+                    for stream in (child.stdin, child.stdout):
+                        if stream is not None and not stream.closed:
+                            stream.close()
             finally:
-                remove_gh_config()
+                for fd in (ready_read, ready_write, ack_read, ack_write):
+                    if fd is not None:
+                        os.close(fd)
+                if ownership.get('created') and os.path.lexists(GH_CONFIG_DIR):
+                    try:
+                        check_gh_config(root=True)  # Unchanged throughout the capture.
+                    finally:
+                        remove_gh_config()
+        finally:
+            for number, handler in handlers.items():
+                signal.signal(number, handler)
+            signal.pthread_sigmask(signal.SIG_SETMASK, cleanup_mask)
 
 
 def capture():
@@ -1731,6 +1998,8 @@ def main():
     commands.add_argument('--collect-stdin', action='store_true', help=argparse.SUPPRESS)
     commands.add_argument('--capture', action='store_true', help='Root fixed trusted normal-user producer, GETs only')
     commands.add_argument('--certify', action='store_true', help='Root certify ONLY own captured stdout/invocation')
+    commands.add_argument('--rehearse', action='store_true', help='Root pre-arm rehearsal of the pinned collector (no state)')
+    commands.add_argument('--archive-failed-capture', action='store_true', help='Root: set a failed capture aside to retry')
     parser.add_argument('--manifest', type=Path, help='Ordinary operator public metadata copy; informational collect only')
     args = parser.parse_args()
     if args.collect or args.collect_stdin:
@@ -1746,6 +2015,12 @@ def main():
         require(0 < len(data) <= LIMIT, 'Public manifest bound exceeded')
         manifest = decode(data)
         require(not args.collect_stdin or data == canonical(manifest) + b'\n', 'Root-fed manifest not canonical')
+        if args.collect_stdin and isinstance(manifest, dict) and manifest.get('kind') == REHEARSAL_KIND:
+            # Root-fed rehearsal (same bootstrap, same pinned config): no manifest.
+            require(Path(__file__) == Path(manifest.get('validator_source', '')), 'Producer source binding mismatch')
+            result = rehearse_collect(manifest, GitHub(manifest.get('gh_sha256'), pinned_config=True))
+            print(canonical(result).decode('utf-8'), flush=True)
+            return
         provenance(manifest, check_files=True)
         require(not args.collect_stdin or Path(__file__) == Path(manifest['validator_source']), 'Producer source binding mismatch')
         result = collect(manifest, GitHub(manifest['original_elf_sha256'], pinned_config=args.collect_stdin))
@@ -1754,6 +2029,10 @@ def main():
         require(args.manifest is None, 'Root commands read only the exact root hardware manifest')
         if args.capture:
             capture()
+        elif args.rehearse:
+            rehearse()
+        elif args.archive_failed_capture:
+            archive_failed_capture()
         else:
             certify(capture_paths()[2])
 

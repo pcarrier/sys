@@ -37,6 +37,31 @@ DROPIN = '90-cache-rollout-drain.conf'
 
 
 PINNED_PYTHON = '/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3'
+SETPRIV = '/nix/store/mqvbf0flamqaq9c3ihb496aahag897n0-util-linux-2.42.3-bin/bin/setpriv'
+# Pre-arm readiness (read-only, BEFORE any mutation). Idle JIT runners would
+# keep a drained slot open until the legacy 8 h VM lifetime: arming requires
+# all four current registrations to be online AND busy right now.
+RUNNERS_ROUTE = 'repos/xmit-dev/ultimator/actions/runners?per_page=100'
+LIVENESS_TIMEOUT = 45
+LIVENESS_LIMIT = 4 * 1024 * 1024
+NOT_READY_EXIT = 75  # EX_TEMPFAIL: nothing changed; re-invoke later.
+# The legacy worker sleeps 10 s between its record unlink (after DELETE) and
+# the next record write + JIT POST: a registration still equal to R strictly
+# less than this before the bind proves no new POST preceded the gate.
+LEGACY_RESTART_SLEEP_US = 10 * 1000000
+# Half of the waiter's MAX_VM_HISTORY / MAX_ALL_VM_HISTORY (test-pinned).
+WAITER_SLOT_HISTORY = 2048
+WAITER_ALL_HISTORY = 4096
+PREARM_SLOT_STARTS = WAITER_SLOT_HISTORY // 2
+PREARM_ALL_STARTS = WAITER_ALL_HISTORY // 2
+JOURNAL_LIMIT = 64 * 1024 * 1024
+MAX_ROW = 65536
+JOURNAL_TIMEOUT = 120
+START = re.compile(r'HOUND_CI slot=([1-4]) name=(hound-ci-[1-4]-[0-9a-f]{12})(?: repo=xmit-dev/ultimator)? disposable VM started')
+
+
+class NotReady(RuntimeError):
+    """Arming is not safe right now; NOTHING was changed. Re-invoke later."""
 
 
 def require_pinned_interpreter():
@@ -348,6 +373,150 @@ def current_qemu(entry):
             'first_registration_read': first_read}
 
 
+def bounded_child(argv, limit, timeout, **popen):
+    """Run ONE owned child; bounded stdout; kernel-proven exit (pidfd), no polling."""
+    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, close_fds=True, **popen)
+    deadline = time.monotonic() + timeout
+    output = bytearray()
+    try:
+        fd = child.stdout.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+                raise RuntimeError('Pre-arm read timeout; nothing changed')
+            chunk = os.read(fd, min(65536, limit + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > limit:
+                raise RuntimeError('Pre-arm read oversized; nothing changed')
+        pidfd = os.pidfd_open(child.pid)
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([pidfd], [], [], remaining)[0]:
+                raise RuntimeError('Pre-arm read timeout; nothing changed')
+        finally:
+            os.close(pidfd)
+        if child.wait() != 0:
+            raise RuntimeError('Pre-arm read failed; nothing changed')
+        return bytes(output)
+    finally:
+        if child.returncode is None:
+            child.kill()  # ONLY our own reader child.
+        child.wait()
+        child.stdout.close()
+
+
+def runner_liveness():
+    """ONE finite ordinary GET as UID 1000 with pcarrier's ordinary gh config.
+
+    Liveness-only signal: it never authorizes a DELETE or certifies a job, so
+    the operator's own config (not the finisher's pinned copy) is acceptable.
+    """
+    argv = [SETPRIV, '--reuid=1000', '--regid=100', '--clear-groups', '--inh-caps=-all',
+            '--ambient-caps=-all', '--bounding-set=-all', '--no-new-privs',
+            str(GH_ELF), 'api', '--hostname', 'github.com', '--method', 'GET', RUNNERS_ROUTE]
+    env = {'HOME': '/home/pcarrier', 'PATH': '/var/empty', 'LC_ALL': 'C', 'GH_TELEMETRY': 'false',
+           'GH_NO_UPDATE_NOTIFIER': '1', 'GH_PROMPT_DISABLED': '1'}
+    data = bounded_child(argv, LIVENESS_LIMIT, LIVENESS_TIMEOUT, env=env, cwd='/var/empty')
+    value = json.loads(data)
+    runners = value.get('runners') if isinstance(value, dict) else None
+    if (type(value.get('total_count') if isinstance(value, dict) else None) is not int or
+            not isinstance(runners, list) or not 0 <= value['total_count'] <= 100 or len(runners) != value['total_count']):
+        raise RuntimeError('Runner listing malformed or not complete in one page; nothing changed')
+    rows = []
+    for row in runners:
+        if (not isinstance(row, dict) or type(row.get('id')) is not int or row['id'] <= 0 or
+                not isinstance(row.get('name'), str) or not isinstance(row.get('status'), str) or
+                type(row.get('busy')) is not bool):
+            raise RuntimeError('Runner listing row malformed; nothing changed')
+        rows.append({key: row[key] for key in ('id', 'name', 'status', 'busy')})
+    if len({row['id'] for row in rows}) != len(rows):
+        raise RuntimeError('Runner listing duplicate ID; nothing changed')
+    return rows
+
+
+def vm_starts(slot, pid, invocation):
+    """This boot's root VM STARTs of the pinned (invocation, PID): the waiter's history."""
+    if not INVOCATION.fullmatch(invocation) or pid <= 1:
+        raise RuntimeError('Legacy controller identity unavailable')
+    argv = ['journalctl', '--boot', '--utc', '--no-pager', '--no-tail', '--output=json',
+            '--output-fields=MESSAGE,_PID,_UID,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID',
+            f'_SYSTEMD_INVOCATION_ID={invocation}']
+    count = 0
+    for line in bounded_child(argv, JOURNAL_LIMIT, JOURNAL_TIMEOUT).splitlines():
+        if len(line) > MAX_ROW:
+            raise RuntimeError('Journal row bound exceeded; nothing changed')
+        row = json.loads(line)
+        if (not isinstance(row, dict) or row.get('_SYSTEMD_INVOCATION_ID') != invocation or
+                row.get('_PID') != str(pid) or row.get('_UID') != '0' or
+                row.get('_SYSTEMD_UNIT') != f'hound-ci-{slot}.service' or not isinstance(row.get('MESSAGE'), str)):
+            continue
+        start = START.fullmatch(row['MESSAGE'])
+        if start and start[1] == str(slot) and start[2].startswith(f'hound-ci-{slot}-'):
+            count += 1
+    return count
+
+
+def readiness():
+    """Pre-mutation, read-only. NotReady unless all four are busy and histories fit.
+
+    Soundness: R (positive id) is read BEFORE the GET and again after it. A
+    runner listed busy at the GET exists then, so R's DELETE, the record
+    unlink, the legacy 10 s sleep and only then the next record + JIT POST all
+    follow; the per-slot pre-bind check (arm) closes the rest. Every current
+    VM is mid-job, so it ends with that job, never idling until 8 h.
+    """
+    controllers, registrations = {}, {}
+    for slot in range(1, 5):
+        values = properties(slot)
+        if not values.get('MainPID', '').isdigit() or not INVOCATION.fullmatch(values.get('InvocationID', '')):
+            raise RuntimeError('Legacy controller identity unavailable')
+        controllers[slot] = {'pid': int(values['MainPID']), 'invocation_id': values['InvocationID']}
+        registration = public_registration(slot)
+        if registration is None or registration['id'] is None:
+            raise NotReady(f'slot {slot} has no positive runner registration (between VMs)')
+        registrations[slot] = registration
+    starts = {slot: vm_starts(slot, item['pid'], item['invocation_id']) for slot, item in controllers.items()}
+    for slot, count in starts.items():
+        if count > PREARM_SLOT_STARTS:
+            raise RuntimeError(f'slot {slot} VM history {count} exceeds the pre-arm half cap; reconcile')
+    if sum(starts.values()) > PREARM_ALL_STARTS:
+        raise RuntimeError('All-slot VM history exceeds the pre-arm half cap; reconcile')
+    observed_us = time.monotonic_ns() // 1000
+    observed_utc = timestamp()
+    runners = runner_liveness()
+    for slot, registration in registrations.items():
+        rows = [row for row in runners if row['id'] == registration['id']]
+        if len(rows) != 1 or rows[0]['name'] != registration['name']:
+            raise NotReady(f'slot {slot} registered runner is not listed (ending or ended)')
+        if rows[0]['status'] != 'online' or rows[0]['busy'] is not True:
+            raise NotReady(f'slot {slot} runner is {rows[0]["status"]}/{"busy" if rows[0]["busy"] else "idle"}, not online/busy')
+    for slot, registration in registrations.items():
+        values = properties(slot)
+        if public_registration(slot) != registration or values.get('InvocationID') != controllers[slot]['invocation_id'] or \
+                values.get('MainPID') != str(controllers[slot]['pid']):
+            raise NotReady(f'slot {slot} changed during the readiness check')
+    return {'route': RUNNERS_ROUTE, 'liveness_source': 'uid1000-ordinary-gh-config',
+            'liveness_monotonic_us': str(observed_us), 'liveness_utc': observed_utc,
+            'controllers': {str(slot): item for slot, item in controllers.items()},
+            'registrations': {str(slot): item for slot, item in registrations.items()},
+            'vm_starts': {str(slot): count for slot, count in starts.items()}}
+
+
+def idle_risk(expected, pre_bind, pre_bind_us, bound_us, after_gate):
+    """Reasons a NEW, possibly idle runner may have been POSTed before the gate."""
+    reasons = []
+    if pre_bind is not None and pre_bind != expected:
+        reasons.append('new-registration-before-bind')
+    if pre_bind == expected and bound_us - pre_bind_us >= LEGACY_RESTART_SLEEP_US:
+        reasons.append('bind-later-than-legacy-sleep')
+    if after_gate is not None and after_gate != expected and 'new-registration-before-bind' not in reasons:
+        reasons.append('new-registration-after-gate')  # Possibly a blocked POST: conservative.
+    return reasons
+
+
 def public(entry):
     return {key: value for key, value in entry.items() if key not in ('pidfd', 'nsfd')}
 
@@ -367,6 +536,7 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
             raise RuntimeError('Preflight ALL four owned drop-in paths; no overwrite')
         if target.parent.exists() and (target.parent.is_symlink() or target.parent.stat().st_uid != 0):
             raise RuntimeError('Unexpected drop-in directory ownership/type')
+    ready = readiness()  # Read-only; NotReady/errors leave NOTHING changed.
     STATE.mkdir(mode=0o700)
     old_hash = digest(GH)
     elf_hash = digest(GH_ELF)
@@ -378,9 +548,14 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
                 'waiter_source': str(waiter_source), 'waiter_sha256': waiter_sha, 'validator_source': str(validator_source), 'validator_sha256': validator_sha,
                 'old_source': OLD_SOURCE, 'old_source_sha256': digest(OLD_SOURCE),
                 'created_utc': timestamp(), 'witness_since': '2026-10-05T11:56:00+00:00', 'gate': str(gate), 'gate_sha256': expected_sha,
-                'old_gh_sha256': old_hash, 'original_elf_sha256': elf_hash, 'controllers': [], 'armed': [], 'dropins': [], 'gates': {}}
+                'old_gh_sha256': old_hash, 'original_elf_sha256': elf_hash, 'controllers': [], 'armed': [], 'dropins': [], 'gates': {},
+                'readiness': ready}
     try:
         for slot in range(1, 5): entries.append(pin(slot))
+        for entry in entries:
+            item = ready['controllers'][str(entry['slot'])]
+            if (entry['pid'], entry['invocation_id']) != (item['pid'], item['invocation_id']):
+                raise RuntimeError('Controller changed after the readiness check')
         if any(entry['boot_id'] != manifest['boot_id'] for entry in entries):
             raise RuntimeError('Controller pin crossed a boot boundary')
         if len({entry['invocation_id'] for entry in entries}) != 4:
@@ -407,8 +582,18 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
         manifest['phase'] = 'restart-held'
         save(manifest)
         for entry in entries:
-            def receipt(stage):
-                manifest['gates'].setdefault(str(entry['slot']), {}).update({'stage': stage, 'utc': timestamp()})
+            expected = ready['registrations'][str(entry['slot'])]
+            def receipt(stage, entry=entry, expected=expected):
+                record = manifest['gates'].setdefault(str(entry['slot']), {})
+                if stage == 'bind-intent':
+                    # Re-read IMMEDIATELY before the bind: R or absent means
+                    # the next record write (which precedes its POST) has not
+                    # happened yet. A new name is flagged, never refused.
+                    record['pre_bind_monotonic_us'] = str(time.monotonic_ns() // 1000)
+                    record['registration_pre_bind'] = public_registration(entry['slot'])
+                elif stage == 'bound':
+                    record['bound_monotonic_us'] = str(time.monotonic_ns() // 1000)
+                record.update({'stage': stage, 'utc': timestamp()})
                 save(manifest)
             before = current_qemu(entry)
             if before['observation_boot_id'] != manifest['boot_id']:
@@ -422,7 +607,12 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
                 'first_registration_read': dict(before['first_registration_read'], operator_sha256=manifest['operator_sha256'])}
             save(manifest)
             gate_namespace(entry, gate, receipt)
-            manifest['gates'][str(entry['slot'])]['registration_after_gate'] = public_registration(entry['slot'])
+            record = manifest['gates'][str(entry['slot'])]
+            record['registration_after_gate'] = public_registration(entry['slot'])
+            record['idle_risk'] = idle_risk(expected, record['registration_pre_bind'], int(record['pre_bind_monotonic_us']),
+                                            int(record['bound_monotonic_us']), record['registration_after_gate'])
+            if record['idle_risk']:
+                print(f'HOUND_CI_DRAIN_IDLE_RISK slot={entry["slot"]} ' + ','.join(record['idle_risk']), file=sys.stderr, flush=True)
             manifest['armed'].append({'slot': entry['slot'], 'utc': timestamp()})
             save(manifest)
         if digest(GH) != old_hash or digest(GH_ELF) != elf_hash:
@@ -449,7 +639,11 @@ def main():
     args = parser.parse_args()
     require_pinned_interpreter()
     wrapper_resolves_gate()
-    arm(args.gate, args.gate_sha256, args.waiter_source, args.waiter_sha256, args.validator_source, args.validator_sha256)
+    try:
+        arm(args.gate, args.gate_sha256, args.waiter_source, args.waiter_sha256, args.validator_source, args.validator_sha256)
+    except NotReady as error:
+        print(f'HOUND_CI_DRAIN_NOT_READY {error}; nothing changed, re-invoke later', file=sys.stderr, flush=True)
+        sys.exit(NOT_READY_EXIT)
 
 
 if __name__ == '__main__':

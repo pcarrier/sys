@@ -170,6 +170,22 @@ def window_bounds(route):
     return finish.micros(start.replace('Z', '+00:00')), finish.micros(end.replace('Z', '+00:00')) + 999999
 
 
+@contextmanager
+def fake_gh_config(order):
+    # Models install/check/remove on a private temp path: ownership semantics
+    # are real (the run_producer finally decides), file metadata is not.
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / 'hound-ci-actions-gh'
+        def install(ownership):
+            target.mkdir(); ownership['created'] = True; order.append('install')
+        def remove():
+            order.append('remove'); target.rmdir()
+        with patch.object(finish, 'GH_CONFIG_DIR', target), patch.object(finish, 'install_gh_config', side_effect=install), \
+             patch.object(finish, 'check_gh_config', side_effect=lambda root=False: order.append(('check', root))), \
+             patch.object(finish, 'remove_gh_config', side_effect=remove):
+            yield target
+
+
 class FakeAPI:
     def __init__(self):
         run = run_row()
@@ -180,13 +196,21 @@ class FakeAPI:
         self.calls = 0
         self.pages = []
         self.windows = []
+        self.split_over = None   # more runs than this: the cap is reached (1 call)
+        self.unconverged = set()  # routes that never converge (3 passes)
 
     def window(self, route):
         # A converged closed window: two identical single-page passes.
-        self.calls += 2
         self.windows.append(route)
         start, end = window_bounds(route)
         result = [run for run in self.runs if start <= finish.micros(run['created_at']) <= end]
+        for calls, splits in ((1, self.split_over is not None and len(result) > self.split_over),
+                              (3, route in self.unconverged)):
+            if splits:
+                self.calls += calls
+                split = finish.WindowSplit('fake split'); split.calls = calls
+                raise split
+        self.calls += 2
         self.pages.append({'route': route, 'key': 'workflow_runs', 'total_count': len(result),
                            'pages': 1, 'passes': [1, 1]})
         return copy.deepcopy(result)
@@ -435,6 +459,30 @@ class LifecycleIdentityTests(unittest.TestCase):
         failed = cleanup(m, runner_id=299, name=earlier[0]['name']); failed.update(stage='delete-intent', success=False)
         with self.assertRaisesRegex(RuntimeError, 'did not positively finish'):
             finish.validate_cleanup_receipts(m, cleanups(m) + [failed])
+
+    def test_reused_QEMU_PID_with_distinct_START_is_accepted_identical_identity_holds(self):
+        # PIDs recycle across thousands of VMs per boot: identity is (PID, START).
+        m = manifest(); w = m['drain_witness']['1']; last = w['vm_history'][0]
+        earlier = []
+        for index, (start, stop) in enumerate((('25100000', '25200000'), ('25300000', '25400000'))):
+            vm = copy.deepcopy(last)
+            vm.update(name=f'hound-ci-1-00000000a{index:03x}', start_monotonic=start, stop_monotonic=stop,
+                      start_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:00+00:00')),
+                      stop_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:30+00:00')), qemu_pid=last['qemu_pid'])
+            earlier.append(vm)
+        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-05T12:23:00+00:00')))
+        w['vm_history'][:0] = earlier
+        m['gates']['1']['host_qemu_before_gate'] = None
+        sync_first_read(m)
+        adopted = [vm for vm in finish.accepted_vms(m) if vm['slot'] == 1]
+        self.assertEqual([vm['final_accepted_vm']['qemu_pid'] for vm in adopted], [last['qemu_pid']] * 3)
+        self.assertEqual(len({vm['final_accepted_vm']['start_monotonic'] for vm in adopted}), 3)
+        same = copy.deepcopy(m); history = same['drain_witness']['1']['vm_history']
+        history[0]['stop_monotonic'] = history[0]['start_monotonic']
+        history[1]['start_monotonic'] = history[0]['start_monotonic']
+        sync_first_read(same)
+        with self.assertRaisesRegex(RuntimeError, 'Repeated adopted QEMU process identity'):
+            finish.accepted_vms(same)
 
     def test_successor_proof_is_per_slot_and_never_crosses_controllers(self):
         m = manifest()
@@ -1010,9 +1058,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
         order = []
         with patch.object(finish, 'root_directory'), patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100555, st_uid=0)), \
-             patch.object(finish, 'install_gh_config', side_effect=lambda: order.append('install')), \
-             patch.object(finish, 'check_gh_config', side_effect=lambda root=False: order.append(('check', root))), \
-             patch.object(finish, 'remove_gh_config', side_effect=lambda: order.append('remove')), \
+             fake_gh_config(order) as target, \
              patch.object(finish.os, 'access', return_value=True), \
              patch.object(finish.os, 'pipe2', side_effect=[(10, 11), (12, 13)]), \
              patch.object(finish.os, 'close') as close, patch.object(finish.os, 'read', return_value=b'COLLECTOR_READY\n'), \
@@ -1033,7 +1079,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
             self.assertFalse(any('/home/' in value for value in kwargs['env'].values()))
             self.assertEqual({kwargs['env'][key] for key in ('HOME', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME',
                                                              'XDG_CACHE_HOME', 'XDG_DATA_HOME')}, {str(finish.GH_CONFIG_DIR)})
-            self.assertEqual(order, ['install', ('check', True), 'remove'])
+            self.assertEqual(order, ['install', ('check', True), 'remove']); self.assertFalse(target.exists())
             self.assertIn(f'--regid={finish.COLLECTOR_GID}', launch.call_args.args[0])
             self.assertTrue(kwargs['close_fds']); self.assertEqual(kwargs['pass_fds'], (11, 12))
             self.assertEqual(kwargs['stderr'], finish.subprocess.DEVNULL)
@@ -1068,8 +1114,8 @@ class RootCaptureSecurityTests(unittest.TestCase):
     def test_actual_privilege_failure_kills_ONLY_owned_collector_before_API_or_input(self):
         m = manifest()
         child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=-9))
-        with patch.object(finish, 'install_gh_config'), patch.object(finish, 'check_gh_config'), \
-             patch.object(finish, 'remove_gh_config') as removed, \
+        order = []
+        with fake_gh_config(order) as target, \
              patch.object(finish, 'root_directory'), patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100555, st_uid=0)), patch.object(finish.os, 'access', return_value=True), \
              patch.object(finish.os, 'pipe2', side_effect=[(10, 11), (12, 13)]), patch.object(finish.os, 'close'), \
@@ -1079,7 +1125,8 @@ class RootCaptureSecurityTests(unittest.TestCase):
              patch.object(finish, 'pump_child') as pump, patch.object(finish.subprocess, 'Popen', return_value=child):
             with self.assertRaisesRegex(RuntimeError, 'privilege boundary'): finish.run_producer(m, b'{}\n')
             child.kill.assert_called_once_with(); pump.assert_not_called(); ack.assert_not_called()
-            removed.assert_called_once_with()  # Credential copy never outlives the capture.
+            self.assertEqual(order, ['install', ('check', True), 'remove'])  # Copy never outlives the capture.
+            self.assertFalse(target.exists())
 
     def test_root_capture_feeds_canonical_root_manifest_and_preserves_raw_stdout(self):
         m = manifest(); report = collection(m); mocked = invocation_fixture(m, report)
@@ -1903,6 +1950,81 @@ class RunEnumerationTests(unittest.TestCase):
         api.get = Mock(side_effect=rows)
         return api
 
+    def test_capped_or_unconverged_windows_split_depth_first_and_validate(self):
+        m = manifest(); plan = finish.enumeration_plan(m, finish.accepted_vms(m))
+        api = FakeAPI(); api.split_over = 1
+        for run_id, hour in ((301, '01'), (302, '03'), (303, '05')):
+            api.runs.append(run_row(run_id=run_id, created=f'2026-10-01T{hour}:00:00Z', updated=f'2026-10-01T{hour}:30:00Z'))
+        day = finish.micros('2026-10-01T00:00:00+00:00') // 1000000
+        sept = finish.micros('2026-09-20T00:00:00+00:00') // 1000000
+        api.unconverged.add(finish.window_route(sept, sept + 21599))
+        report = finish.collect(m, api)
+        splits = {p['route']: p['calls'] for p in report['paging'] if p['key'] == 'workflow_runs_split'}
+        self.assertEqual(splits, {finish.window_route(day, day + 21599): 1,
+                                  finish.window_route(day + 10800, day + 21599): 1,
+                                  finish.window_route(sept, sept + 21599): 3})
+        index = api.windows.index(finish.window_route(day, day + 21599))
+        self.assertEqual(api.windows[index:index + 5], [finish.window_route(*w) for w in (
+            (day, day + 21599), (day, day + 10799), (day + 10800, day + 21599),
+            (day + 10800, day + 16199), (day + 16200, day + 21599))])  # depth-first
+        self.assertEqual({r['run_id'] for r in report['runs']}, {301, 302, 303, 500})
+        _, leaves = finish.validate_paging(report['paging'], plan)
+        self.assertEqual(len(leaves), len(plan['windows']) + 3)
+        finish.validate_collection(report, m)
+        def drop(route):
+            return lambda r: r['paging'].remove(next(p for p in r['paging'] if p['route'] == route))
+        child = finish.window_route(day + 10800, day + 16199)
+        for mutate, message in (
+                (drop(finish.window_route(day + 10800, day + 21599)), 'outside the deterministic partition|neither listed'),
+                (drop(child), 'neither listed nor split'),
+                (lambda r: next(p for p in r['paging'] if p['route'] in splits).update(calls=0), 'split call count'),
+                (lambda r: next(p for p in r['paging'] if p['route'] in splits).update(calls=2), 'request accounting'),
+                (lambda r: r['paging'].append({'route': finish.window_route(day, day + 59), 'key': 'workflow_runs',
+                                               'total_count': 0, 'pages': 1, 'passes': [1, 1]}), 'outside the deterministic partition'),
+                (lambda r: next(p for p in r['paging'] if p['route'] == child).update(total_count=0), 'differs from its converged'),
+                (lambda r: r['paging'][r['paging'].index(next(p for p in r['paging'] if p['route'] == finish.window_route(day, day + 21599)))].update(
+                    key='workflow_runs', total_count=3, pages=1, passes=[1, 1]) or r['paging'][-1].pop('calls', None), 'Run window paging|split')):
+            current = copy.deepcopy(report); mutate(current)
+            with self.subTest(message=message), self.assertRaisesRegex(RuntimeError, message):
+                finish.validate_collection(current, m)
+
+    def test_split_window_halves_exactly_down_to_minimum_then_holds(self):
+        self.assertEqual(finish.split_window((0, 119)), ((0, 59), (60, 119)))
+        self.assertEqual(finish.split_window((0, 21599)), ((0, 10799), (10800, 21599)))
+        self.assertEqual(finish.split_window((10, 130)), ((10, 69), (70, 130)))
+        with self.assertRaisesRegex(RuntimeError, 'cannot be split further'):
+            finish.split_window((0, 118))
+        class Always:
+            pages, calls = [], 0
+            def window(self, route):
+                split = finish.WindowSplit('cap'); split.calls = 1; raise split
+        with self.assertRaisesRegex(RuntimeError, 'cannot be split further'):
+            finish.list_windows(Always(), {'windows': [(0, 21599)]})
+        api = FakeAPI(); api.split_over = 0
+        api.runs = [run_row(run_id=i, created=f'2026-10-01T0{i % 6}:00:00Z') for i in range(1, 4)]
+        with patch.object(finish, 'MAX_LEAF_WINDOWS', 2), self.assertRaisesRegex(RuntimeError, 'leaf bound'):
+            finish.list_windows(api, {'windows': [(finish.micros('2026-10-01T00:00:00+00:00') // 1000000,) * 1 +
+                                                  (finish.micros('2026-10-01T05:59:59+00:00') // 1000000,)]})
+
+    def test_GitHub_window_raises_split_with_spent_calls_but_anomalies_HOLD(self):
+        route = finish.window_route(1791201600, 1791223199)
+        def page(*ids, total=None):
+            return {'total_count': len(ids) if total is None else total, 'workflow_runs': [{'id': i} for i in ids]}
+        for rows, calls in (([page(1, total=1000)], 1), ([page(1), page(1, 2), page(1, 2, 3)], 3),
+                            ([page(1, 2), {'total_count': 1000, 'workflow_runs': []}], 2)):
+            api = self.api(rows); answers = api.get.side_effect
+            def counted(route, answers=answers, api=api):
+                api.calls += 1; return next(answers)
+            api.get = counted
+            with self.subTest(rows=rows), self.assertRaises(finish.WindowSplit) as raised:
+                api.window(route)
+            self.assertEqual((raised.exception.calls, api.calls, api.pages), (calls, calls, []))
+        for rows in ([page(1, 2), page(1)], [page(1, 2), page(1, 2, total=1)]):
+            api = self.api(rows)
+            with self.subTest(rows=rows), self.assertRaises(RuntimeError) as raised:
+                api.window(route)
+            self.assertNotIsInstance(raised.exception, finish.WindowSplit)
+
     def test_window_converges_with_monotonic_insertion_and_holds_otherwise(self):
         route = finish.window_route(1791201600, 1791223199)
         def page(*ids, total=None):
@@ -2007,14 +2129,148 @@ class PinnedGhConfigTests(unittest.TestCase):
                 with patch.dict(os.environ, {'GH_CONFIG_DIR': str(target), 'HOME': '/home/pcarrier'}), \
                      self.assertRaisesRegex(RuntimeError, 'does not pin'):
                     finish.check_gh_config()
-                with self.assertRaisesRegex(RuntimeError, 'exists/interrupted'):
-                    finish.install_gh_config()  # Never reused or overwritten.
+                with self.assertRaisesRegex(RuntimeError, 'Stale pinned gh config .*Remediation.*rm -r --'):
+                    finish.install_gh_config()  # Never reused, overwritten or removed here.
+                self.assertTrue((target / 'hosts.yml').exists())
                 os.chmod(target / 'config.yml', 0o640); (target / 'config.yml').write_bytes(b'http_unix_socket: /x\n')
                 os.chmod(target / 'config.yml', 0o440)
                 with self.assertRaisesRegex(RuntimeError, 'content drift'):
                     finish.check_gh_config(root=True)
                 finish.remove_gh_config()
                 self.assertFalse(target.exists())
+
+    def producer_patches(self, stack, child):
+        stack.enter_context(patch.object(finish, 'root_directory'))
+        stack.enter_context(patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')))
+        stack.enter_context(patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100555, st_uid=0)))
+        stack.enter_context(patch.object(finish.os, 'access', return_value=True))
+        stack.enter_context(patch.object(finish.os, 'pipe2', side_effect=[(10, 11), (12, 13)]))
+        stack.enter_context(patch.object(finish.os, 'close'))
+        stack.enter_context(patch.object(finish.os, 'read', return_value=b'COLLECTOR_READY\n'))
+        stack.enter_context(patch.object(finish.os, 'write', return_value=3))
+        stack.enter_context(patch.object(finish.select, 'select', return_value=([10], [], [])))
+        stack.enter_context(patch.object(finish, 'observe_child', return_value={}))
+        stack.enter_context(patch.object(finish.subprocess, 'Popen', return_value=child))
+
+    def test_termination_signal_or_timeout_removes_copy_and_restores_handlers(self):
+        before = {number: finish.signal.getsignal(number) for number in finish.CAPTURE_SIGNALS}
+        for failure in ('signal', 'timeout'):
+            order = []
+            child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=-9))
+            def pump(*args):
+                if failure == 'signal':
+                    # The handler run_producer installed, as the kernel would invoke it.
+                    finish.signal.getsignal(finish.signal.SIGTERM)(finish.signal.SIGTERM, None)
+                raise RuntimeError('Collector capture timeout; UNKNOWN/HOLD')
+            with ExitStack() as stack:
+                target = stack.enter_context(fake_gh_config(order))
+                self.producer_patches(stack, child)
+                stack.enter_context(patch.object(finish, 'pump_child', side_effect=pump))
+                with self.subTest(failure=failure), self.assertRaises((finish.CaptureSignal, RuntimeError)) as raised:
+                    finish.run_producer(manifest(), b'{}\n')
+                self.assertEqual(type(raised.exception), finish.CaptureSignal if failure == 'signal' else RuntimeError)
+                self.assertEqual(order, ['install', ('check', True), 'remove']); self.assertFalse(target.exists())
+                child.kill.assert_called_once_with()
+            self.assertEqual({number: finish.signal.getsignal(number) for number in finish.CAPTURE_SIGNALS}, before)
+
+    def test_real_signal_during_Popen_is_deferred_so_the_child_is_never_orphaned(self):
+        order = []
+        child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=-9))
+        def spawn(*args, **kwargs):
+            # A REAL SIGTERM arrives while fork+exec is in flight.
+            os.kill(os.getpid(), finish.signal.SIGTERM)
+            order.append('spawned')
+            return child
+        with ExitStack() as stack:
+            target = stack.enter_context(fake_gh_config(order))
+            self.producer_patches(stack, child)
+            stack.enter_context(patch.object(finish.subprocess, 'Popen', side_effect=spawn))
+            pump = stack.enter_context(patch.object(finish, 'pump_child'))
+            with self.assertRaises(finish.CaptureSignal):
+                finish.run_producer(manifest(), b'{}\n')
+        self.assertEqual(order, ['install', 'spawned', ('check', True), 'remove']); self.assertFalse(target.exists())
+        child.kill.assert_called_once_with(); child.wait.assert_called_once_with()  # recorded, killed, reaped
+        pump.assert_not_called()
+
+    def test_real_signal_during_cleanup_waits_until_cleanup_finished(self):
+        order = []
+        child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(),
+                                kill=Mock(side_effect=lambda: (order.append('kill'), os.kill(os.getpid(), finish.signal.SIGTERM))),
+                                wait=Mock(side_effect=lambda: order.append('reap')))
+        previous = finish.signal.signal(finish.signal.SIGTERM, lambda number, frame: order.append('late-signal'))
+        try:
+            with ExitStack() as stack:
+                target = stack.enter_context(fake_gh_config(order))
+                self.producer_patches(stack, child)
+                stack.enter_context(patch.object(finish, 'pump_child', side_effect=RuntimeError('Collector capture timeout; UNKNOWN/HOLD')))
+                with self.assertRaisesRegex(RuntimeError, 'capture timeout'):
+                    finish.run_producer(manifest(), b'{}\n')
+        finally:
+            finish.signal.signal(finish.signal.SIGTERM, previous)
+        # Kill, reap, check and removal all complete; the signal reaches the
+        # ORIGINAL handler only afterwards, never interrupting the cleanup.
+        self.assertEqual(order, ['install', 'kill', 'reap', ('check', True), 'remove', 'late-signal'])
+        self.assertFalse(target.exists())
+        self.assertEqual(finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, []), set())
+
+    def test_stale_or_foreign_directory_HOLDS_with_remediation_and_is_never_removed(self):
+        order = []
+        with ExitStack() as stack:
+            target = stack.enter_context(fake_gh_config(order))
+            target.mkdir()
+            self.producer_patches(stack, SimpleNamespace(pid=9999))
+            with self.assertRaises(RuntimeError) as raised:
+                finish.run_producer(manifest(), b'{}\n')
+            message = str(raised.exception)
+            self.assertNotIn('\n', message)
+            self.assertIn(f'rm -r -- {target}', message)
+            self.assertEqual(order, []); self.assertTrue(target.exists())
+        # A directory appearing between the check and mkdir is also never removed.
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'gh'; target.mkdir()
+            ownership = {}
+            with patch.object(finish, 'GH_CONFIG_DIR', target), patch.object(finish, 'collector_gid_unshared'), \
+                 patch.object(finish, 'root_directory'), patch.object(finish, 'operator_token', return_value=('pcarrier', self.TOKEN)), \
+                 patch.object(finish.os.path, 'lexists', return_value=False), patch.object(finish, 'remove_gh_config') as removed:
+                with self.assertRaisesRegex(RuntimeError, 'Stale pinned gh config'):
+                    finish.install_gh_config(ownership)
+                removed.assert_not_called(); self.assertNotIn('created', ownership)
+
+    def test_mkdir_under_umask077_with_signals_blocked_and_ownership_flag(self):
+        events = []
+        real_mkdir = os.mkdir
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'gh'
+            def mkdir(path, mode):
+                events.append(('mkdir', mode, os.umask(0o077),
+                               set(finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, [])) >= set(finish.CAPTURE_SIGNALS)))
+                real_mkdir(path, mode)
+            ownership = {}
+            with patch.object(finish, 'GH_CONFIG_DIR', target), patch.object(finish, 'collector_gid_unshared'), \
+                 patch.object(finish, 'root_directory'), patch.object(finish, 'operator_token', return_value=('pcarrier', self.TOKEN)), \
+                 patch.object(finish.os, 'mkdir', side_effect=mkdir), patch.object(finish.os, 'chown'), \
+                 patch.object(finish.os, 'fchown'), patch.object(finish, 'check_gh_config'):
+                finish.install_gh_config(ownership)
+            self.assertEqual(events, [('mkdir', 0o700, 0o077, True)])
+            self.assertEqual(ownership, {'created': True})
+            self.assertFalse(set(finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, [])) & set(finish.CAPTURE_SIGNALS))
+            self.assertEqual({stat.S_IMODE(os.stat(target / n).st_mode) for n in ('config.yml', 'hosts.yml')}, {0o440})
+
+    def test_parse_errors_never_carry_file_contents(self):
+        secret = 'gho_' + 'S' * 36
+        for content in (f'github.com:\n    oauth_token: {secret}\n    user: \xff\n'.encode('latin-1'),
+                        f'github.com:\n    oauth_token: {secret}\n'.encode()):
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / 'home' / 'pcarrier' / '.config' / 'gh'; path.mkdir(parents=True)
+                (path / 'hosts.yml').write_bytes(content)
+                parts = tuple(Path(folder).parts[1:]) + ('home', 'pcarrier', '.config', 'gh', 'hosts.yml')
+                with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned(), self.assertRaises(RuntimeError) as raised:
+                    finish.operator_token()
+                import traceback
+                rendered = ''.join(traceback.format_exception(raised.exception))
+                self.assertNotIn(secret, rendered); self.assertNotIn('SSSS', rendered)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__ or raised.exception.__context__ is None)
 
     def test_private_collector_gid_is_unshared_and_bound_everywhere(self):
         self.assertIn(f'os.getegid() == {finish.COLLECTOR_GID} and', finish.COLLECTOR_BOOTSTRAP)
@@ -2034,6 +2290,145 @@ class PinnedGhConfigTests(unittest.TestCase):
                  patch.object(finish.os.path, 'lexists', return_value=True), patch.object(finish, 'read_root_bytes', return_value=ranges), \
                  self.subTest(ranges=ranges), self.assertRaises(RuntimeError):
                 finish.collector_gid_unshared()
+
+
+class RehearsalAndRetryTests(unittest.TestCase):
+    UNTIL = finish.micros('2026-10-05T12:30:00+00:00') // 1000000  # FrozenDateTime is 12:31
+
+    def request(self, **changes):
+        value = {'schema': 1, 'kind': finish.REHEARSAL_KIND, 'until': self.UNTIL, 'earliest_us': (self.UNTIL - 3600) * 1000000,
+                 'validator_source': '/nix/store/x-finish-drain.py', 'gh_sha256': 'a' * 64}
+        value.update(changes)
+        return value
+
+    def test_rehearsal_lists_the_same_windows_splits_and_scans_without_direct_job_GETs(self):
+        api = FakeAPI()
+        result = finish.rehearse_collect(self.request(), api)
+        plan = finish.closed_windows((self.UNTIL - 3600) * 1000000, self.UNTIL)
+        self.assertEqual(api.windows, [finish.window_route(*w) for w in plan['windows']])
+        self.assertEqual({key: result[key] for key in ('windows', 'leaves', 'splits', 'runs', 'scanned_runs', 'scanned_attempts')},
+                         {'windows': len(plan['windows']), 'leaves': len(plan['windows']), 'splits': 0, 'runs': 1,
+                          'scanned_runs': 1, 'scanned_attempts': 1})
+        self.assertEqual(result['request_count'], 2 * len(plan['windows']) + 2)  # listings + attempt GET + job page
+        self.assertFalse(any('/actions/jobs/' in p['route'] for p in api.pages))
+        finish.validate_rehearsal_result(result)
+        api = FakeAPI(); api.split_over = 1
+        api.runs += [run_row(run_id=501, created='2026-10-04T01:00:00Z', updated='2026-10-04T01:30:00Z'),
+                     run_row(run_id=502, created='2026-10-04T04:00:00Z', updated='2026-10-04T04:30:00Z')]
+        result = finish.rehearse_collect(self.request(), api)
+        self.assertEqual((result['splits'], result['leaves'], result['runs'], result['scanned_runs']),
+                         (1, len(plan['windows']) + 1, 3, 1))
+        old = FakeAPI(); old.runs[0].update(updated_at='2026-10-05T11:00:00Z', created_at='2026-10-05T10:00:00Z')
+        self.assertEqual(finish.rehearse_collect(self.request(), old)['scanned_runs'], 0)
+
+    def test_rehearsal_request_and_result_are_bounded(self):
+        now = self.UNTIL + 60
+        finish.validate_rehearsal_request(self.request(), now)
+        for bad in (self.request(until=now), self.request(earliest_us=self.UNTIL * 1000000), self.request(kind='x'),
+                    self.request(earliest_us=(self.UNTIL - 86401) * 1000000), self.request(gh_sha256='A' * 64),
+                    dict(self.request(), extra=1)):
+            with self.subTest(bad=bad), self.assertRaises(RuntimeError):
+                finish.validate_rehearsal_request(bad, now)
+        result = finish.rehearse_collect(self.request(), FakeAPI())
+        for change in ({'request_count': finish.MAX_CALLS + 1}, {'elapsed_ms': finish.CAPTURE_TIMEOUT * 1000},
+                       {'leaves': 0}, {'runs': -1}, {'kind': 'x'}, {'extra': 1}):
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                finish.validate_rehearsal_result({**result, **change})
+
+    def test_root_rehearse_feeds_the_same_producer_and_requires_the_copy_removed(self):
+        result = finish.rehearse_collect(self.request(), FakeAPI())
+        output = finish.canonical(result) + b'\n'
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            pinned = Path(folder) / 'gh'
+            stack.enter_context(patch.object(finish, 'GH_CONFIG_DIR', pinned))
+            stack.enter_context(patch.object(finish, 'sys', SimpleNamespace(flags=SimpleNamespace(isolated=1, dont_write_bytecode=1),
+                                                                       executable=str(finish.PYTHON))))
+            stack.enter_context(patch.object(finish, 'python_executable', return_value=str(Path(str(finish.PYTHON)).resolve())))
+            stack.enter_context(patch.object(finish.os, 'getuid', return_value=0))
+            stack.enter_context(patch.object(finish.os, 'geteuid', return_value=0))
+            real_stat = os.stat
+            stack.enter_context(patch.object(finish.os, 'stat', side_effect=lambda p, *a, **k: SimpleNamespace(st_ino=1) if str(p).endswith('/ns/mnt') else real_stat(p, *a, **k)))
+            stack.enter_context(patch.object(finish, 'read_root_bytes', return_value=b'reviewed bytes'))
+            checked = stack.enter_context(patch.object(finish, 'validate_operator_source'))
+            producer = stack.enter_context(patch.object(finish, 'run_producer', return_value=(output, {'child_exit': 0})))
+            printed = stack.enter_context(patch('builtins.print'))
+            self.assertEqual(finish.rehearse(), result)
+            pseudo, data = producer.call_args.args
+            self.assertEqual(pseudo, {'validator_source': str(Path(finish.__file__)), 'validator_sha256': finish.digest(b'reviewed bytes')})
+            checked.assert_called_once_with(Path(finish.__file__), pseudo['validator_sha256'])
+            request = json.loads(data)
+            self.assertEqual((request['kind'], data, request['validator_source']), (finish.REHEARSAL_KIND, finish.canonical(request) + b'\n', pseudo['validator_source']))
+            self.assertTrue(printed.call_args.args[0].startswith('HOUND_CI_ACTIONS_REHEARSED windows='))
+            self.assertIn('gh_copy_removed=1', printed.call_args.args[0])
+            producer.side_effect = lambda *a: (pinned.mkdir(), (output, {'child_exit': 0}))[1]
+            with self.assertRaisesRegex(RuntimeError, 'survived the rehearsal'):
+                finish.rehearse()
+            producer.side_effect = None; producer.return_value = (finish.canonical({**result, 'request_count': finish.MAX_CALLS + 1}) + b'\n', {'child_exit': 0})
+            pinned.rmdir()
+            with self.assertRaisesRegex(RuntimeError, 'HOLD before arming'):
+                finish.rehearse()
+
+    def test_collect_stdin_dispatches_rehearsal_inside_the_unchanged_bootstrap(self):
+        request = self.request(validator_source=str(Path(finish.__file__)))
+        data = finish.canonical(request) + b'\n'
+        argv = ['finish-drain.py', '--collect-stdin']
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(finish.sys, 'argv', argv))
+            stack.enter_context(patch.object(finish.os, 'geteuid', return_value=1000))
+            stack.enter_context(patch.object(finish.os, 'getuid', return_value=1000))
+            stack.enter_context(patch.object(finish.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(data))))
+            stack.enter_context(patch.object(finish, 'sys', SimpleNamespace(argv=argv, stdin=SimpleNamespace(buffer=io.BytesIO(data)),
+                                                                       flags=SimpleNamespace(isolated=1, dont_write_bytecode=1))))
+            github = stack.enter_context(patch.object(finish, 'GitHub', return_value='api'))
+            collect = stack.enter_context(patch.object(finish, 'rehearse_collect', return_value={'k': 1}))
+            real = stack.enter_context(patch.object(finish, 'collect'))
+            printed = stack.enter_context(patch('builtins.print'))
+            finish.main()
+        github.assert_called_once_with('a' * 64, pinned_config=True)
+        collect.assert_called_once_with(request, 'api'); real.assert_not_called()
+        self.assertEqual(printed.call_args.args[0], '{"k":1}')
+        self.assertIn("sys.argv = [path, '--collect-stdin']", finish.COLLECTOR_BOOTSTRAP)
+
+    def archive_fixture(self, stack, folder):
+        state = Path(folder) / 'state'; state.mkdir(mode=0o700)
+        stack.enter_context(patch.object(finish, 'STATE', state))
+        stack.enter_context(patch.object(finish, 'GH_CONFIG_DIR', Path(folder) / 'gh'))
+        stack.enter_context(patch.object(finish, 'read_public_json', return_value={'m': 1}))
+        operator = stack.enter_context(patch.object(finish, 'root_operator'))
+        def directory(path):
+            if not path.is_dir() or path.is_symlink():
+                raise RuntimeError('Root directory missing/unsafe')
+        stack.enter_context(patch.object(finish, 'root_directory', side_effect=directory))
+        stack.enter_context(patch('builtins.print'))
+        return state, operator
+
+    def test_archive_failed_capture_renames_only_an_uncertified_capture_bounded(self):
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            state, operator = self.archive_fixture(stack, folder)
+            with self.assertRaisesRegex(RuntimeError, 'Root directory missing'):
+                finish.archive_failed_capture()
+            for index in range(1, finish.FAILED_CAPTURES + 1):
+                (state / 'actions-capture').mkdir(); (state / 'actions-capture' / 'intent.json').write_text('{}')
+                self.assertEqual(finish.archive_failed_capture(), state / f'actions-capture-failed-{index}')
+                self.assertFalse((state / 'actions-capture').exists())
+                self.assertEqual((state / f'actions-capture-failed-{index}' / 'intent.json').read_text(), '{}')  # never edited
+            operator.assert_called_with({'m': 1})
+            (state / 'actions-capture').mkdir()
+            with self.assertRaisesRegex(RuntimeError, 'archive bound reached'):
+                finish.archive_failed_capture()
+            self.assertTrue((state / 'actions-capture').exists())
+            (state / 'actions-capture-failed-3').rename(Path(folder) / 'moved')
+            for blocker, message in ((state / 'actions-terminal.json', 'certificate exists'),
+                                     (state / 'actions-terminal.tmp', 'certificate exists'),
+                                     (Path(folder) / 'gh', 'rm -r --')):
+                blocker.mkdir()
+                with self.subTest(blocker=blocker.name), self.assertRaisesRegex(RuntimeError, message):
+                    finish.archive_failed_capture()
+                blocker.rmdir()
+                self.assertTrue((state / 'actions-capture').exists())
+            self.assertEqual(finish.archive_failed_capture(), state / 'actions-capture-failed-3')
+            # certify/read_capture read ONLY actions-capture.
+            self.assertEqual(finish.capture_paths()[0], state / 'actions-capture')
 
 
 class BoundsTests(unittest.TestCase):
