@@ -103,11 +103,14 @@ The core pool is **qualified and active**, not just Nix-built:
   verified. Legacy hound runner **PID 942213** and host **profile 230** unchanged;
   no shared Docker/YAS/devbox/production restart or whole-host switch.
 
-The companion workflow PR **xmit-dev/ultimator#231 is not merged**. Main routing
-still requires Pierre's explicit merge decision. Its graph has ten expanded
-core jobs (including the aggregate gate created after needs finish), plus the
-connector; queued jobs continue as the four slots free. Full test-suite success
-is distinct from infrastructure readiness.
+The companion workflow PR **xmit-dev/ultimator#231 was externally merged at
+06:40:30 UTC**, GitHub-confirmed main SHA
+`50a66188a38d75dac2203a24efac15b4232d7656`. This session did not merge it.
+New main workflows use the qualified pool; queued jobs continue as slots free.
+The graph has ten expanded core jobs (including the aggregate gate created
+when needs finish), plus the connector. Full test-suite success is distinct
+from infrastructure readiness. **The sys PR remains open, ready for review;
+no sys/main merge was performed here.**
 
 ### Sealed image fingerprint and versions
 
