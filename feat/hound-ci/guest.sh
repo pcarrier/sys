@@ -15,6 +15,7 @@ pwsh --version >/dev/null
 python3 --version >/dev/null
 /usr/bin/google-chrome --version
 runuser -u runner -- docker info >/dev/null
+runuser -u runner -- xvfb-run --auto-servernum /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); gi.require_version("WebKit2", "4.1"); from gi.repository import Gtk, WebKit2; Gtk.init([]); view=WebKit2.WebView(); print("WebKit2 GTK/Xvfb preflight OK")'
 # No --no-sandbox: this exercises the native VM/user-namespace Chrome sandbox.
 runuser -u runner -- /usr/bin/google-chrome --headless --disable-gpu --dump-dom 'data:text/html,<body>hound-ci-sandbox-ok</body>' >/tmp/chrome-preflight.html 2>/tmp/chrome-preflight.err
 grep -q hound-ci-sandbox-ok /tmp/chrome-preflight.html

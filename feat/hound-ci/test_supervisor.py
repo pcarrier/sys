@@ -56,6 +56,15 @@ class SupervisorTests(unittest.TestCase):
             api.assert_called_once_with(['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/321'])
             self.assertFalse(path.exists())
 
+    def test_uncertain_post_recovers_only_exact_owned_name(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'registration.json'
+            supervisor.save_record(path, {'repo': 'xmit-dev/ultimator', 'id': None, 'name': 'hound-ci-1-exact'})
+            with patch.object(supervisor, 'gh', side_effect=[[{'runners': [{'id': 1, 'name': 'hound-ci-1-exact'}, {'id': 2, 'name': 'hound-ci-1-someone-else'}]}], None]) as api:
+                supervisor.cleanup_record(path, 'xmit-dev/ultimator')
+            self.assertEqual(api.call_args_list[-1].args[0], ['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/1'])
+            self.assertFalse(path.exists())
+
     def test_storage_admission_fails_closed(self):
         with patch.object(supervisor.os, 'statvfs', return_value=SimpleNamespace(f_bavail=1, f_frsize=4096)):
             with self.assertRaises(RuntimeError):

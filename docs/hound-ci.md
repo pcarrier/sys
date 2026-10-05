@@ -90,7 +90,9 @@ those checks pass and the hold clears.
    wheel/docker, with KVM group. Create `/var/lib/hound-ci` root-owned mode 0751.
    Before changing an existing account, verify it is the matching CI account.
 4. Install links to just those eight unit files and explicit Nix GC roots for
-   their store paths; `daemon-reload` is not a host generation switch. Verify
+   their store paths; use `/etc/systemd/system.attached` because Nix owns the
+   read-only `/etc/systemd/system` tree. `daemon-reload` is not a host generation
+   switch. Verify
    unit syntax and keep an activation/rollback manifest. Enable only the new
    firewall/slot units for persistence; don't touch legacy runner/Docker/YAS.
 5. Start **only the firewall**; verify all five uid negative-connect checks,

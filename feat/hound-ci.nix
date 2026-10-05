@@ -29,6 +29,11 @@ let
     Group = "root";
     UMask = "0077";
     ProtectHome = true;
+    # The controller shares the unit's private-network denies. Host DNS may be
+    # loopback/LAN; bind public resolvers only inside this unit, not on hound.
+    BindReadOnlyPaths = [
+      "${pkgs.writeText "hound-ci-resolv.conf" "nameserver 1.1.1.1\nnameserver 9.9.9.9\noptions timeout:5 attempts:1\n"}:/etc/resolv.conf"
+    ];
     ProtectSystem = "strict";
     PrivateTmp = true;
     NoNewPrivileges = true;

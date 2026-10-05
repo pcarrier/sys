@@ -85,6 +85,7 @@ apt_packages=(
   libvulkan1 mesa-vulkan-drivers mkcert fonts-dejavu-core dbus-daemon
   curl unzip git jq python3 openssl ca-certificates libicu74 docker.io
   gnupg sudo xz-utils util-linux zlib1g libkrb5-3
+  python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 xvfb xauth
 )
 apt-get install -y --no-install-recommends "${apt_packages[@]}"
 
@@ -229,6 +230,8 @@ as_runner cargo clippy --version
 as_runner docker info --format 'Docker server {{.ServerVersion}} storage={{.Driver}}'
 as_runner sudo --non-interactive true
 as_runner unshare --user --map-root-user --pid --fork true
+# Native WebKit tests need the hosted-image GI/GTK/WebKit and X11 prerequisites.
+as_runner xvfb-run --auto-servernum /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); gi.require_version("WebKit2", "4.1"); from gi.repository import Gtk, WebKit2; Gtk.init([]); view=WebKit2.WebView(); print("WebKit2 GTK/Xvfb preflight OK")'
 
 chrome_profile=$(as_runner mktemp -d /home/runner/.hound-ci-chrome.XXXXXXXX)
 # Disable only the setuid fallback to require the real namespace sandbox.

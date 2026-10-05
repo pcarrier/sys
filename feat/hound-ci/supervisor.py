@@ -152,7 +152,7 @@ def base(args):
     provision = Path(args.provision).read_text()
     # Run provisioning only after cloud-final completes, so cleaning its state
     # and powering off never race the cloud-init process which supplied the seed.
-    provision_unit = '[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/bash -c " /root/provision-ci.sh && cloud-init clean --logs --seed && echo HOUND_CI_IMAGE_SEALED_OK >/dev/ttyS0; systemctl poweroff "\n'
+    provision_unit = '[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/bash -c " /root/provision-ci.sh && cloud-init clean --logs --seed --machine-id && echo HOUND_CI_IMAGE_SEALED_OK >/dev/ttyS0; systemctl poweroff "\n'
     iso = seed(directory, [
         {'path': '/root/provision-ci.sh', 'permissions': '0700', 'content': provision},
         {'path': '/etc/systemd/system/hound-ci-provision.service', 'permissions': '0644', 'content': provision_unit}], {
@@ -205,10 +205,24 @@ def cleanup_record(path, repo):
     if not path.exists():
         return
     record = json.loads(path.read_text())
-    if record['repo'] != repo or type(record['id']) is not int or record['id'] <= 0:
+    if record['repo'] != repo or not record['name'].startswith('hound-ci-'):
         raise RuntimeError('Registration recovery record invalid; inspect without replacing it')
+    runner_id = record['id']
+    if runner_id is None:
+        # Uncertain POST/crash before receiving an id: reconcile only the
+        # unique name durably recorded BEFORE that POST, never fuzzy prefixes.
+        batches = gh([f'repos/{repo}/actions/runners?per_page=100', '--paginate', '--slurp'])
+        matches = [r for batch in batches for r in batch['runners'] if r['name'] == record['name']]
+        if len(matches) > 1:
+            raise RuntimeError('Ambiguous exact-name recovery; manual inspection required')
+        if not matches:
+            path.unlink()
+            return
+        runner_id = matches[0]['id']
+    if type(runner_id) is not int or runner_id <= 0:
+        raise RuntimeError('Invalid exact runner id in recovery record')
     try:
-        gh(['-X', 'DELETE', f"repos/{repo}/actions/runners/{record['id']}"])
+        gh(['-X', 'DELETE', f"repos/{repo}/actions/runners/{runner_id}"])
     except subprocess.CalledProcessError as error:
         if b'HTTP 404' not in (error.stderr or b''):
             raise
@@ -228,6 +242,8 @@ def worker(args):
     directory.mkdir(mode=0o700)
     name = f'hound-ci-{args.slot}-{uuid.uuid4().hex[:12]}'
     registered = False
+    # Preserve the exact unique-name intent even if the POST response is lost.
+    save_record(record, {'repo': args.repo, 'id': None, 'name': name})
     try:
         registration = gh(['-X', 'POST', f'repos/{args.repo}/actions/runners/generate-jitconfig',
                            '-f', f'name={name}', '-F', 'runner_group_id=1',
