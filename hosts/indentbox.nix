@@ -10,6 +10,7 @@ lib.bare {
     ../feat/nvidia.nix
     ../feat/waydroid.nix
     ../feat/ultimator.nix
+    ../feat/ultimator-cd.nix
     (
       { yas, llm-agents, ... }:
       {
