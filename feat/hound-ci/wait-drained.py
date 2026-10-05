@@ -15,6 +15,7 @@ import re
 import select
 import stat
 import subprocess
+import sys
 from types import ModuleType
 import uuid
 from datetime import datetime
@@ -26,8 +27,13 @@ REPO = 'xmit-dev/ultimator'
 SLOTS = {1, 2, 3, 4}
 MAX_ROW = 65536
 MAX_SOURCE = 1024 * 1024
-MAX_VM_HISTORY = 64
-MAX_ALL_VM_HISTORY = 128
+# Sized from read-only counts (2026-10-05 19:14 UTC): 75/59/74/62 root VM
+# STARTs (270) already this boot. Same bounds as finish-drain.py.
+MAX_VM_HISTORY = 2048
+MAX_ALL_VM_HISTORY = 4096
+# The waiter rewrites manifest.json with full histories; every reader
+# (gate, waiter, finisher, activation) accepts the same 16 MiB bound.
+MANIFEST_LIMIT = 16 * 1024 * 1024
 HARDWARE_PHASE = 'all-four-hardware-drained-awaiting-actions-proof'
 OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
 OLD_SOURCE_SHA256 = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
@@ -50,6 +56,16 @@ JOURNAL_FIELDS = ','.join((
     '_BOOT_ID', 'INVOCATION_ID', '_SYSTEMD_INVOCATION_ID',
 ))
 INVOCATION = re.compile('[0-9a-f]{32}')
+
+
+PINNED_PYTHON = '/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3'
+
+
+def require_pinned_interpreter():
+    """Root entry points run ONLY under the pinned Nix Python with -I -B."""
+    if not (sys.flags.isolated and sys.flags.dont_write_bytecode and
+            os.path.realpath(sys.executable) == os.path.realpath(PINNED_PYTHON)):
+        raise RuntimeError('Run with the pinned Nix Python: ' + PINNED_PYTHON + ' -I -B')
 
 
 def canonical_boot(value):
@@ -711,11 +727,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--operator-source', type=Path, required=True)
     args = parser.parse_args()
-    manifest = read_public_json(STATE / 'manifest.json', 65536)
+    require_pinned_interpreter()
+    manifest = read_public_json(STATE / 'manifest.json', MANIFEST_LIMIT)
     validate_manifest(manifest)
     sources = validate_sources(manifest, args.operator_source, Path(__file__))
     drain = load_operator(args.operator_source, sources['operator_source'])
-    if drain.STATE != STATE or read_public_json(STATE / 'manifest.json', 65536) != manifest:
+    if drain.STATE != STATE or read_public_json(STATE / 'manifest.json', MANIFEST_LIMIT) != manifest:
         raise RuntimeError('Armed state changed while loading reviewed operator')
     wait_drained(drain, manifest)
 

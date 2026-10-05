@@ -8,6 +8,8 @@ import errno
 import importlib.util
 import io
 import json
+import os
+import stat
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -156,20 +158,42 @@ def job(slot, job_id=None, run_id=500, attempt=1, conclusion='success'):
             'started_at': '2026-10-05T09:00:00Z', 'completed_at': '2026-10-05T12:28:00Z'}
 
 
+def run_row(run_id=500, attempt=1, created='2026-10-05T12:00:00Z', updated='2026-10-05T12:30:00Z', status='completed'):
+    return {'id': run_id, 'run_attempt': attempt, 'repository': {'full_name': finish.REPO},
+            'url': f'https://api.github.com/repos/{finish.REPO}/actions/runs/{run_id}',
+            'status': status, 'created_at': created, 'updated_at': updated}
+
+
+def window_bounds(route):
+    created = route.split('created=', 1)[1].split('&', 1)[0]
+    start, end = created.split('..')
+    return finish.micros(start.replace('Z', '+00:00')), finish.micros(end.replace('Z', '+00:00')) + 999999
+
+
 class FakeAPI:
     def __init__(self):
-        run = {'id': 500, 'run_attempt': 1, 'repository': {'full_name': finish.REPO},
-               'url': f'https://api.github.com/repos/{finish.REPO}/actions/runs/500'}
+        run = run_row()
         self.runs = [run]
         self.attempts = {1: copy.deepcopy(run)}
         self.jobs = {1: [job(slot) for slot in range(1, 5)]}
         self.direct = {row['id']: copy.deepcopy(row) for row in self.jobs[1]}
         self.calls = 0
         self.pages = []
+        self.windows = []
+
+    def window(self, route):
+        # A converged closed window: two identical single-page passes.
+        self.calls += 2
+        self.windows.append(route)
+        start, end = window_bounds(route)
+        result = [run for run in self.runs if start <= finish.micros(run['created_at']) <= end]
+        self.pages.append({'route': route, 'key': 'workflow_runs', 'total_count': len(result),
+                           'pages': 1, 'passes': [1, 1]})
+        return copy.deepcopy(result)
 
     def paged(self, route, key):
         self.calls += 1
-        result = self.runs if key == 'workflow_runs' else self.jobs[int(route.split('/')[-2])]
+        result = self.jobs[int(route.split('/')[-2])]
         self.pages.append({'route': route, 'key': key, 'pages': 1, 'total_count': len(result)})
         return copy.deepcopy(result)
 
@@ -206,7 +230,7 @@ def invocation_fixture(m, report):
     intent.update(invocation_id='9b123456-1234-4123-8123-123456789abc',
                   started_utc='2026-10-05T12:30:30Z', started_monotonic_ns='50000000000')
     output = finish.canonical(report) + b'\n'
-    boundary = {'pid': 9999, 'starttime': '4444', 'uids': [1000] * 4, 'gids': [100] * 4,
+    boundary = {'pid': 9999, 'starttime': '4444', 'uids': [1000] * 4, 'gids': [finish.COLLECTOR_GID] * 4,
                 'groups': [], 'caps': [0] * 5, 'no_new_privs': 1, 'executable': finish.python_executable()}
     actual = {'child_pid': 9999, 'child_exit': 0, 'boundary': boundary,
               'ready_fd': '11', 'ack_fd': '12', 'argv_sha256': finish.digest(finish.canonical(finish.producer_argv(m, 11, 12)))}
@@ -284,6 +308,8 @@ class LifecycleIdentityTests(unittest.TestCase):
                      start_realtime=str(finish.micros('2026-10-05T11:55:00+00:00')),
                      stop_realtime=str(finish.micros('2026-10-05T12:09:00+00:00')), qemu_pid=399)
         w['vm_history'].insert(0, prior)
+        # Arm boundary BEFORE A's STOP: A overlaps arming and must be adopted.
+        m['gates']['1']['observation_started_monotonic_us'] = '18000000'; sync_first_read(m)
         self.assertEqual(len(finish.accepted_vms(m)), 5)
         with self.assertRaisesRegex(RuntimeError, 'no-match/ambiguous'): finish.collect(m, FakeAPI())
         with self.assertRaises(RuntimeError): finish.validate_collection(collection(), m)
@@ -346,15 +372,88 @@ class LifecycleIdentityTests(unittest.TestCase):
         m['drain_witness']['1']['registration_witness']['drain_nonce'] = m['drain_nonce']
         with self.assertRaises(RuntimeError): finish.accepted_vms(m)
 
-    def test_approval_overlapping_history_selected_earlier_history_excluded(self):
+    def test_arm_overlapping_history_selected_earlier_history_excluded(self):
+        # arm-overlap-v1: adopt iff STOP monotonic >= the slot's gate boundary
+        # (25000000), a gate registration names it, or it is the last VM. A
+        # post-approval (>= 11:56) VM which ended before arming is history.
         m = manifest(); w = m['drain_witness']['1']; prior = copy.deepcopy(w['vm_history'][0])
         prior.update(name='hound-ci-1-abcdef012345', start_monotonic='11000000', stop_monotonic='19000000',
-                     start_realtime=str(finish.micros('2026-10-05T11:40:00+00:00')),
-                     stop_realtime=str(finish.micros('2026-10-05T11:55:59.999999+00:00')), qemu_pid=399)
+                     start_realtime=str(finish.micros('2026-10-05T12:00:00+00:00')),
+                     stop_realtime=str(finish.micros('2026-10-05T12:05:00+00:00')), qemu_pid=399)
         w['vm_history'].insert(0, prior)
-        self.assertEqual(len(finish.accepted_vms(m)), 4)
-        prior['stop_realtime'] = str(finish.micros(finish.WITNESS_SINCE))
-        self.assertEqual(len(finish.accepted_vms(m)), 5)
+        self.assertEqual([vm['name'] for vm in finish.accepted_vms(m) if vm['slot'] == 1], [w['vm_history'][1]['name']])
+        for stop, adopted in (('24999999', False), ('25000000', True)):
+            current = copy.deepcopy(m); cw = current['drain_witness']['1']
+            cw['vm_history'][0]['stop_monotonic'] = stop
+            cw['vm_history'][1].update(start_monotonic='26000000')
+            names = [vm['name'] for vm in finish.accepted_vms(current) if vm['slot'] == 1]
+            with self.subTest(stop=stop):
+                self.assertEqual(prior['name'] in names, adopted)
+        # A gate registration naming the earlier VM adopts it regardless.
+        current = copy.deepcopy(m)
+        current['gates']['1']['registration'] = {'repo': finish.REPO, 'id': 299, 'name': prior['name']}
+        current['gates']['1']['host_qemu_before_gate'] = None; sync_first_read(current)
+        self.assertIn(prior['name'], [vm['name'] for vm in finish.accepted_vms(current)])
+
+    def test_busy_slot_earlier_adopted_VMs_are_DELETE_covered_by_same_process_successor(self):
+        # Busy slot at arm: VMs A, B stopped AFTER the arm boundary (adopted)
+        # and C is the last VM. A and B each have a later START in the same
+        # pinned process history, which the legacy worker reaches only after
+        # their cleanup DELETE returned 0/404. Only C needs its gate receipt.
+        m = manifest(); w = m['drain_witness']['1']; last = w['vm_history'][0]
+        earlier = []
+        for index, (start, stop) in enumerate((('25100000', '25200000'), ('25300000', '25400000'))):
+            vm = copy.deepcopy(last)
+            vm.update(name=f'hound-ci-1-00000000a{index:03x}', start_monotonic=start, stop_monotonic=stop,
+                      start_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:00+00:00')),
+                      stop_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:30+00:00')), qemu_pid=700 + index)
+            earlier.append(vm)
+        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-05T12:23:00+00:00')))
+        w['vm_history'][:0] = earlier
+        m['gates']['1']['registration'] = {'repo': finish.REPO, 'id': 299, 'name': earlier[0]['name']}
+        m['gates']['1']['host_qemu_before_gate'] = None
+        sync_first_read(m)
+        adopted = [vm['name'] for vm in finish.accepted_vms(m) if vm['slot'] == 1]
+        self.assertEqual(adopted, [earlier[0]['name'], earlier[1]['name'], last['name']])
+        known = finish.validate_cleanup_receipts(m, cleanups(m))
+        self.assertEqual((known[earlier[0]['name']], known[earlier[1]['name']]), (299, None))
+        finish.validate_collection(collection(m), m, cleanups(m))
+        # Negative: the LAST VM has no later START, so it still needs proof.
+        with self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
+            finish.validate_cleanup_receipts(m, cleanups(m)[1:])
+        # Negative: without its successor (history ends at A), A needs proof.
+        cut = copy.deepcopy(m); cw = cut['drain_witness']['1']
+        del cw['vm_history'][1:]
+        cw['latest_vm'].update(name=earlier[0]['name']); cw['latest_vm_monotonic'] = earlier[0]['stop_monotonic']
+        cut['gates']['1']['registration_after_gate'] = None
+        cut['gates']['1']['registration'] = {'repo': finish.REPO, 'id': 299, 'name': earlier[0]['name']}
+        sync_first_read(cut)
+        with self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
+            finish.validate_cleanup_receipts(cut, cleanups(cut)[1:])
+        finish.validate_cleanup_receipts(cut, cleanups(cut, cleanup(cut, runner_id=299)))
+        # A positive receipt that never returned still HOLDS even with a successor.
+        failed = cleanup(m, runner_id=299, name=earlier[0]['name']); failed.update(stage='delete-intent', success=False)
+        with self.assertRaisesRegex(RuntimeError, 'did not positively finish'):
+            finish.validate_cleanup_receipts(m, cleanups(m) + [failed])
+
+    def test_successor_proof_is_per_slot_and_never_crosses_controllers(self):
+        m = manifest()
+        # Slot 2's later VM cannot vouch for slot 1's last VM.
+        w2 = m['drain_witness']['2']; later = copy.deepcopy(w2['vm_history'][0])
+        later.update(name='hound-ci-2-00000000b000', start_monotonic='31000000', stop_monotonic='32000000',
+                     start_realtime=str(finish.micros('2026-10-05T12:29:10+00:00')),
+                     stop_realtime=str(finish.micros('2026-10-05T12:29:20+00:00')), qemu_pid=880)
+        w2['vm_history'].append(later); w2['latest_vm'].update(name=later['name']); w2['latest_vm_monotonic'] = later['stop_monotonic']
+        m['gates']['2']['registration_after_gate'] = None
+        records = [cleanup(m, slot) for slot in (2, 3, 4)]
+        records[0]['name'] = w2['vm_history'][0]['name']
+        records.append(cleanup(m, 2, runner_id=902, name=later['name']))
+        with self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
+            finish.validate_cleanup_receipts(m, records)
+        known = finish.validate_cleanup_receipts(m, records + [cleanup(m)])
+        self.assertEqual(known[later['name']], 902)
+        # Slot 2's first VM is successor-covered: its own receipt is optional.
+        finish.validate_cleanup_receipts(m, [row for row in records if row['id'] != 202] + [cleanup(m)])
 
     def test_delete_exact_schema_failed_intent_and_identity_disagreement_hold(self):
         m = manifest(); finish.validate_collection(collection(m), m, cleanups(m))
@@ -399,9 +498,10 @@ class LifecycleIdentityTests(unittest.TestCase):
         records[0] = cleanup(m, name=m['drain_witness']['1']['vm_history'][0]['name'])
         records.append(cleanup(m, runner_id=901))
         finish.validate_collection(collection(m), m, records)
-        for missing_id in (201, 901):
-            with self.subTest(missing_id=missing_id), self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
-                finish.validate_collection(collection(m), m, [row for row in records if row['id'] != missing_id])
+        # 201's VM has a later START in the same process: its DELETE returned.
+        finish.validate_collection(collection(m), m, [row for row in records if row['id'] != 201])
+        with self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
+            finish.validate_collection(collection(m), m, [row for row in records if row['id'] != 901])
 
     def test_historical_pre_gate_erased_requires_both_ordered_root_observations(self):
         m = historical_manifest()
@@ -447,7 +547,8 @@ class LifecycleIdentityTests(unittest.TestCase):
                 finish.validate_cleanup_receipts(m, [])
             known = finish.validate_cleanup_receipts(m, [cleanup(m, name=vm['name'], runner_id=901)])
             self.assertEqual(known[vm['name']], 901)
-            self.assertIsNone(known[w['vm_history'][0]['name']])
+            # The earlier VM stopped before the arm boundary: history only.
+            self.assertNotIn(w['vm_history'][0]['name'], known)
 
 
 
@@ -659,7 +760,8 @@ class ResponseIdentityTests(unittest.TestCase):
         api.attempts[2] = copy.deepcopy(api.runs[0])
         api.jobs[2] = []
         report = finish.collect(manifest(), api)
-        self.assertEqual(len(report['paging']), 3)
+        jobs = [page['route'] for page in report['paging'] if page['key'] == 'jobs']
+        self.assertEqual(jobs, [f'repos/{finish.REPO}/actions/runs/500/attempts/{n}/jobs' for n in (1, 2)])
         finish.validate_collection(report, manifest())
         report['paging'].pop()
         with self.assertRaises(RuntimeError): finish.validate_collection(report, manifest())
@@ -818,7 +920,7 @@ class PaginationAndPrivilegeTests(unittest.TestCase):
         report['paging'].append({'route': f'repos/{finish.REPO}/actions/runs/999/attempts/1/jobs',
                                  'key': 'jobs', 'pages': 1, 'total_count': 4})
         report['request_count'] += 1
-        with self.assertRaisesRegex(RuntimeError, 'All discovered run attempts'):
+        with self.assertRaisesRegex(RuntimeError, 'All scanned run attempts'):
             finish.validate_collection(report, m)
 
     def test_separate_attempt_zero_page_cannot_borrow_count_from_another_attempt(self):
@@ -905,8 +1007,12 @@ class RootCaptureSecurityTests(unittest.TestCase):
         m = manifest(); report = collection(m); receipt = invocation_fixture(m, report)
         output = finish.canonical(report) + b'\n'; data = finish.canonical(m) + b'\n'
         child = SimpleNamespace(pid=9999, returncode=0, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=0))
+        order = []
         with patch.object(finish, 'root_directory'), patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100555, st_uid=0)), \
+             patch.object(finish, 'install_gh_config', side_effect=lambda: order.append('install')), \
+             patch.object(finish, 'check_gh_config', side_effect=lambda root=False: order.append(('check', root))), \
+             patch.object(finish, 'remove_gh_config', side_effect=lambda: order.append('remove')), \
              patch.object(finish.os, 'access', return_value=True), \
              patch.object(finish.os, 'pipe2', side_effect=[(10, 11), (12, 13)]), \
              patch.object(finish.os, 'close') as close, patch.object(finish.os, 'read', return_value=b'COLLECTOR_READY\n'), \
@@ -920,7 +1026,15 @@ class RootCaptureSecurityTests(unittest.TestCase):
             kwargs = launch.call_args.kwargs
             self.assertEqual(kwargs['cwd'], '/var/empty')
             self.assertEqual(kwargs['env'], finish.producer_environment())
-            self.assertEqual(set(kwargs['env']), {'HOME', 'USER', 'LOGNAME', 'LANG', 'PATH', 'GH_TELEMETRY'})
+            self.assertEqual(set(kwargs['env']), {'HOME', 'USER', 'LOGNAME', 'LANG', 'PATH', 'GH_TELEMETRY', 'GH_CONFIG_DIR',
+                                                  'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME',
+                                                  'GH_NO_UPDATE_NOTIFIER', 'GH_PROMPT_DISABLED'})
+            # No collector/gh path may resolve under the UID-1000-writable home.
+            self.assertFalse(any('/home/' in value for value in kwargs['env'].values()))
+            self.assertEqual({kwargs['env'][key] for key in ('HOME', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME',
+                                                             'XDG_CACHE_HOME', 'XDG_DATA_HOME')}, {str(finish.GH_CONFIG_DIR)})
+            self.assertEqual(order, ['install', ('check', True), 'remove'])
+            self.assertIn(f'--regid={finish.COLLECTOR_GID}', launch.call_args.args[0])
             self.assertTrue(kwargs['close_fds']); self.assertEqual(kwargs['pass_fds'], (11, 12))
             self.assertEqual(kwargs['stderr'], finish.subprocess.DEVNULL)
             observed.assert_called_once_with(child.pid); ack.assert_called_once_with(13, b'GO\n')
@@ -929,7 +1043,8 @@ class RootCaptureSecurityTests(unittest.TestCase):
 
 
     def test_actual_UID_GID_group_cap_NNP_executable_boundary_is_parsed_from_own_proc_PID(self):
-        good = (b'Name:\tpython3\nUid:\t1000\t1000\t1000\t1000\nGid:\t100\t100\t100\t100\n'
+        gid = str(finish.COLLECTOR_GID).encode()
+        good = (b'Name:\tpython3\nUid:\t1000\t1000\t1000\t1000\nGid:\t' + b'\t'.join([gid] * 4) + b'\n'
                 b'Groups:\t\nNoNewPrivs:\t1\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\n'
                 b'CapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\n')
         proc_stat = b'9999 (python3 worker) ' + b' '.join([b'S'] + [b'0'] * 18 + [b'4444'] + [b'0'] * 4)
@@ -953,7 +1068,9 @@ class RootCaptureSecurityTests(unittest.TestCase):
     def test_actual_privilege_failure_kills_ONLY_owned_collector_before_API_or_input(self):
         m = manifest()
         child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=-9))
-        with patch.object(finish, 'root_directory'), patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')), \
+        with patch.object(finish, 'install_gh_config'), patch.object(finish, 'check_gh_config'), \
+             patch.object(finish, 'remove_gh_config') as removed, \
+             patch.object(finish, 'root_directory'), patch.object(finish.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000, pw_gid=100, pw_dir='/home/pcarrier')), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100555, st_uid=0)), patch.object(finish.os, 'access', return_value=True), \
              patch.object(finish.os, 'pipe2', side_effect=[(10, 11), (12, 13)]), patch.object(finish.os, 'close'), \
              patch.object(finish.os, 'read', return_value=b'COLLECTOR_READY\n'), patch.object(finish.os, 'write') as ack, \
@@ -962,6 +1079,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
              patch.object(finish, 'pump_child') as pump, patch.object(finish.subprocess, 'Popen', return_value=child):
             with self.assertRaisesRegex(RuntimeError, 'privilege boundary'): finish.run_producer(m, b'{}\n')
             child.kill.assert_called_once_with(); pump.assert_not_called(); ack.assert_not_called()
+            removed.assert_called_once_with()  # Credential copy never outlives the capture.
 
     def test_root_capture_feeds_canonical_root_manifest_and_preserves_raw_stdout(self):
         m = manifest(); report = collection(m); mocked = invocation_fixture(m, report)
@@ -997,7 +1115,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
         for sha, passes in ((finish.digest(source), True), ('f' * 64, False)):
             with patch.object(finish.sys, 'argv', ['-c', '/nix/store/exact-source.py', sha, '11', '12']), \
                  patch.object(finish.os, 'getuid', return_value=1000), patch.object(finish.os, 'geteuid', return_value=1000), \
-                 patch.object(finish.os, 'getgid', return_value=100), patch.object(finish.os, 'getegid', return_value=100), \
+                 patch.object(finish.os, 'getgid', return_value=finish.COLLECTOR_GID), patch.object(finish.os, 'getegid', return_value=finish.COLLECTOR_GID), \
                  patch.object(finish.os, 'getgroups', return_value=[]), patch.object(finish.os, 'open', return_value=99), \
                  patch.object(finish.os, 'fstat', return_value=meta), patch.object(finish.os, 'fdopen', return_value=io.BytesIO(source)), \
                  patch.object(finish.os, 'close'), patch.object(finish.os, 'write') as ready, patch.object(finish.os, 'read', return_value=b'GO\n'), \
@@ -1041,7 +1159,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
                                          ([b'{"id":1}', b''], 1, False), ([b''], 0, False)):
             child = SimpleNamespace(pid=9999, returncode=exit_code, stdout=Mock(), kill=Mock(), wait=Mock())
             child.stdout.fileno.return_value = 66
-            with patch.object(finish, 'LIMIT', 2), patch.object(finish.subprocess, 'Popen', return_value=child) as launch, \
+            with patch.object(finish, 'GET_LIMIT', 8), patch.object(finish.subprocess, 'Popen', return_value=child) as launch, \
                  patch.object(finish.select, 'select', return_value=([66], [], [])), \
                  patch.object(finish.os, 'read', side_effect=chunks), patch.object(finish, 'wait_child_event', return_value=exit_code):
                 if passes:
@@ -1568,8 +1686,9 @@ class ActualSourceIntegrationTests(unittest.TestCase):
             self.assertEqual((real_activation.STATE / 'manifest.json').read_bytes(), original_manifest)
             self.assertEqual(fixture.manifest['phase'], finish.HARDWARE_PHASE)
 
-    # 1 initial + 2 per change (pre + post-intent) x 19 changes + 1 final.
-    RECHECKS = 40
+    # 1 initial + 2 per change (pre + post-intent) x 15 changes + 1 final
+    # (all four hold unlinks + one daemon-reload form ONE change).
+    RECHECKS = 32
 
     def assert_tracked_activation(self, fixture, rechecks):
         self.assertEqual(len(rechecks.call_args_list), self.RECHECKS)
@@ -1691,6 +1810,281 @@ class ActualSourceIntegrationTests(unittest.TestCase):
                 self.assertEqual(fixture.commands, [])
 
 
+
+
+class RunEnumerationTests(unittest.TestCase):
+    def test_deterministic_closed_windows_cover_rerun_horizon_to_drain(self):
+        m = manifest(); plan = finish.enumeration_plan(m, finish.accepted_vms(m))
+        earliest = finish.micros('2026-10-05T12:10:00+00:00') // 1000000
+        self.assertEqual(plan['windows'][0][0], (earliest - 31 * 86400) // 21600 * 21600)
+        self.assertEqual(plan['until'], finish.micros('2026-10-05T12:30:05+00:00') // 1000000)
+        self.assertEqual(plan['windows'][-1][1], plan['until'])
+        for (a, b), (c, _) in zip(plan['windows'], plan['windows'][1:]):
+            self.assertEqual((b + 1, b - a + 1), (c, 21600))  # Disjoint, gapless, 6 h.
+        self.assertLessEqual(len(plan['windows']), finish.MAX_WINDOWS)
+        self.assertEqual(plan['scan_threshold_us'], earliest * 1000000 - 5000000)
+        api = FakeAPI(); report = finish.collect(m, api)
+        self.assertEqual(api.windows, [finish.window_route(*w) for w in plan['windows']])
+        for route in api.windows:
+            self.assertRegex(route + '&per_page=100&page=1', finish.GITHUB_SECOND)
+        finish.validate_collection(report, m)
+
+    def test_window_route_is_only_filtered_GET_scope(self):
+        api = object.__new__(finish.GitHub); api.calls = 0; api.pages = []
+        with patch.object(finish, 'ordinary_get', return_value=b'{}') as get:
+            api.get(finish.window_route(1791201600, 1791223199) + '&per_page=100&page=2')
+            self.assertIn('created=2026-10-05T12:00:00Z..2026-10-05T17:59:59Z', get.call_args.args[0][-1])
+            for route in (f'repos/{finish.REPO}/actions/runs?per_page=100&page=1',
+                          f'repos/{finish.REPO}/actions/runs?created=>=2026-10-05&per_page=100&page=1',
+                          f'repos/{finish.REPO}/actions/runs?created=2026-10-05T12:00:00Z..2026-10-05T17:59:59Z&status=queued&per_page=100&page=1'):
+                with self.subTest(route=route), self.assertRaisesRegex(RuntimeError, 'escaped'):
+                    api.get(route)
+
+    def test_run_outside_window_duplicate_or_unknown_status_holds(self):
+        m = manifest()
+        api = FakeAPI(); api.window = lambda route: [run_row(created='2020-01-01T00:00:00Z')]
+        with self.assertRaisesRegex(RuntimeError, 'outside its requested closed window'): finish.collect(m, api)
+        api = FakeAPI(); original = api.window
+        api.window = lambda route: original(route) or [run_row(created=route.split('created=')[1].split('..')[0])]
+        with self.assertRaisesRegex(RuntimeError, 'two disjoint windows'): finish.collect(m, api)
+        for mutate in (lambda r: r.update(status=None), lambda r: r.update(updated_at='2026-10-05T11:00:00Z'),
+                       lambda r: r.update(run_attempt=finish.MAX_ATTEMPTS + 1), lambda r: r['repository'].update(full_name='o/r')):
+            api = FakeAPI(); mutate(api.runs[0])
+            with self.subTest(run=api.runs[0]), self.assertRaises(RuntimeError): finish.collect(m, api)
+
+    def test_old_completed_runs_listed_not_scanned_open_runs_always_scanned(self):
+        m = manifest(); api = FakeAPI()
+        api.runs.append(run_row(run_id=400, created='2026-10-01T00:00:00Z', updated='2026-10-05T12:09:54Z'))
+        api.runs.append(run_row(run_id=401, created='2026-09-20T00:00:00Z', updated='2026-09-20T01:00:00Z', status='in_progress'))
+        api.runs.append(run_row(run_id=402, created='2026-10-01T00:00:00Z', updated='2026-10-05T12:09:55Z'))
+        for run_id in (401, 402):
+            api.attempts[run_id] = None
+        def get(route, original=api.get):
+            if '/attempts/' in route and int(route.split('/')[-3]) in (401, 402):
+                api.calls += 1
+                return run_row(run_id=int(route.split('/')[-3]))
+            return original(route)
+        def paged(route, key, original=api.paged):
+            if int(route.split('/')[-4]) in (401, 402):
+                api.calls += 1
+                api.pages.append({'route': route, 'key': key, 'pages': 1, 'total_count': 0})
+                return []
+            return original(route, key)
+        api.get, api.paged = get, paged
+        report = finish.collect(m, api)
+        scanned = {run['run_id']: run['scanned'] for run in report['runs']}
+        self.assertEqual(scanned, {400: False, 401: True, 402: True, 500: True})
+        self.assertNotIn(f'repos/{finish.REPO}/actions/runs/400/attempts/1/jobs', {p['route'] for p in report['paging']})
+        finish.validate_collection(report, m)
+        for mutate in (lambda r: next(x for x in r['runs'] if x['run_id'] == 400).update(scanned=True),
+                       lambda r: next(x for x in r['runs'] if x['run_id'] == 402).update(scanned=False),
+                       lambda r: next(x for x in r['runs'] if x['run_id'] == 401).update(status='completed'),
+                       lambda r: r['runs'].reverse(),
+                       lambda r: next(p for p in r['paging'] if p['key'] == 'workflow_runs').update(passes=[1]),
+                       lambda r: next(p for p in r['paging'] if p['key'] == 'workflow_runs' and p['total_count']).update(total_count=0, pages=1)):
+            current = copy.deepcopy(report); mutate(current)
+            with self.subTest(mutate=mutate), self.assertRaises(RuntimeError):
+                finish.validate_collection(current, m)
+
+    def test_collection_before_windows_close_holds(self):
+        class Early(FrozenDateTime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls.fromisoformat('2026-10-05T12:30:04+00:00')
+        with patch.object(finish, 'datetime', Early), self.assertRaisesRegex(RuntimeError, 'not yet closed'):
+            finish.collect(manifest(), FakeAPI())
+        report = collection(manifest()); report['collected_utc'] = '2026-10-05T12:30:05+00:00'
+        with self.assertRaisesRegex(RuntimeError, 'closed run windows'):
+            finish.validate_collection(report, manifest())
+
+    def api(self, rows):
+        api = object.__new__(finish.GitHub)
+        api.pages = []; api.calls = 0
+        api.get = Mock(side_effect=rows)
+        return api
+
+    def test_window_converges_with_monotonic_insertion_and_holds_otherwise(self):
+        route = finish.window_route(1791201600, 1791223199)
+        def page(*ids, total=None):
+            return {'total_count': len(ids) if total is None else total, 'workflow_runs': [{'id': i} for i in ids]}
+        api = self.api([page(1, 2), page(3, 1, 2), page(3, 1, 2)])
+        self.assertEqual(sorted(row['id'] for row in api.window(route)), [1, 2, 3])
+        self.assertEqual(api.pages, [{'route': route, 'key': 'workflow_runs', 'total_count': 3, 'pages': 1, 'passes': [1, 1, 1]}])
+        ids = lambda top, bottom: [{'id': i} for i in range(top, bottom - 1, -1)]
+        # A newly visible run (251) shifts page 2 by one mid-pass: the shifted
+        # duplicate (151) is skipped, the pass is incomplete (150 < 151), and
+        # two later identical complete passes converge.
+        stable = [{'total_count': 151, 'workflow_runs': ids(251, 152)}, {'total_count': 151, 'workflow_runs': ids(151, 101)}]
+        api = self.api([{'total_count': 150, 'workflow_runs': ids(250, 151)},
+                        {'total_count': 151, 'workflow_runs': ids(151, 101)}] + stable + stable)
+        self.assertEqual(sorted(row['id'] for row in api.window(route)), list(range(101, 252)))
+        self.assertEqual(api.pages[-1]['passes'], [2, 2, 2])
+        for rows, message in (([page(1, 2), page(1)], 'disappeared|shrank'),
+                              ([page(1, 2), page(1, 2, total=1)], 'shrank|disappeared|converge'),
+                              ([page(1), page(1, 2), page(1, 2, 3)], 'converge'),
+                              ([page(1, total=1001)], 'filtered-listing cap'),
+                              ([page(1, 2, total=2), page(1, total=3)], 'converge|disappeared')):
+            api = self.api(rows)
+            with self.subTest(rows=rows), self.assertRaisesRegex(RuntimeError, message):
+                api.window(route)
+
+
+class PinnedGhConfigTests(unittest.TestCase):
+    def tree(self, folder, hosts, mode=0o600):
+        path = Path(folder) / 'home' / 'pcarrier' / '.config' / 'gh'
+        path.mkdir(parents=True)
+        (path / 'hosts.yml').write_text(hosts); (path / 'hosts.yml').chmod(mode)
+        return tuple(Path(folder).parts[1:]) + ('home', 'pcarrier', '.config', 'gh', 'hosts.yml')
+
+    def owned(self):
+        real = os.fstat
+        return patch.object(finish.os, 'fstat', side_effect=lambda fd: SimpleNamespace(
+            **{key: getattr(real(fd), key) for key in ('st_mode', 'st_size', 'st_nlink')}, st_uid=1000))
+
+    TOKEN = 'gho_' + 'A' * 36
+
+    def test_only_github_login_and_token_are_extracted_never_overrides(self):
+        hosts = (f'github.com:\n    users:\n        pcarrier:\n            oauth_token: {self.TOKEN}\n'
+                 f'    http_unix_socket: /tmp/forged.sock\n    oauth_token: {self.TOKEN}\n    user: pcarrier\n'
+                 f'example.com:\n    oauth_token: ghp_{"B" * 36}\n')
+        with tempfile.TemporaryDirectory() as folder:
+            parts = self.tree(folder, hosts)
+            with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned():
+                self.assertEqual(finish.operator_token(), ('pcarrier', self.TOKEN))
+        for bad in ('github.com:\n    user: pcarrier\n',  # keyring-only
+                    f'github.com:\n    oauth_token: {self.TOKEN}\n    oauth_token: {self.TOKEN}\n    user: p\n',
+                    f'"github.com":\n    oauth_token: {self.TOKEN}\n    user: p\n',
+                    f'github.com:\n    oauth_token: "{self.TOKEN}"\n    user: p\n'):
+            with tempfile.TemporaryDirectory() as folder:
+                parts = self.tree(folder, bad)
+                with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned(), self.subTest(bad=bad), \
+                     self.assertRaises(RuntimeError):
+                    finish.operator_token()
+
+    def test_token_walk_is_nofollow_owned_single_link(self):
+        hosts = f'github.com:\n    oauth_token: {self.TOKEN}\n    user: pcarrier\n'
+        with tempfile.TemporaryDirectory() as folder:
+            parts = self.tree(folder, hosts)
+            config = Path('/', *parts[:-2])
+            (config / 'gh').rename(config / 'real-gh'); (config / 'gh').symlink_to('real-gh')
+            with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned(), self.assertRaises(OSError):
+                finish.operator_token()
+        with tempfile.TemporaryDirectory() as folder:
+            parts = self.tree(folder, hosts)
+            os.link(Path('/', *parts), Path(folder) / 'second-link')
+            with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned(), self.assertRaisesRegex(RuntimeError, 'identity'):
+                finish.operator_token()
+        with tempfile.TemporaryDirectory() as folder:
+            parts = self.tree(folder, hosts)
+            real = os.fstat
+            root_owned = patch.object(finish.os, 'fstat', side_effect=lambda fd: SimpleNamespace(
+                **{key: getattr(real(fd), key) for key in ('st_mode', 'st_size', 'st_nlink')}, st_uid=0))
+            with patch.object(finish, 'USER_GH_HOSTS', parts), root_owned, self.assertRaisesRegex(RuntimeError, 'identity'):
+                finish.operator_token()  # A root file is never copied out to the collector.
+
+    def test_install_check_remove_root_owned_collector_gid_only(self):
+        hosts = f'github.com:\n    oauth_token: {self.TOKEN}\n    user: pcarrier\n'
+        with tempfile.TemporaryDirectory() as folder:
+            parts = self.tree(folder, hosts)
+            target = Path(folder) / 'run' / 'hound-ci-actions-gh'; target.parent.mkdir()
+            real_lstat = Path.lstat
+            fake = lambda path: SimpleNamespace(**{key: getattr(real_lstat(path), key) for key in ('st_mode', 'st_nlink')},
+                                                st_uid=0, st_gid=finish.COLLECTOR_GID)
+            with patch.object(finish, 'USER_GH_HOSTS', parts), self.owned(), patch.object(finish, 'GH_CONFIG_DIR', target), \
+                 patch.object(finish, 'collector_gid_unshared'), patch.object(finish, 'root_directory'), \
+                 patch.object(finish.os, 'chown') as chown, patch.object(finish.os, 'fchown') as fchown, \
+                 patch.object(Path, 'lstat', autospec=True, side_effect=fake):
+                finish.install_gh_config()
+                chown.assert_called_once_with(target, 0, finish.COLLECTOR_GID)
+                self.assertEqual([c.args[1:] for c in fchown.call_args_list], [(0, finish.COLLECTOR_GID)] * 2)
+                self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o750)
+                self.assertEqual({stat.S_IMODE(os.stat(target / n).st_mode) for n in ('config.yml', 'hosts.yml')}, {0o440})
+                self.assertEqual((target / 'config.yml').read_bytes(), finish.GH_CONFIG)
+                self.assertNotIn(b'http_unix_socket', (target / 'hosts.yml').read_bytes())
+                self.assertIn(self.TOKEN.encode(), (target / 'hosts.yml').read_bytes())
+                with patch.dict(os.environ, {'GH_CONFIG_DIR': str(target), 'HOME': str(target)}):
+                    finish.check_gh_config()
+                with patch.dict(os.environ, {'GH_CONFIG_DIR': str(target), 'HOME': '/home/pcarrier'}), \
+                     self.assertRaisesRegex(RuntimeError, 'does not pin'):
+                    finish.check_gh_config()
+                with self.assertRaisesRegex(RuntimeError, 'exists/interrupted'):
+                    finish.install_gh_config()  # Never reused or overwritten.
+                os.chmod(target / 'config.yml', 0o640); (target / 'config.yml').write_bytes(b'http_unix_socket: /x\n')
+                os.chmod(target / 'config.yml', 0o440)
+                with self.assertRaisesRegex(RuntimeError, 'content drift'):
+                    finish.check_gh_config(root=True)
+                finish.remove_gh_config()
+                self.assertFalse(target.exists())
+
+    def test_private_collector_gid_is_unshared_and_bound_everywhere(self):
+        self.assertIn(f'os.getegid() == {finish.COLLECTOR_GID} and', finish.COLLECTOR_BOOTSTRAP)
+        contract = finish.execution_contract(manifest())
+        self.assertEqual((contract['gid'], contract['gh_config_dir'], contract['gh_config_sha256']),
+                         (finish.COLLECTOR_GID, str(finish.GH_CONFIG_DIR), finish.digest(finish.GH_CONFIG)))
+        absent = patch.object(finish.grp, 'getgrgid', side_effect=KeyError)
+        accounts = [SimpleNamespace(pw_gid=100), SimpleNamespace(pw_gid=1000)]
+        subgid = b'pcarrier:100000:65536\ndauriac:165536:65536\n'
+        with absent, patch.object(finish.pwd, 'getpwall', return_value=accounts), \
+             patch.object(finish.os.path, 'lexists', return_value=True), patch.object(finish, 'read_root_bytes', return_value=subgid):
+            finish.collector_gid_unshared()
+        for grp_patch, users, ranges in ((patch.object(finish.grp, 'getgrgid', return_value=object()), accounts, subgid),
+                                         (absent, accounts + [SimpleNamespace(pw_gid=finish.COLLECTOR_GID)], subgid),
+                                         (absent, accounts, b'x:2000000000:65536\n'), (absent, accounts, b'garbage\n')):
+            with grp_patch, patch.object(finish.pwd, 'getpwall', return_value=users), \
+                 patch.object(finish.os.path, 'lexists', return_value=True), patch.object(finish, 'read_root_bytes', return_value=ranges), \
+                 self.subTest(ranges=ranges), self.assertRaises(RuntimeError):
+                finish.collector_gid_unshared()
+
+
+class BoundsTests(unittest.TestCase):
+    def test_replay_and_manifest_bounds_are_shared_and_exceed_live_counts_with_margin(self):
+        gate_spec = importlib.util.spec_from_file_location('bound_gate', Path(__file__).with_name('drain-gh-gate.py'))
+        gate = importlib.util.module_from_spec(gate_spec); gate_spec.loader.exec_module(gate)
+        self.assertEqual({finish.LIMIT, real_waiter.MANIFEST_LIMIT, real_activation.JSON_LIMIT, gate.MANIFEST_LIMIT},
+                         {16 * 1024 * 1024})
+        self.assertEqual((finish.MAX_SLOT_VMS, finish.MAX_VMS), (real_waiter.MAX_VM_HISTORY, real_waiter.MAX_ALL_VM_HISTORY))
+        self.assertLess(finish.MAX_VMS, 4 * finish.MAX_SLOT_VMS)  # The all-slot cap can bind.
+        self.assertGreaterEqual(finish.JOURNAL_LIMIT, real_activation.JOURNAL_LIMIT)
+        live = {1: 75, 2: 59, 3: 74, 4: 62}  # Read-only counts, 2026-10-05 19:14 UTC.
+        self.assertTrue(all(count * 20 < finish.MAX_SLOT_VMS for count in live.values()))
+        self.assertGreater(finish.MAX_VMS, 15 * sum(live.values()))
+        # A full-cap indented manifest stays well inside every reader's bound.
+        vm = {'name': 'hound-ci-1-0123456789ab', 'qemu_pid': 4194304, 'security_verified': True,
+              'start_monotonic': '9' * 16, 'start_realtime': '9' * 16, 'stop_monotonic': '9' * 16, 'stop_realtime': '9' * 16}
+        size = len(json.dumps({'vm_history': [vm] * finish.MAX_VMS}, indent=2, sort_keys=True))
+        self.assertLess(size * 2, finish.LIMIT)
+
+    def test_full_cap_history_is_accepted_and_one_more_holds(self):
+        m = manifest(); w = m['drain_witness']['1']; template = w['vm_history'][0]
+        history = []
+        for index in range(finish.MAX_SLOT_VMS):
+            vm = copy.deepcopy(template)
+            vm.update(name=f'hound-ci-1-a{index:011x}', start_monotonic=str(1000 + 2 * index),
+                      stop_monotonic=str(1001 + 2 * index), qemu_pid=10000 + index,
+                      start_realtime=str(finish.micros('2026-10-05T12:00:00+00:00') + 2 * index),
+                      stop_realtime=str(finish.micros('2026-10-05T12:00:00+00:00') + 2 * index + 1))
+            history.append(vm)
+        last = history[-1]
+        last.update(name=template['name'], start_monotonic='26000000', stop_monotonic='30000000',
+                    start_realtime=template['start_realtime'], stop_realtime=template['stop_realtime'], qemu_pid=template['qemu_pid'])
+        w['vm_history'] = history
+        self.assertEqual(len([vm for vm in finish.accepted_vms(m) if vm['slot'] == 1]), 1)
+        extra = copy.deepcopy(history[0]); extra.update(name='hound-ci-1-ffffffffffff', start_monotonic='10', stop_monotonic='11',
+                                                        start_realtime=str(finish.micros('2026-10-05T11:59:00+00:00')),
+                                                        stop_realtime=str(finish.micros('2026-10-05T11:59:01+00:00')), qemu_pid=9)
+        w['vm_history'].insert(0, extra)
+        with self.assertRaisesRegex(RuntimeError, 'history missing'):
+            finish.accepted_vms(m)
+
+    def test_capture_refuses_before_windows_close_without_creating_anything(self):
+        m = manifest()
+        plan = finish.enumeration_plan(m, finish.accepted_vms(m))
+        with patch.object(finish, 'read_public_json', return_value=m), patch.object(finish, 'root_operator'), \
+             patch.object(finish.time, 'time', return_value=plan['until'] + 60), patch.object(Path, 'mkdir') as made, \
+             patch.object(finish, 'run_producer') as run:
+            with self.assertRaisesRegex(RuntimeError, 'not yet closed'):
+                finish.capture()
+            made.assert_not_called(); run.assert_not_called()
 
 
 class PublicReadTests(unittest.TestCase):

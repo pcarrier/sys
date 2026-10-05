@@ -6,6 +6,7 @@ namespaces. Delegate the immutable underlying ELF, preserving old wrapper's
 telemetry default/argv0, stdin, environment and all non-JIT API calls.
 """
 import os
+import signal
 import sys
 import json
 import subprocess
@@ -62,6 +63,12 @@ def blocked(args):
 STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
 
 
+# The waiter rewrites manifest.json with full-boot VM histories (270 VMs by
+# 2026-10-05 19:14 UTC already exceeded the old 64 KiB): same 16 MiB bound as
+# waiter/finisher/activation. A failed read here would fail the old DELETE.
+MANIFEST_LIMIT = 16 * 1024 * 1024
+
+
 def read_root_json(path, bound):
     import stat
     fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -69,8 +76,13 @@ def read_root_json(path, bound):
         meta = os.fstat(fd)
         if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) != 0o600 or not 0 < meta.st_size <= bound:
             raise RuntimeError('Public root receipt ownership/type/bound changed')
-        raw = os.read(fd, bound + 1)
-        if len(raw) > bound: raise RuntimeError('Public root receipt bound exceeded')
+        chunks, size = [], 0
+        while size <= bound:
+            chunk = os.read(fd, min(1024 * 1024, bound + 1 - size))
+            if not chunk: break
+            chunks.append(chunk); size += len(chunk)
+        raw = b''.join(chunks)
+        if len(raw) > bound or len(raw) != meta.st_size: raise RuntimeError('Public root receipt bound/size changed')
         return json.loads(raw)
     finally:
         os.close(fd)
@@ -78,7 +90,7 @@ def read_root_json(path, bound):
 
 def pinned_caller():
     if os.geteuid() != 0: return None
-    try: manifest = read_root_json(STATE / 'manifest.json', 65536)
+    try: manifest = read_root_json(STATE / 'manifest.json', MANIFEST_LIMIT)
     except FileNotFoundError: return None
     parent = os.getppid()
     entries = [entry for entry in manifest['controllers'] if entry['pid'] == parent]
@@ -136,10 +148,14 @@ def delegated_cleanup(args, runner_id):
     # Preserve original stderr for old controller's private exception handler;
     # the receipt only records outcome. No API body/env/credential copy or log.
     sys.stderr.buffer.write(result.stderr); sys.stderr.buffer.flush()
-    receipt.update(stage='delete-returned', success=result.returncode == 0 or b'HTTP 404' in result.stderr,
-                   returncode=result.returncode, utc=datetime.now(timezone.utc).isoformat())
+    # Signal death (negative returncode) maps to the shell convention 128+N
+    # and is never success. HTTP 404 counts as returned exactly as the legacy
+    # cleanup_record() accepts it (parity: an already-removed runner).
+    code = result.returncode if result.returncode >= 0 else 128 - result.returncode
+    receipt.update(stage='delete-returned', success=result.returncode == 0 or (result.returncode > 0 and b'HTTP 404' in result.stderr),
+                   returncode=code, utc=datetime.now(timezone.utc).isoformat())
     save_receipt(filename, receipt)
-    raise SystemExit(result.returncode)
+    raise SystemExit(code)
 
 
 def main():
@@ -152,6 +168,10 @@ def main():
     runner_id = exact_cleanup(sys.argv[1:])
     if runner_id is not None:
         delegated_cleanup(sys.argv[1:], runner_id)
+    # Python ignores SIGPIPE/SIGXFSZ; restore the defaults the old bash wrapper
+    # gave gh, since ignored dispositions survive execv.
+    for number in (signal.SIGPIPE, signal.SIGXFSZ):
+        signal.signal(number, signal.SIG_DFL)
     os.execv(ORIGINAL, [OLD_GH, *sys.argv[1:]])
 
 

@@ -167,6 +167,7 @@ class Fixture:
                                     'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}
                              for name in act.DEPENDENCIES}
         self.commands = []
+        self.fragment_newer = {}
         for slot in act.UNITS:
             name = f'hound-ci-{slot}.service'
             target = f'/nix/store/old-unit-{slot}/{name}'
@@ -258,6 +259,13 @@ class Fixture:
     def effect_metadata(self, name, *unused):
         values = self.properties(name)
         result = effect_unit(name, values['ActiveState'])
+        if name in self.manager:
+            # Model v261 unit_need_daemon_reload(): the on-disk drop-in list
+            # differing from the loaded one sets NeedDaemonReload. Unit-link
+            # targets are store files with identical normalized mtimes.
+            on_disk = [str(act.RUNTIME / (name + '.d') / act.DROPIN)] if (
+                act.RUNTIME / (name + '.d') / act.DROPIN).exists() else []
+            result['NeedDaemonReload'] = on_disk != values['DropInPaths'] or self.fragment_newer.get(name, False)
         for key in ('LoadState', 'SubState'):
             if key in values:
                 result[key] = values[key]
@@ -321,7 +329,8 @@ class ActivationTests(unittest.TestCase):
         self.fixture.activate()
         receipt = self.fixture.receipt()
         events = receipt['events']
-        self.assertEqual(len(events), 19)
+        self.assertEqual(len(events), 15)
+        self.assertEqual([event['operation'] for event in events][-6:-4], ['reload-new-held', 'holds-remove-reload'])
         self.assertTrue(all(event['intent_utc'] and event['completion_utc'] for event in events))
         self.assertEqual([command[:2] for command in self.fixture.commands],
                          [['systemctl', 'daemon-reload'], ['systemctl', 'daemon-reload']] +
@@ -438,7 +447,7 @@ class ActivationTests(unittest.TestCase):
         self.assertFalse((act.STATE / 'activation.json').exists())
 
     def test_evidence_revalidated_before_hold_removal(self):
-        self.fixture.validator.reject_phase = 'hold-remove'
+        self.fixture.validator.reject_phase = 'holds-remove-reload'
         with self.assertRaisesRegex(RuntimeError, 'evidence drift'):
             self.fixture.activate()
         for slot in act.UNITS:
@@ -449,13 +458,81 @@ class ActivationTests(unittest.TestCase):
         original = self.fixture.validator.revalidate_final
         def drift(drain, manifest):
             original(drain, manifest)
-            if drain.activation_phase == 'hold-remove':
+            if drain.activation_phase == 'holds-remove-reload':
                 act.CURRENT.unlink()
                 act.CURRENT.symlink_to(self.fixture.root / 'drifted')
         with patch.object(self.fixture.validator, 'revalidate_final', side_effect=drift):
             with self.assertRaisesRegex(RuntimeError, 'profile drifted'):
                 self.fixture.activate()
         self.assertFalse(any(argv[1] == 'start' for argv in self.fixture.commands))
+
+    def test_all_four_holds_and_one_reload_are_one_durable_step(self):
+        self.fixture.activate()
+        events = self.fixture.receipt()['events']
+        step = next(event for event in events if event['operation'] == 'holds-remove-reload')
+        self.assertEqual(step['details']['paths'],
+                         [str(act.RUNTIME / f'hound-ci-{slot}.service.d' / act.DROPIN) for slot in act.UNITS])
+        self.assertFalse(any(event['operation'] in ('hold-remove', 'reload-final') for event in events))
+        phases = self.fixture.validator.rechecks
+        self.assertEqual(phases.count('holds-remove-reload'), 1)
+        self.assertEqual(phases.count('holds-remove-reload-post-intent'), 1)
+
+    def test_one_unlinked_loaded_hold_sets_NeedDaemonReload_and_holds(self):
+        # Fixture fidelity: the pre-fix per-slot shape (unlink, then recheck)
+        # is rejected by the effect proof exactly as the real manager would.
+        hold = act.RUNTIME / 'hound-ci-1.service.d' / act.DROPIN
+        metadata = self.fixture.effect_metadata('hound-ci-1.service')
+        self.assertFalse(metadata['NeedDaemonReload'])
+        hold.unlink()
+        metadata = self.fixture.effect_metadata('hound-ci-1.service')
+        self.assertTrue(metadata['NeedDaemonReload'])
+        with self.assertRaisesRegex(RuntimeError, 'reload-needed'):
+            effect.prove('hound-ci-1.service', lambda name: self.fixture.effect_metadata(name))
+
+    def test_crash_inside_release_step_leaves_intent_and_no_start(self):
+        original = act.fsync_dir
+        calls = []
+        def crash(path):
+            calls.append(path)
+            if str(path).endswith('hound-ci-2.service.d'):
+                raise OSError('simulated crash between unlinks')
+            return original(path)
+        with patch.object(act, 'fsync_dir', side_effect=crash):
+            with self.assertRaises(OSError):
+                self.fixture.activate()
+        receipt = self.fixture.receipt()
+        self.assertEqual(receipt['phase'], 'holds-remove-reload-intent')
+        self.assertIsNone(receipt['events'][-1]['completion_utc'])
+        self.assertEqual(self.fixture.commands, [['systemctl', 'daemon-reload']])
+        self.assertFalse((act.RUNTIME / 'hound-ci-1.service.d' / act.DROPIN).exists())
+        self.assertTrue((act.RUNTIME / 'hound-ci-3.service.d' / act.DROPIN).exists())
+
+    def test_tracked_slot_registration_rename_mid_read_is_not_drift(self):
+        drain = act.DrainView(self.fixture.operator)
+        path = act.STATE.parent / 'slot-1-registration.json'
+        path.write_text(json.dumps({'repo': 'xmit-dev/ultimator', 'id': None, 'name': 'hound-ci-1-aaaaaaaaaaaa'}))
+        path.chmod(0o600)
+        replacement = path.with_name('slot-1-registration.tmp')
+        replacement.write_text(json.dumps({'repo': 'xmit-dev/ultimator', 'id': 7, 'name': 'hound-ci-1-bbbbbbbbbbbb'}))
+        replacement.chmod(0o600)
+        original_read = act.os.read
+        def renaming_read(fd, size):
+            data = original_read(fd, size)
+            if replacement.exists():
+                os.replace(replacement, path)  # A NEW controller's atomic save.
+            return data
+        try:
+            drain.activation_new_controllers = {1: {}}
+            with patch.object(act.os, 'read', side_effect=renaming_read):
+                self.assertEqual(drain.public_registration(1)['name'], 'hound-ci-1-aaaaaaaaaaaa')
+            self.assertEqual(drain.public_registration(1)['name'], 'hound-ci-1-bbbbbbbbbbbb')
+            drain.activation_new_controllers = {}
+            replacement.write_text(path.read_text()); replacement.chmod(0o600)
+            with patch.object(act.os, 'read', side_effect=renaming_read):
+                with self.assertRaisesRegex(RuntimeError, 'changed while read'):
+                    drain.public_registration(1)
+        finally:
+            path.unlink()
 
     def test_backup_requires_complete_schema_and_original_content(self):
         original = deepcopy(self.fixture.backup)

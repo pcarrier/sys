@@ -13,7 +13,10 @@ PUBLIC INTEGRATION CONTRACT (the manifest is never edited by this module):
   manifest bytes on stdin, observes the actual child privilege boundary, and
   captures bounded raw stdout plus actual exit/invocation receipts exclusively
   under actions-capture/. Root --certify takes NO user report path and accepts
-  ONLY this capture + receipt. No auth/environment/seed/credential file reads.
+  ONLY this capture + receipt. No auth/environment/seed/credential file reads,
+  EXCEPT one documented trust-boundary choice: capture copies github.com's
+  login/oauth_token from pcarrier's own hosts.yml into a root-owned pinned gh
+  config readable only by the collector's private GID (operator_token()).
   Privileged operators remain trusted; root-chowning a DTO is never capture.
 - actions-terminal.json is an immutable, root:root0600 sidecar binding the exact
   hardware manifest SHA, nonce, all four helper pins plus exact legacy-source
@@ -37,8 +40,9 @@ operator broker authority. Root certification loads only hash-pinned armer and
 waiter. Complete pagination, positive response identity, known terminal outcome,
 and fresh ALL-four kernel/manager/registration evidence are mandatory. Every
 positive gate registration and every current/inflight adopted VM needs a
-positive nonce/source-bound root DELETE receipt; absence alone cannot prove its
-DELETE returned. Historical exemption requires root STOP monotonic strictly
+positive nonce/source-bound root DELETE receipt, or a LATER root START by the
+same pinned process (same-process successor proof, validate_cleanup_receipts);
+absence alone cannot prove its DELETE returned. Historical exemption requires root STOP monotonic strictly
 before the mandatory observation-start boundary BEFORE the FIRST registration
 read, FIRST registration absent, no positive pre/post record, and both older
 wall-clock snapshot/armed bounds. STOP alone or snapshot-end ordering is NOT
@@ -55,6 +59,7 @@ without cleanup receipts is informational, never a root certificate.
 import argparse
 import copy
 from datetime import datetime, timezone
+import grp
 import hashlib
 import json
 import os
@@ -80,18 +85,50 @@ SOURCE_FIELDS = (('operator_source', 'operator_sha256'), ('gate', 'gate_sha256')
                  ('old_source', 'old_source_sha256'))
 TERMINAL = {'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out',
             'action_required', 'stale'}
-LIMIT = 1024 * 1024
-MAX_VMS = 128
-MAX_SLOT_VMS = 64
+# Sized from read-only counts (2026-10-05 19:14 UTC): current invocations had
+# already produced 75/59/74/62 root VM STARTs (270 total) this boot at about
+# 23 per hour since approval. The bounds below leave >27x per-slot and >15x
+# all-slot margin over that, i.e. about a week more of continuous full use.
+# A full-cap manifest (4096 VMs at <=400 indented bytes each) stays under
+# 2 MiB; every manifest/capture/certificate reader shares LIMIT (16 MiB).
+# The all-slot cap is deliberately below 4 x MAX_SLOT_VMS so it can bind.
+LIMIT = 16 * 1024 * 1024
+GET_LIMIT = 4 * 1024 * 1024
+SOURCE_LIMIT = 1024 * 1024  # Same bound as COLLECTOR_BOOTSTRAP's source read.
+MAX_VMS = 4096
+MAX_SLOT_VMS = 2048
+MAX_ATTEMPTS = 128
 WITNESS_SINCE = '2026-10-05T11:56:00+00:00'
 OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
 OLD_SOURCE_SHA256 = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
 QEMU_ELF = '/nix/store/53pb1l8qlby0jzb7n8c1qiwq5nw89krx-qemu-host-cpu-only-11.1.1/bin/.qemu-system-x86_64-wrapped'
 MAX_PAGES = 100
+# Run enumeration (closed creation windows, see enumeration_plan()). Measured
+# 2026-10-05 19:31 UTC: 223 runs created in the previous ~23.5 h (11 in the
+# 12:00 hour) and ~0.55 s per gh GET. 6-hour windows keep each filtered listing
+# far below GitHub's 1000-result filter cap; ~125 windows x 2 passes plus the
+# few hundred runs updated near the drain fit in MAX_CALLS and CAPTURE_TIMEOUT.
+RUN_WINDOW_SECONDS = 6 * 3600
+RERUN_HORIZON_SECONDS = 31 * 86400
+SEARCH_CAP = 1000
+MAX_WINDOW_PAGES = 10
+MAX_PASSES = 3
+MAX_WINDOWS = 160
+GITHUB_SECOND = '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 MAX_CALLS = 4096
 PYTHON = Path('/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3')
 SETPRIV = Path('/nix/store/mqvbf0flamqaq9c3ihb496aahag897n0-util-linux-2.42.3-bin/bin/setpriv')
 CAPTURE_TIMEOUT = 1800
+# Pinned gh configuration for the root-launched collector (P1-4): root-owned,
+# readable only by a GID no account/group/subordinate range holds, so neither
+# the UID-1000 home config nor any other account can route or forge gh output.
+COLLECTOR_GID = 2000001005
+GH_CONFIG_DIR = Path('/run/hound-ci-actions-gh')
+GH_CONFIG = b'version: "1"\ngit_protocol: https\nprompt: disabled\n'
+GH_HOSTS_SCHEMA = 'github.com-login-oauth_token-v1'
+USER_GH_HOSTS = ('home', 'pcarrier', '.config', 'gh', 'hosts.yml')
+GH_TOKEN = re.compile('(?:gho|ghp|ghu|github_pat)_[A-Za-z0-9_]{20,255}')
+GH_LOGIN = re.compile('[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})')
 # Metadata acceptance only: finite peer clock skew plus whole-second GitHub
 # truncation. Never a timeout/deadline retuning or started_at ordering rule.
 ACTIONS_CLOCK_SKEW_SECONDS = 5
@@ -106,7 +143,7 @@ INVOCATION = re.compile('[0-9a-f]{32}')
 # may move one slot from strict-stopped to tracked-new. No rollback or kill.
 ACTIVATION_TRANSITION_API = 'tracked-controller-identity-v1'
 ACTIVATION_JOURNAL = 'activation.json'
-JOURNAL_LIMIT = 16 * 1024 * 1024
+JOURNAL_LIMIT = 64 * 1024 * 1024
 RELEASE_PHASES = {'start-anchor', 'start-anchor-post-intent', 'four-new-started-awaiting-runtime-proof'}
 CANDIDATE = '/var/lib/hound-ci/base-cache-v2.qcow2'
 CANDIDATE_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
@@ -219,7 +256,7 @@ def validate_operator_source(source, expected_sha):
     require(source.parent == Path('/nix/store') and source.resolve(strict=True) == source,
             'Source must be a canonical direct Nix-store file')
     require(isinstance(expected_sha, str) and re.fullmatch('[0-9a-f]{64}', expected_sha), 'Source SHA pin missing')
-    data = read_root_bytes(source, LIMIT)
+    data = read_root_bytes(source, SOURCE_LIMIT)
     require(digest(data) == expected_sha, 'Reviewed immutable source SHA mismatch')
     return data
 
@@ -345,7 +382,16 @@ def blocked_witness(entry, witness, name):
 
 
 def accepted_vms(manifest):
-    """Select every approval-overlapping/pre-gate adopted VM from actual root history.
+    """Select every ARM-RELEVANT adopted VM from actual root history.
+
+    ADOPTION RULE (arm-overlap-v1): a slot's VM is adopted iff its root STOP
+    monotonic is at/after THAT slot's mandatory gate observation-start boundary
+    (in flight at, or started after, arming), OR a pre/post gate registration
+    names it, OR it is the slot's last root VM. VMs which stopped strictly
+    before the boundary ran and ended before any drain action touched their
+    controller (approval itself changed nothing live), so they are ordinary
+    production history: still fully replayed, ordered, bounded and identity-
+    checked here, but neither Actions-adopted nor DELETE-covered.
 
     Root START + actual QEMU_SECURITY_VERIFIED supplies the generated name.
     Gates supply IDs when known. Erased historical registrations leave a NULL
@@ -358,7 +404,7 @@ def accepted_vms(manifest):
             'All-four hardware witnesses required')
     adopted, names, all_pids = [], set(), set()
     history_count = 0
-    boundary, drained = micros(manifest['witness_since']), micros(manifest['drained_utc'])
+    drained = micros(manifest['drained_utc'])
     for entry in controller_entries(manifest):
         slot = entry['slot']
         item = witnesses[str(slot)]
@@ -377,6 +423,7 @@ def accepted_vms(manifest):
         require(utc(gate.get('observed_utc')) >= utc(manifest['created_utc']), 'Gate snapshot predates arming')
         registrations = [public_registration(gate[key], entry)
                          for key in ('registration', 'registration_after_gate')]
+        arm_boundary = clock(gate['observation_started_monotonic_us'], 'Gate observation-start monotonic')
         selected = {}
         previous_stop = previous_realtime = None
         for vm in history:
@@ -400,7 +447,7 @@ def accepted_vms(manifest):
                 require(vm['qemu_pid'] > 1 and vm['qemu_pid'] != entry['pid'], 'Root QEMU PID invalid')
             require(vm['security_verified'] == (vm['qemu_pid'] is not None), 'Root QEMU identity/security incomplete')
             selected_by_gate = any(reg is not None and reg['name'] == name for reg in registrations)
-            if end >= boundary or selected_by_gate or vm is history[-1]:
+            if stop >= arm_boundary or selected_by_gate or vm is history[-1]:
                 require(vm['security_verified'] is True, 'Adopted VM lacks actual root QEMU verification')
                 require(vm['qemu_pid'] not in all_pids, 'Repeated adopted QEMU process identity')
                 all_pids.add(vm['qemu_pid'])
@@ -451,6 +498,16 @@ def accepted_vms(manifest):
 def validate_cleanup_receipts(manifest, receipts):
     """Validate positive receipts AND their mandatory current/inflight coverage.
 
+    SAME-PROCESS SUCCESSOR PROOF: every VM in a slot's vm_history was replayed
+    from records of ONE pinned (boot, InvocationID, PID, starttime) controller.
+    The exact legacy worker() (OLD_SOURCE pin) only reaches a NEXT root START
+    after the previous VM's `finally: cleanup_record()` returned normally: its
+    exact-id DELETE returned 0 or legacy-accepted HTTP 404 and the record was
+    unlinked. A DELETE that raised exits main() (exit 1) before any later START.
+    So an adopted VM followed by a later START in the same history is covered;
+    the LAST VM of each slot (and anything without such a successor) still
+    needs a positive receipt or the strict historical exemption below.
+
     No root record at the final check is not a DELETE result. Only a genuinely
     historical root VM stopped BEFORE the first registration read's monotonic
     boundary, with that FIRST read absent and no positive gate record, may lack
@@ -486,8 +543,18 @@ def validate_cleanup_receipts(manifest, receipts):
         known[name] = identity
         covered.add(name)
     armed = {row['slot']: row for row in manifest['armed']}
+    successor_proven = set()
+    for slot in SLOTS:
+        history = manifest['drain_witness'][str(slot)]['vm_history']
+        for earlier, later in zip(history, history[1:]):
+            # accepted_vms() already enforced strict per-process ordering.
+            require(clock(later['start_monotonic'], 'Successor START') >=
+                    clock(earlier['stop_monotonic'], 'Predecessor STOP'), 'Successor START precedes STOP')
+            successor_proven.add(earlier['name'])
     required = set()
     for name, vm in vm_map.items():
+        if name in successor_proven:
+            continue
         gate = manifest['gates'][str(vm['slot'])]
         positive_gate = any(gate[key] is not None and gate[key]['id'] is not None and
                             gate[key]['name'] == name
@@ -561,8 +628,10 @@ def response_job(row, attempt=None):
 
 class GitHub:
     """Finite ordinary GETs only; no automatic retries, polling or credential reads."""
-    def __init__(self, expected_sha):
+    def __init__(self, expected_sha, pinned_config=False):
         require(os.geteuid() == 1000 and os.getuid() == 1000, '--collect must run as ordinary pcarrier, never root')
+        if pinned_config:
+            check_gh_config()  # Root-launched producer: only the pinned gh config.
         data = read_root_bytes(GH_ELF, 64 * 1024 * 1024)
         require(data.startswith(b'\x7fELF') and digest(data) == expected_sha, 'Original gh ELF hash invalid')
         self.calls = 0
@@ -570,7 +639,7 @@ class GitHub:
 
     def get(self, route):
         require(isinstance(route, str) and re.fullmatch(
-            f'repos/{REPO}/actions/(?:runs(?:\\?per_page=100&page=[1-9][0-9]*)?|'
+            f'repos/{REPO}/actions/(?:runs\\?created={GITHUB_SECOND}\\.\\.{GITHUB_SECOND}&per_page=100&page=[1-9][0-9]*|'
             r'runs/[1-9][0-9]*/attempts/[1-9][0-9]*(?:/jobs(?:\?per_page=100&page=[1-9][0-9]*)?)?|'
             r'jobs/[1-9][0-9]*)', route), 'Collector route escaped exact repository/GET scope')
         self.calls += 1
@@ -578,34 +647,68 @@ class GitHub:
         output = ordinary_get([str(GH_ELF), 'api', '--hostname', 'github.com', '--method', 'GET', route])
         return decode(output)
 
-    def paged(self, route, key):
-        result = []
-        total = None
-        ids = set()
-        pages = 0
-        for page in range(1, MAX_PAGES + 1):
+    def scan(self, route, key, strict):
+        """ONE complete pass. strict: constant total_count, no overlap (jobs).
+
+        Non-strict (closed created-window run listings): total_count may only
+        GROW (newly visible runs), shifted duplicates are skipped by ID, and
+        completeness is NOT claimed for a single pass; window() requires two
+        consecutive identical complete passes.
+        """
+        rows, ids, total = [], set(), None
+        bound = MAX_PAGES if strict else MAX_WINDOW_PAGES
+        for page in range(1, bound + 1):
             separator = '&' if '?' in route else '?'
             row = self.get(f'{route}{separator}per_page=100&page={page}')
             require(isinstance(row, dict) and type(row.get('total_count')) is int and row['total_count'] >= 0 and
                     isinstance(row.get(key), list) and len(row[key]) <= 100, 'Paged Actions response invalid')
-            if total is None:
+            if strict:
+                if total is None:
+                    total = row['total_count']
+                    require(total <= 100 * MAX_PAGES, 'Actions pagination exceeds bounded complete scan')
+                require(row['total_count'] == total, 'Actions pagination changed while collecting')
+            else:
+                require(total is None or row['total_count'] >= total, 'Run window shrank while collecting; HOLD')
                 total = row['total_count']
-                require(total <= 100 * MAX_PAGES, 'Actions pagination exceeds bounded complete scan')
-            require(row['total_count'] == total, 'Actions pagination changed while collecting')
-            rows = row[key]
-            for item in rows:
+                require(total <= SEARCH_CAP, 'Run window exceeds GitHub filtered-listing cap; HOLD')
+            for item in row[key]:
                 require(isinstance(item, dict), 'Paged record malformed')
                 identity = integer(item.get('id'), 'Paged response ID')
-                require(identity not in ids, 'Paged response duplicate/overlap')
+                if identity in ids:
+                    require(not strict, 'Paged response duplicate/overlap')
+                    continue  # Shifted by a newer insertion; already recorded.
                 ids.add(identity)
-            result.extend(rows)
-            pages += 1
-            require(len(result) <= total, 'Paged count overrun')
-            if len(result) == total:
-                self.pages.append({'route': route, 'key': key, 'total_count': total, 'pages': pages})
-                return result
-            require(len(rows) == 100, 'Short/incomplete Actions page before total count')
+                rows.append(item)
+            if strict:
+                require(len(rows) <= total, 'Paged count overrun')
+                if len(rows) == total:
+                    return rows, total, page
+                require(len(row[key]) == 100, 'Short/incomplete Actions page before total count')
+            elif len(row[key]) < 100 or len(ids) >= total:
+                return rows, total, page
         raise RuntimeError('Actions pagination did not complete')
+
+    def paged(self, route, key):
+        rows, total, pages = self.scan(route, key, strict=True)
+        self.pages.append({'route': route, 'key': key, 'total_count': total, 'pages': pages})
+        return rows
+
+    def window(self, route):
+        """Closed created-window listing: bounded passes until two agree exactly."""
+        passes, previous = [], None
+        for _ in range(MAX_PASSES):
+            rows, total, pages = self.scan(route, 'workflow_runs', strict=False)
+            ids = {row['id'] for row in rows}
+            passes.append(pages)
+            if previous is not None:
+                require(previous[0] <= ids and total >= previous[1],
+                        'A previously listed run disappeared or its window shrank; HOLD')
+                if ids == previous[0] and len(ids) == total == previous[1]:
+                    self.pages.append({'route': route, 'key': 'workflow_runs', 'total_count': total,
+                                       'pages': pages, 'passes': passes})
+                    return rows
+            previous = (ids, total)
+        raise RuntimeError('Run window did not converge within bounded passes; HOLD')
 
 
 
@@ -632,11 +735,11 @@ def ordinary_get(argv):
         while True:
             remaining = deadline - time.monotonic()
             require(remaining > 0 and select.select([fd], [], [], remaining)[0], 'Ordinary GET timeout; UNKNOWN/HOLD')
-            chunk = os.read(fd, min(65536, 4 * LIMIT + 1 - len(output)))
+            chunk = os.read(fd, min(65536, GET_LIMIT + 1 - len(output)))
             if not chunk:
                 break
             output.extend(chunk)
-            require(len(output) <= 4 * LIMIT, 'Ordinary Actions GET oversized; UNKNOWN/HOLD')
+            require(len(output) <= GET_LIMIT, 'Ordinary Actions GET oversized; UNKNOWN/HOLD')
         require(wait_child_event(child, deadline) == 0 and output, 'Ordinary Actions GET unavailable/empty')
         return bytes(output)
     finally:
@@ -646,28 +749,89 @@ def ordinary_get(argv):
         child.stdout.close()
 
 
-def collect(manifest, api):
-    """Enumerate full repository run scope and every attempt's complete job pages.
+def github_second(seconds):
+    return datetime.fromtimestamp(seconds, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    Run created_at is not a job start bound. Scan all returned runs, including
-    prior attempts; API caps, drift, ambiguity and unavailable jobs fail closed.
-    No guessed run/job identity or serial-supplied hint suffices. Unknown IDs
-    require a unique exact ROOT-generated/security-bound name and direct GET.
+
+def window_route(start, end):
+    return f'repos/{REPO}/actions/runs?created={github_second(start)}..{github_second(end)}'
+
+
+def enumeration_plan(manifest, adopted):
+    """Deterministic closed run-creation windows, recomputed by the validator.
+
+    A job on an adopted VM ran before that VM's root STOP <= drained_utc, so
+    its run was created before drained_utc (+5 s metadata allowance). GitHub
+    re-runs keep the ORIGINAL run created_at and are allowed for 30 days, so
+    windows start 31 days before the earliest adopted VM START. Each window is
+    a closed past interval (no new creations), listed until two passes agree.
+    Completed runs last updated before earliest-START minus the allowance are
+    listed but not job-scanned: their every job completed before then, which
+    validate_collection() would reject for any adopted VM anyway.
+    """
+    require(adopted, 'No adopted VM')
+    earliest_us = min(int(vm['final_accepted_vm']['start_realtime']) for vm in adopted)
+    allowance = ACTIONS_CLOCK_SKEW_SECONDS * 1000000
+    until = -(-(micros(manifest['drained_utc']) + allowance) // 1000000)
+    since = (earliest_us // 1000000 - RERUN_HORIZON_SECONDS) // RUN_WINDOW_SECONDS * RUN_WINDOW_SECONDS
+    windows = []
+    start = since
+    while start <= until:
+        windows.append((start, min(start + RUN_WINDOW_SECONDS - 1, until)))
+        start += RUN_WINDOW_SECONDS
+    require(0 < len(windows) <= MAX_WINDOWS, 'Run enumeration window bound exceeded')
+    return {'windows': windows, 'until': until, 'scan_threshold_us': earliest_us - allowance}
+
+
+def run_entry(run, window, plan):
+    """Positive response identity of ONE listed run inside its exact window."""
+    require(isinstance(run, dict), 'Run response malformed')
+    run_id = integer(run.get('id'), 'Run response ID')
+    require(run.get('url') == f'https://api.github.com/repos/{REPO}/actions/runs/{run_id}' and
+            isinstance(run.get('repository'), dict) and run['repository'].get('full_name') == REPO,
+            'Run response repository identity mismatch')
+    attempt = integer(run.get('run_attempt'), 'Run response attempt')
+    require(attempt <= MAX_ATTEMPTS, 'Attempt enumeration bound exceeded')
+    status = run.get('status')
+    require(isinstance(status, str) and re.fullmatch('[a-z_]{1,32}', status), 'Run response status invalid')
+    created, updated = micros(run.get('created_at')), micros(run.get('updated_at'))
+    require(window[0] * 1000000 <= created <= window[1] * 1000000 + 999999,
+            'Listed run created_at outside its requested closed window (filter not applied)')
+    require(updated >= created, 'Run updated_at precedes created_at')
+    scanned = status != 'completed' or updated >= plan['scan_threshold_us']
+    return {'repo': REPO, 'run_id': run_id, 'run_attempt': attempt, 'status': status,
+            'created_at': run['created_at'], 'updated_at': run['updated_at'], 'scanned': scanned}
+
+
+def collect(manifest, api):
+    """Enumerate closed run windows and every relevant attempt's complete job pages.
+
+    Run created_at bounds come from deterministic windows (enumeration_plan).
+    Scan every listed run that may hold an acceptable job, including prior
+    attempts; API caps, shrinkage, non-convergence, ambiguity and unavailable
+    jobs fail closed. No guessed run/job identity or serial-supplied hint
+    suffices. Unknown IDs require a unique exact ROOT-generated/security-bound
+    name and direct GET.
     """
     sources = provenance(manifest)
     adopted = accepted_vms(manifest)
+    plan = enumeration_plan(manifest, adopted)
+    require(datetime.now(timezone.utc).timestamp() > plan['until'], 'Run windows not yet closed; collect later')
     targets = {vm['name']: vm for vm in adopted}
     matches = {name: [] for name in targets}
-    runs = api.paged(f'repos/{REPO}/actions/runs', 'workflow_runs')
-    run_scope = []
-    for run in runs:
-        run_id = integer(run.get('id'), 'Run response ID')
-        require(run.get('url') == f'https://api.github.com/repos/{REPO}/actions/runs/{run_id}' and
-                run.get('repository', {}).get('full_name') == REPO, 'Run response repository identity mismatch')
-        current_attempt = integer(run.get('run_attempt'), 'Run response attempt')
-        require(current_attempt <= MAX_VMS, 'Attempt enumeration bound exceeded')
-        run_scope.append({'repo': REPO, 'run_id': run_id, 'run_attempt': current_attempt})
-        for attempt in range(1, current_attempt + 1):
+    known_ids = {vm['runner_id'] for vm in adopted if vm['runner_id'] is not None}
+    runs = {}
+    for window in plan['windows']:
+        for run in api.window(window_route(*window)):
+            entry = run_entry(run, window, plan)
+            require(entry['run_id'] not in runs, 'Run listed in two disjoint windows')
+            runs[entry['run_id']] = entry
+    run_scope = [runs[run_id] for run_id in sorted(runs)]
+    for run in run_scope:
+        if not run['scanned']:
+            continue
+        run_id = run['run_id']
+        for attempt in range(1, run['run_attempt'] + 1):
             route = f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}'
             response = api.get(route)
             require(response.get('id') == run_id and type(response.get('id')) is int and
@@ -677,7 +841,7 @@ def collect(manifest, api):
             for job in api.paged(route + '/jobs', 'jobs'):
                 name = job.get('runner_name')
                 if name not in targets:
-                    require(job.get('runner_id') not in {vm['runner_id'] for vm in adopted if vm['runner_id'] is not None},
+                    require(job.get('runner_id') not in known_ids,
                             'Known root runner ID collides with another Actions name')
                     continue
                 expected_id = targets[name]['runner_id']
@@ -692,7 +856,7 @@ def collect(manifest, api):
     for name, candidates in matches.items():
         require(len(candidates) == 1, 'Root VM has no unique positively terminal Actions job (no-match/ambiguous)')
         jobs.append({'vm': targets[name], 'job': candidates[0]})
-    result = {'schema': 1, 'kind': 'ordinary-operator-actions-get', 'operator_uid': 1000,
+    result = {'schema': 2, 'kind': 'ordinary-operator-actions-get', 'operator_uid': 1000,
               'manifest_sha256': digest(canonical(manifest)), 'drain_nonce': manifest['drain_nonce'],
               'sources': sources, 'gh_source': str(GH_ELF), 'gh_sha256': manifest['original_elf_sha256'],
               'collected_utc': datetime.now(timezone.utc).isoformat(), 'paging': api.pages,
@@ -700,6 +864,34 @@ def collect(manifest, api):
     require(len(canonical(result)) <= LIMIT, 'Public collection receipt bound exceeded')
     validate_collection(result, manifest)
     return result
+
+
+def validate_paging(pages, plan):
+    require(isinstance(pages, list) and pages, 'Complete Actions pagination proof missing')
+    windows = {window_route(*window): window for window in plan['windows']}
+    routes, by_route = set(), {}
+    for page in pages:
+        require(isinstance(page, dict), 'Paging malformed')
+        route = page.get('route')
+        require(isinstance(route, str) and route not in routes, 'Paging duplicate/invalid route')
+        if page.get('key') == 'workflow_runs':
+            exact(page, {'route', 'key', 'total_count', 'pages', 'passes'}, 'Run window paging')
+            passes = page['passes']
+            require(route in windows and type(page['total_count']) is int and 0 <= page['total_count'] <= SEARCH_CAP and
+                    isinstance(passes, list) and 2 <= len(passes) <= MAX_PASSES and
+                    all(type(count) is int and 1 <= count <= MAX_WINDOW_PAGES for count in passes) and
+                    type(page['pages']) is int and page['pages'] == passes[-1] == max(1, (page['total_count'] + 99) // 100),
+                    'Run window paging incomplete/unconverged')
+        else:
+            exact(page, {'route', 'key', 'total_count', 'pages'}, 'Paging')
+            require(page['key'] == 'jobs' and re.fullmatch(f'repos/{REPO}/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs', route) and
+                    type(page['total_count']) is int and 0 <= page['total_count'] <= 100 * MAX_PAGES and
+                    type(page['pages']) is int and page['pages'] == max(1, (page['total_count'] + 99) // 100),
+                    'Paging incomplete/duplicate')
+        routes.add(route)
+        by_route[route] = page
+    require(set(windows) <= routes, 'A deterministic run window was not listed')
+    return by_route
 
 
 def validate_collection(report, manifest, cleanup_receipts=None):
@@ -711,7 +903,7 @@ def validate_collection(report, manifest, cleanup_receipts=None):
     """
     exact(report, {'schema', 'kind', 'operator_uid', 'manifest_sha256', 'drain_nonce', 'sources',
                    'gh_source', 'gh_sha256', 'collected_utc', 'paging', 'request_count', 'runs', 'jobs'}, 'Collection')
-    require(type(report['schema']) is int and report['schema'] == 1 and
+    require(type(report['schema']) is int and report['schema'] == 2 and
             report['kind'] == 'ordinary-operator-actions-get' and type(report['operator_uid']) is int and
             report['operator_uid'] == 1000, 'Collection provenance invalid')
     require(report['manifest_sha256'] == digest(canonical(manifest)) and report['drain_nonce'] == manifest['drain_nonce'] and
@@ -720,38 +912,43 @@ def validate_collection(report, manifest, cleanup_receipts=None):
     require(utc(report['collected_utc']) >= utc(manifest['drained_utc']), 'Collection predates hardware drain')
     integer(report['request_count'], 'Collection request count')
     require(report['request_count'] <= MAX_CALLS, 'Collection request count exceeded')
-    pages = report['paging']
-    require(isinstance(pages, list) and pages, 'Complete Actions pagination proof missing')
-    routes = set()
-    for page in pages:
-        exact(page, {'route', 'key', 'total_count', 'pages'}, 'Paging')
-        require(page['route'] not in routes and type(page['total_count']) is int and 0 <= page['total_count'] <= 100 * MAX_PAGES and
-                type(page['pages']) is int and page['pages'] == max(1, (page['total_count'] + 99) // 100), 'Paging incomplete/duplicate')
-        require((page['key'] == 'workflow_runs' and page['route'] == f'repos/{REPO}/actions/runs') or
-                (page['key'] == 'jobs' and re.fullmatch(f'repos/{REPO}/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs', page['route'])), 'Paging repo/route invalid')
-        routes.add(page['route'])
-    require(f'repos/{REPO}/actions/runs' in routes, 'Full repository run paging missing')
+    adopted = accepted_vms(manifest)
+    plan = enumeration_plan(manifest, adopted)
+    require(micros(report['collected_utc']) > plan['until'] * 1000000, 'Collection predates closed run windows')
+    page_by_route = validate_paging(report['paging'], plan)
     runs = report['runs']
-    require(isinstance(runs, list) and len(runs) <= 100 * MAX_PAGES, 'Complete run scope missing')
-    required_routes = {f'repos/{REPO}/actions/runs'}
-    run_ids = set()
+    require(isinstance(runs, list) and len(runs) <= SEARCH_CAP * MAX_WINDOWS, 'Complete run scope missing')
+    required_routes = {window_route(*window) for window in plan['windows']}
+    per_window = {route: 0 for route in required_routes}
+    run_ids, previous = set(), 0
     attempts = 0
     for run in runs:
-        exact(run, {'repo', 'run_id', 'run_attempt'}, 'Run scope')
+        exact(run, {'repo', 'run_id', 'run_attempt', 'status', 'created_at', 'updated_at', 'scanned'}, 'Run scope')
         integer(run['run_id'], 'Run scope ID')
-        integer(run['run_attempt'], 'Run scope attempt')
-        require(run['repo'] == REPO and run['run_id'] not in run_ids and run['run_attempt'] <= MAX_VMS,
-                'Run scope identity/attempt/duplicate invalid')
+        require(run['run_id'] > previous, 'Run scope must be strictly ordered by ID without duplicates')
+        previous = run['run_id']
+        created = micros(run['created_at'])
+        homes = [window for window in plan['windows']
+                 if window[0] * 1000000 <= created <= window[1] * 1000000 + 999999]
+        require(len(homes) == 1, 'Run created_at outside every deterministic window')
+        listed = {'id': run['run_id'], 'url': f'https://api.github.com/repos/{REPO}/actions/runs/{run["run_id"]}',
+                  'repository': {'full_name': run['repo']}, 'run_attempt': run['run_attempt'],
+                  'status': run['status'], 'created_at': run['created_at'], 'updated_at': run['updated_at']}
+        require(run_entry(listed, homes[0], plan) == run, 'Run scope entry/scan decision is not the recomputed one')
+        per_window[window_route(*homes[0])] += 1
         run_ids.add(run['run_id'])
-        attempts += run['run_attempt']
-        for attempt in range(1, run['run_attempt'] + 1):
-            required_routes.add(f'repos/{REPO}/actions/runs/{run["run_id"]}/attempts/{attempt}/jobs')
-    run_page = next(page for page in pages if page['key'] == 'workflow_runs')
-    require(run_page['total_count'] == len(runs) and routes == required_routes,
-            'All discovered run attempts must be completely paged, without gaps')
-    adopted = accepted_vms(manifest)
+        if run['scanned']:
+            attempts += run['run_attempt']
+            for attempt in range(1, run['run_attempt'] + 1):
+                required_routes.add(f'repos/{REPO}/actions/runs/{run["run_id"]}/attempts/{attempt}/jobs')
+    require(all(page_by_route[route]['total_count'] == count for route, count in per_window.items()),
+            'Window run count differs from its converged total_count')
+    require(set(page_by_route) == required_routes,
+            'All scanned run attempts must be completely paged, without gaps or extras')
     rows = report['jobs']
-    require(report['request_count'] == sum(page['pages'] for page in pages) + attempts + len(adopted),
+    listing_calls = sum(sum(page['passes']) if page['key'] == 'workflow_runs' else page['pages']
+                        for page in page_by_route.values())
+    require(report['request_count'] == listing_calls + attempts + len(adopted),
             'Exact finite request accounting missing')
     require(isinstance(rows, list) and len(rows) == len(adopted), 'Every adopted VM requires an exact Actions job')
     known_ids = ({vm['name']: vm['runner_id'] for vm in adopted} if cleanup_receipts is None
@@ -760,7 +957,7 @@ def validate_collection(report, manifest, cleanup_receipts=None):
     observed = set()
     jobs, runner_ids = set(), set()
     matched_per_route = {}
-    page_by_route = {page['route']: page for page in pages}
+    routes = set(page_by_route)
     for row in rows:
         exact(row, {'vm', 'job'}, 'Collection job binding')
         vm, job = row['vm'], row['job']
@@ -799,7 +996,7 @@ COLLECTOR_BOOTSTRAP = r"""
 import hashlib, os, stat, sys
 path, expected, ready, ack = sys.argv[1:]
 if not (sys.flags.isolated and sys.flags.dont_write_bytecode and
-        os.getuid() == os.geteuid() == 1000 and os.getgid() == os.getegid() == 100 and
+        os.getuid() == os.geteuid() == 1000 and os.getgid() == os.getegid() == 2000001005 and
         os.getgroups() == []):
     raise RuntimeError('Collector privilege/isolation boundary invalid')
 fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -827,6 +1024,139 @@ exec(compile(source, path, 'exec'), {'__name__': '__main__', '__file__': path})
 """
 
 
+def collector_gid_unshared():
+    """COLLECTOR_GID must be held by NO account, group or subordinate range.
+
+    Only our setpriv'd collector child carries it, so a hostile UID-1000
+    process (gid 100, shared with another account on this host) can neither
+    read the pinned gh config's credential copy nor ptrace the collector
+    (ptrace/proc access requires matching real/effective/saved GIDs too).
+    """
+    try:
+        grp.getgrgid(COLLECTOR_GID)
+    except KeyError:
+        pass
+    else:
+        raise RuntimeError('Private collector GID is an existing group')
+    require(all(account.pw_gid != COLLECTOR_GID for account in pwd.getpwall()), 'Private collector GID is a primary group')
+    data = read_root_bytes(Path('/etc/subgid'), 65536) if os.path.lexists('/etc/subgid') else b''
+    for line in data.decode('utf-8').splitlines():
+        fields = line.split(':')
+        require(len(fields) == 3 and fields[1].isdigit() and fields[2].isdigit(), 'Unparseable subordinate GID range')
+        require(not int(fields[1]) <= COLLECTOR_GID < int(fields[1]) + int(fields[2]),
+                'Private collector GID lies in a subordinate GID range')
+
+
+def operator_token():
+    """Return (login, token) for github.com from pcarrier's OWN hosts.yml.
+
+    TRUST BOUNDARY (P1-4): root reads this one credential so that gh never
+    consults a UID-1000-replaceable config (host-scoped http_unix_socket or
+    other overrides could forge Actions metadata). The walk opens every
+    component no-follow from '/', and the file must be a single-link regular
+    file OWNED by UID 1000: its bytes are already UID 1000's, so the copy can
+    never disclose anything new. Token integrity is irrelevant to proof
+    authenticity (TLS to api.github.com plus response repository identity);
+    only routing/config knobs matter, and those come from GH_CONFIG below.
+    The token is never printed, logged, hashed into a receipt or exported.
+    """
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for index, part in enumerate(USER_GH_HOSTS):
+            last = index == len(USER_GH_HOSTS) - 1
+            flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | (os.O_NONBLOCK if last else os.O_DIRECTORY)
+            child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        meta = os.fstat(fd)
+        require(stat.S_ISREG(meta.st_mode) and meta.st_uid == 1000 and meta.st_nlink == 1 and
+                0 < meta.st_size <= 16384, 'Operator gh hosts file identity invalid')
+        data = os.read(fd, 16385)
+        require(len(data) == meta.st_size, 'Operator gh hosts file changed during read')
+    finally:
+        os.close(fd)
+    lines = data.decode('utf-8').split('\n')
+    starts = [index for index, line in enumerate(lines) if line == 'github.com:']
+    require(len(starts) == 1, 'Operator gh hosts lacks one exact github.com block')
+    values, indent = {}, None
+    for line in lines[starts[0] + 1:]:
+        if not line.strip():
+            continue
+        stripped = line.lstrip(' ')
+        depth = len(line) - len(stripped)
+        if depth == 0:
+            break
+        indent = depth if indent is None else indent
+        if depth == indent:
+            key, separator, value = stripped.partition(':')
+            if key in ('oauth_token', 'user'):
+                require(separator and key not in values, 'Operator gh hosts github.com key repeated')
+                values[key] = value.strip()
+    require(GH_TOKEN.fullmatch(values.get('oauth_token', '')) is not None and
+            GH_LOGIN.fullmatch(values.get('user', '')) is not None,
+            'Operator github.com token/login absent (keyring-only storage is unsupported: HOLD)')
+    return values['user'], values['oauth_token']
+
+
+def install_gh_config():
+    """Create the root-owned, collector-GID-readable pinned gh configuration."""
+    collector_gid_unshared()
+    root_directory(GH_CONFIG_DIR.parent)
+    require(not os.path.lexists(GH_CONFIG_DIR), 'Pinned gh config directory exists/interrupted; reconcile, never reuse')
+    login, token = operator_token()
+    hosts = (f'github.com:\n    users:\n        {login}:\n            oauth_token: {token}\n'
+             f'    oauth_token: {token}\n    user: {login}\n    git_protocol: https\n').encode('ascii')
+    del token
+    os.mkdir(GH_CONFIG_DIR, 0o700)
+    try:
+        os.chown(GH_CONFIG_DIR, 0, COLLECTOR_GID)
+        os.chmod(GH_CONFIG_DIR, 0o750)
+        for name, content in (('config.yml', GH_CONFIG), ('hosts.yml', hosts)):
+            fd = os.open(GH_CONFIG_DIR / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+            try:
+                os.fchown(fd, 0, COLLECTOR_GID)
+                os.fchmod(fd, 0o440)
+                os.write(fd, content)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        del hosts
+        check_gh_config(root=True)
+    except BaseException:
+        remove_gh_config()
+        raise
+
+
+def check_gh_config(root=False):
+    """Root:COLLECTOR_GID 0750 dir, exactly two 0440 root files, exact config.yml."""
+    meta = GH_CONFIG_DIR.lstat()
+    require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == 0 and meta.st_gid == COLLECTOR_GID and
+            stat.S_IMODE(meta.st_mode) == 0o750, 'Pinned gh config directory identity invalid')
+    require(sorted(os.listdir(GH_CONFIG_DIR)) == ['config.yml', 'hosts.yml'], 'Pinned gh config directory content invalid')
+    for name in ('config.yml', 'hosts.yml'):
+        item = (GH_CONFIG_DIR / name).lstat()
+        require(stat.S_ISREG(item.st_mode) and item.st_uid == 0 and item.st_gid == COLLECTOR_GID and
+                stat.S_IMODE(item.st_mode) == 0o440 and item.st_nlink == 1, 'Pinned gh config file identity invalid')
+    with open(GH_CONFIG_DIR / 'config.yml', 'rb') as stream:
+        require(stream.read(len(GH_CONFIG) + 1) == GH_CONFIG, 'Pinned gh config.yml content drift')
+    if not root:
+        require(os.environ.get('GH_CONFIG_DIR') == str(GH_CONFIG_DIR) and
+                os.environ.get('HOME') == str(GH_CONFIG_DIR), 'Collector environment does not pin gh config')
+
+
+def remove_gh_config():
+    # ONLY the two files this capture created, then the empty directory.
+    for name in ('config.yml', 'hosts.yml'):
+        try:
+            (GH_CONFIG_DIR / name).unlink()
+        except FileNotFoundError:
+            pass
+    try:
+        GH_CONFIG_DIR.rmdir()
+    except FileNotFoundError:
+        pass
+
+
 def capture_paths():
     folder = STATE / 'actions-capture'
     return folder, folder / 'intent.json', folder / 'stdout.json', folder / 'invocation.json'
@@ -837,13 +1167,19 @@ def python_executable():
 
 
 def producer_environment():
-    # Literal allowlist, never os.environ/config/auth reads or GH_TOKEN export.
-    return {'HOME': '/home/pcarrier', 'USER': 'pcarrier', 'LOGNAME': 'pcarrier',
-            'LANG': 'C.UTF-8', 'PATH': f'{PYTHON.parent}:{GH_ELF.parent}', 'GH_TELEMETRY': 'false'}
+    # Literal allowlist, never os.environ or GH_TOKEN export. Every gh config,
+    # state, cache and data location is the root-owned pinned directory; no
+    # path under /home/pcarrier is consulted by the collector or its gh.
+    pinned = str(GH_CONFIG_DIR)
+    return {'HOME': pinned, 'USER': 'pcarrier', 'LOGNAME': 'pcarrier',
+            'LANG': 'C.UTF-8', 'PATH': f'{PYTHON.parent}:{GH_ELF.parent}', 'GH_TELEMETRY': 'false',
+            'GH_CONFIG_DIR': pinned, 'XDG_CONFIG_HOME': pinned, 'XDG_STATE_HOME': pinned,
+            'XDG_CACHE_HOME': pinned, 'XDG_DATA_HOME': pinned,
+            'GH_NO_UPDATE_NOTIFIER': '1', 'GH_PROMPT_DISABLED': '1'}
 
 
 def producer_argv(manifest, ready_fd, ack_fd):
-    return [str(SETPRIV), '--reuid=1000', '--regid=100', '--clear-groups',
+    return [str(SETPRIV), '--reuid=1000', f'--regid={COLLECTOR_GID}', '--clear-groups',
             '--inh-caps=-all', '--ambient-caps=-all', '--bounding-set=-all', '--no-new-privs',
             str(PYTHON), '-I', '-B', '-c', COLLECTOR_BOOTSTRAP,
             manifest['validator_source'], manifest['validator_sha256'], str(ready_fd), str(ack_fd)]
@@ -853,7 +1189,9 @@ def execution_contract(manifest):
     # Pipe FD numbers are per-invocation; both the template and actual numbers
     # are bound below, rather than falsely claiming a pre-known actual argv.
     return {'producer_source': manifest['validator_source'], 'producer_sha256': manifest['validator_sha256'],
-            'python': str(PYTHON), 'setpriv': str(SETPRIV), 'uid': 1000, 'gid': 100,
+            'python': str(PYTHON), 'setpriv': str(SETPRIV), 'uid': 1000, 'gid': COLLECTOR_GID,
+            'gh_config_dir': str(GH_CONFIG_DIR), 'gh_config_sha256': digest(GH_CONFIG),
+            'gh_hosts_schema': GH_HOSTS_SCHEMA,
             'cwd': '/var/empty', 'bootstrap_sha256': digest(COLLECTOR_BOOTSTRAP.encode()),
             'argv_template_sha256': digest(canonical(producer_argv(manifest, '<ready>', '<ack>'))),
             'environment_sha256': digest(canonical(producer_environment()))}
@@ -905,7 +1243,7 @@ def observe_child(pid):
     require(len(data) <= 8192, 'Collector process metadata bound exceeded')
     rows = dict(line.split(':', 1) for line in data.decode('ascii').splitlines() if ':' in line)
     require([int(x) for x in rows.get('Uid', '').split()] == [1000] * 4 and
-            [int(x) for x in rows.get('Gid', '').split()] == [100] * 4 and not rows.get('Groups', '').split() and
+            [int(x) for x in rows.get('Gid', '').split()] == [COLLECTOR_GID] * 4 and not rows.get('Groups', '').split() and
             rows.get('NoNewPrivs', '').strip() == '1' and
             all(int(rows.get(key, '-1').strip(), 16) == 0
                 for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')), 'Actual collector privilege boundary invalid')
@@ -915,7 +1253,7 @@ def observe_child(pid):
     starttime = proc_stat[proc_stat.rindex(b')') + 2:].split()[19].decode('ascii')
     require(clock(starttime, 'Collector starttime') > 0 and
             os.readlink(f'/proc/{pid}/exe') == python_executable(), 'Actual collector executable/identity invalid')
-    return {'pid': pid, 'starttime': starttime, 'uids': [1000] * 4, 'gids': [100] * 4,
+    return {'pid': pid, 'starttime': starttime, 'uids': [1000] * 4, 'gids': [COLLECTOR_GID] * 4,
             'groups': [], 'caps': [0] * 5, 'no_new_privs': 1, 'executable': python_executable()}
 
 
@@ -967,7 +1305,10 @@ def run_producer(manifest, data):
     ack_read, ack_write = os.pipe2(os.O_CLOEXEC)
     child = None
     deadline = time.monotonic() + CAPTURE_TIMEOUT
+    installed = False
     try:
+        install_gh_config()
+        installed = True
         argv = producer_argv(manifest, ready_write, ack_read)
         child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  env=producer_environment(), cwd='/var/empty', close_fds=True,
@@ -996,12 +1337,20 @@ def run_producer(manifest, data):
         for fd in (ready_read, ready_write, ack_read, ack_write):
             if fd is not None:
                 os.close(fd)
+        if installed:
+            try:
+                check_gh_config(root=True)  # Unchanged throughout the capture.
+            finally:
+                remove_gh_config()
 
 
 def capture():
     manifest = read_public_json(STATE / 'manifest.json')
     root_operator(manifest)
-    accepted_vms(manifest)
+    plan = enumeration_plan(manifest, accepted_vms(manifest))
+    # The one-shot capture directory is created only once every run window is
+    # a closed past interval (plus a minute for GitHub listing visibility).
+    require(time.time() > plan['until'] + 60, 'Run windows not yet closed; capture later (nothing created)')
     folder, intent_path, output_path, invocation_path = capture_paths()
     root_directory(STATE)
     require(stat.S_IMODE(STATE.lstat().st_mode) == 0o700, 'Exclusive root rollout state must remain 0700')
@@ -1056,7 +1405,7 @@ def validate_invocation(invocation, intent, output, manifest):
     boundary = invocation['boundary']
     exact(boundary, {'pid', 'starttime', 'uids', 'gids', 'groups', 'caps', 'no_new_privs', 'executable'}, 'Observed child boundary')
     require(type(boundary['pid']) is int and boundary['pid'] == invocation['child_pid'] and
-            boundary['uids'] == [1000] * 4 and boundary['gids'] == [100] * 4 and boundary['groups'] == [] and
+            boundary['uids'] == [1000] * 4 and boundary['gids'] == [COLLECTOR_GID] * 4 and boundary['groups'] == [] and
             boundary['caps'] == [0] * 5 and type(boundary['no_new_privs']) is int and boundary['no_new_privs'] == 1 and
             boundary['executable'] == python_executable(), 'Observed actual normal-user privilege boundary invalid')
     require(all(type(value) is int for value in boundary['uids'] + boundary['gids'] + boundary['caps']), 'Boundary scalar types invalid')
@@ -1399,7 +1748,7 @@ def main():
         require(not args.collect_stdin or data == canonical(manifest) + b'\n', 'Root-fed manifest not canonical')
         provenance(manifest, check_files=True)
         require(not args.collect_stdin or Path(__file__) == Path(manifest['validator_source']), 'Producer source binding mismatch')
-        result = collect(manifest, GitHub(manifest['original_elf_sha256']))
+        result = collect(manifest, GitHub(manifest['original_elf_sha256'], pinned_config=args.collect_stdin))
         print(canonical(result).decode('utf-8'), flush=True)
     else:
         require(args.manifest is None, 'Root commands read only the exact root hardware manifest')

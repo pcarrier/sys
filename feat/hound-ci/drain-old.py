@@ -14,6 +14,7 @@ from pathlib import Path
 import select
 import stat
 import subprocess
+import sys
 import time
 import uuid
 import pwd
@@ -23,11 +24,26 @@ from datetime import datetime, timezone
 OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
 OLD_GUEST = '/nix/store/0zmll6kia11538x699kra2nb6kcnyfr1-guest.sh'
 OLD_SOURCE_SHA = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
+# The loaded units' ExecStart: a bash wrapper exporting PATH, then
+# `exec python3 OLD_SOURCE "$@"`. The legacy run(['gh', ...]) resolves through
+# that PATH, so the gate must be the FIRST gh on it (checked statically below).
+OLD_WRAPPER = '/nix/store/g32m381cn05m1wx4d46g1hfzibrrx1bg-hound-ci/bin/hound-ci'
+OLD_WRAPPER_SHA = 'f1245a8da62716b5b98a912a91f34d6c750bb0d885d4a77fd5a6b3405b1af339'
 QEMU_ELF = '/nix/store/53pb1l8qlby0jzb7n8c1qiwq5nw89krx-qemu-host-cpu-only-11.1.1/bin/.qemu-system-x86_64-wrapped'
 GH = Path('/nix/store/bsjdf8dh5k8sylwzgp58ip47sbpbzw5l-gh-2.101.0/bin/gh')
 GH_ELF = GH.with_name('.gh-wrapped')
 STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
 DROPIN = '90-cache-rollout-drain.conf'
+
+
+PINNED_PYTHON = '/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3'
+
+
+def require_pinned_interpreter():
+    """Root entry points run ONLY under the pinned Nix Python with -I -B."""
+    if not (sys.flags.isolated and sys.flags.dont_write_bytecode and
+            os.path.realpath(sys.executable) == os.path.realpath(PINNED_PYTHON)):
+        raise RuntimeError('Run with the pinned Nix Python: ' + PINNED_PYTHON + ' -I -B')
 
 
 def run(argv, **kwargs):
@@ -68,7 +84,30 @@ def starttime(pid):
     return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
 
 
+def wrapper_resolves_gate():
+    data = Path(OLD_WRAPPER).read_bytes()
+    if len(data) > 65536 or hashlib.sha256(data).hexdigest() != OLD_WRAPPER_SHA:
+        raise RuntimeError('Old controller wrapper differs from the reviewed pin')
+    lines = data.decode('utf-8').splitlines()
+    exports = [line for line in lines if line.startswith('export PATH="')]
+    if len(exports) != 1 or not exports[0].endswith(':$PATH"') or f'exec python3 {OLD_SOURCE} "$@"' not in lines:
+        raise RuntimeError('Old controller wrapper PATH/exec shape unexpected')
+    directories = exports[0][len('export PATH="'):-len(':$PATH"')].split(':')
+    if str(GH.parent) not in directories or not directories[0].endswith('-python3-3.14.7/bin'):
+        raise RuntimeError('Old controller wrapper PATH lacks the gated gh directory')
+    for directory in directories[:directories.index(str(GH.parent))]:
+        if not directory.startswith('/nix/store/') or os.path.lexists(os.path.join(directory, 'gh')):
+            raise RuntimeError('An earlier PATH directory could shadow the gated gh')
+
+
+def loaded_wrapper(slot):
+    text = run(['systemctl', 'show', '-P', 'ExecStart', f'hound-ci-{slot}.service'], stdout=subprocess.PIPE, text=True).stdout
+    if not text.startswith('{ path=' + OLD_WRAPPER + ' ; argv[]=' + OLD_WRAPPER + ' worker --slot ' + str(slot) + ' '):
+        raise RuntimeError('Loaded ExecStart is not the reviewed old wrapper')
+
+
 def pin(slot):
+    loaded_wrapper(slot)
     values = properties(slot)
     pid = int(values['MainPID'])
     if pid <= 1 or values['ControlGroup'] != f'/hound.slice/hound-ci.slice/hound-ci-{slot}.service':
@@ -408,6 +447,8 @@ def main():
     parser.add_argument('--validator-source', type=Path, required=True)
     parser.add_argument('--validator-sha256', required=True)
     args = parser.parse_args()
+    require_pinned_interpreter()
+    wrapper_resolves_gate()
     arm(args.gate, args.gate_sha256, args.waiter_source, args.waiter_sha256, args.validator_source, args.validator_sha256)
 
 

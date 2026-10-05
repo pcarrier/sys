@@ -38,11 +38,14 @@ class DrainTests(unittest.TestCase):
 
     def test_delegate_preserves_all_arguments_stdin_and_env_except_old_telemetry_default(self):
         args=['api','-X','DELETE','repos/xmit-dev/ultimator/actions/runners/121','--input','-','--header','X-Value: spaced ☃']
-        with patch.object(gate.sys,'argv',['gh',*args]),patch.dict(os.environ,{'GH_TELEMETRY':'existing','PUBLIC_TEST':'kept'},clear=True),patch.object(gate.os,'execv') as execute:
+        with patch.object(gate.sys,'argv',['gh',*args]),patch.dict(os.environ,{'GH_TELEMETRY':'existing','PUBLIC_TEST':'kept'},clear=True),patch.object(gate.os,'execv') as execute,patch.object(gate.signal,'signal') as disposition:
             gate.main()
             execute.assert_called_once_with(gate.ORIGINAL,[gate.OLD_GH,*args])
+            # Ignored SIGPIPE/SIGXFSZ (Python defaults) must not leak into gh.
+            self.assertEqual(sorted(call.args for call in disposition.call_args_list),
+                             sorted([(gate.signal.SIGPIPE,gate.signal.SIG_DFL),(gate.signal.SIGXFSZ,gate.signal.SIG_DFL)]))
             self.assertEqual(dict(os.environ),{'GH_TELEMETRY':'existing','PUBLIC_TEST':'kept'})
-        with patch.object(gate.sys,'argv',['gh','--version']),patch.dict(os.environ,{},clear=True),patch.object(gate.os,'execv'):
+        with patch.object(gate.sys,'argv',['gh','--version']),patch.dict(os.environ,{},clear=True),patch.object(gate.os,'execv'),patch.object(gate.signal,'signal'):
             gate.main();self.assertEqual(os.environ['GH_TELEMETRY'],'false')
 
     def test_block_is_constant_no_argument_or_stdin_leak(self):
@@ -91,16 +94,62 @@ class DrainTests(unittest.TestCase):
         def text(path):
             if path.name=='boot_id':return BOOT+'\n'
             raise AssertionError(path)
-        with patch.object(drain,'properties',return_value=values),patch.object(drain,'starttime',return_value='1024'),patch.object(drain.os,'pidfd_open',return_value=90),patch.object(drain.os,'open',return_value=91),patch.object(drain.os,'fstat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.os,'stat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=901,pw_gid=801)),patch.object(Path,'read_text',text),patch.object(Path,'read_bytes',return_value=argv):
+        with patch.object(drain,'loaded_wrapper'),patch.object(drain,'properties',return_value=values),patch.object(drain,'starttime',return_value='1024'),patch.object(drain.os,'pidfd_open',return_value=90),patch.object(drain.os,'open',return_value=91),patch.object(drain.os,'fstat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.os,'stat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=901,pw_gid=801)),patch.object(Path,'read_text',text),patch.object(Path,'read_bytes',return_value=argv):
             entry=drain.pin(1)
         self.assertEqual((entry['invocation_id'],entry['boot_id']),(INV,BOOT))
         for bad in ({**values,'InvocationID':''},{**values,'InvocationID':'x'*32},{k:v for k,v in values.items() if k!='InvocationID'}):
-            with patch.object(drain,'properties',return_value=bad),patch.object(drain.os,'pidfd_open') as opened:
+            with patch.object(drain,'loaded_wrapper'),patch.object(drain,'properties',return_value=bad),patch.object(drain.os,'pidfd_open') as opened:
                 with self.assertRaisesRegex(RuntimeError,'invocation identity missing'):drain.pin(1)
                 opened.assert_not_called()
         for boot in ('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA','aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa','not-a-uuid'):
             with patch.object(Path,'read_text',return_value=boot+'\n'),self.assertRaisesRegex(RuntimeError,'Canonical kernel boot identity'):
                 drain.current_boot_id()
+
+    def test_old_wrapper_PATH_resolves_gh_to_the_gated_directory(self):
+        import hashlib
+        python='/nix/store/p-python3-3.14.7/bin';curl='/nix/store/c-curl/bin';later='/nix/store/z-later/bin'
+        def wrapper(dirs):
+            return ('#!/bin/bash\nset -o errexit\nexport PATH="'+':'.join(dirs)+':$PATH"\n\nexec python3 '+drain.OLD_SOURCE+' "$@"\n').encode()
+        good=wrapper([python,curl,str(drain.GH.parent),later])
+        def check(data,shadow=()):
+            with patch.object(drain,'OLD_WRAPPER_SHA',hashlib.sha256(data).hexdigest()),patch.object(Path,'read_bytes',return_value=data),patch.object(drain.os.path,'lexists',side_effect=lambda path:path in shadow):
+                drain.wrapper_resolves_gate()
+        check(good)
+        check(good,shadow=(later+'/gh',))  # After the gated dir: never consulted first.
+        for data,shadow in ((good,(curl+'/gh',)),(wrapper([python,curl,later]),()),
+                            (wrapper([curl,str(drain.GH.parent)]),()),(good.replace(b'exec python3',b'exec env python3'),()),
+                            (wrapper(['/usr/bin',str(drain.GH.parent)]),())):
+            with self.subTest(shadow=shadow),self.assertRaises(RuntimeError):check(data,shadow)
+        with patch.object(Path,'read_bytes',return_value=good),self.assertRaisesRegex(RuntimeError,'reviewed pin'):
+            drain.wrapper_resolves_gate()
+        prefix='{ path='+drain.OLD_WRAPPER+' ; argv[]='+drain.OLD_WRAPPER+' worker --slot 2 --repo xmit-dev/ultimator ; }\n'
+        with patch.object(drain,'run',return_value=SimpleNamespace(stdout=prefix)):
+            drain.loaded_wrapper(2)
+            with self.assertRaisesRegex(RuntimeError,'old wrapper'):drain.loaded_wrapper(1)
+        with patch.object(drain,'run',return_value=SimpleNamespace(stdout=prefix.replace('g32m','x32m'))),self.assertRaisesRegex(RuntimeError,'old wrapper'):
+            drain.loaded_wrapper(2)
+
+    def test_gate_reads_manifest_beyond_64KiB_up_to_bound(self):
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'manifest.json'
+            value={'drain_witness':{'1':{'vm_history':[{'name':'hound-ci-1-%012x'%i,'start_monotonic':str(i)} for i in range(4096)]}}}
+            path.write_text(json.dumps(value,indent=2));path.chmod(0o600)
+            self.assertGreater(path.stat().st_size,65536)
+            real=os.fstat
+            owner=lambda fd:SimpleNamespace(**{key:getattr(real(fd),key) for key in ('st_mode','st_size')},st_uid=0)
+            with patch.object(gate.os,'fstat',side_effect=owner):
+                self.assertEqual(gate.read_root_json(path,gate.MANIFEST_LIMIT),value)
+                with self.assertRaises(RuntimeError):gate.read_root_json(path,65536)
+            self.assertEqual(gate.MANIFEST_LIMIT,16*1024*1024)
+
+    def test_root_entry_points_require_pinned_interpreter(self):
+        with patch.object(drain.sys,'flags',SimpleNamespace(isolated=0,dont_write_bytecode=1)),self.assertRaisesRegex(RuntimeError,'pinned Nix Python'):
+            drain.require_pinned_interpreter()
+        with patch.object(drain.sys,'flags',SimpleNamespace(isolated=1,dont_write_bytecode=1)),patch.object(drain.sys,'executable','/usr/bin/python3'),self.assertRaisesRegex(RuntimeError,'pinned Nix Python'):
+            drain.require_pinned_interpreter()
+        with patch.object(drain.sys,'flags',SimpleNamespace(isolated=1,dont_write_bytecode=1)),patch.object(drain.sys,'executable',drain.PINNED_PYTHON):
+            drain.require_pinned_interpreter()
 
     def test_nsenter_uses_inherited_fd_not_relooked_up_pid(self):
         with patch.object(drain.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as run:
@@ -197,11 +246,14 @@ class DrainTests(unittest.TestCase):
         caller=({'drain_nonce':'a'*32,'gate_sha256':'b'*64},entry,{'repo':'xmit-dev/ultimator','id':121,'name':'hound-ci-1-abcdef012345'})
         self.assertEqual(gate.exact_cleanup(['api','-X','DELETE','repos/xmit-dev/ultimator/actions/runners/121']),121)
         self.assertIsNone(gate.exact_cleanup(['api','-X','DELETE','repos/other/repo/actions/runners/121']))
-        for returncode,stderr,success in ((0,b'',True),(1,b'HTTP 404',True),(1,b'HTTP 403',False)):
+        for returncode,stderr,success in ((0,b'',True),(1,b'HTTP 404',True),(1,b'HTTP 403',False),(-9,b'',False),(-13,b'HTTP 404',False)):
             saved=[]
             def save(name,value):saved.append((name,dict(value)))
             with patch.object(gate,'pinned_caller',return_value=caller),patch.object(gate,'save_receipt',side_effect=save),patch.object(gate.subprocess,'run',return_value=SimpleNamespace(returncode=returncode,stderr=stderr)),patch.object(gate.sys,'stderr'):
-                with self.assertRaises(SystemExit):gate.delegated_cleanup(['api','-X','DELETE','repos/xmit-dev/ultimator/actions/runners/121'],121)
+                with self.assertRaises(SystemExit) as stopped:gate.delegated_cleanup(['api','-X','DELETE','repos/xmit-dev/ultimator/actions/runners/121'],121)
+            # Signal death maps to 128+N (0..255, as the finisher requires) and is never success.
+            expected=returncode if returncode>=0 else 128-returncode
+            self.assertEqual((stopped.exception.code,saved[-1][1]['returncode']),(expected,expected))
             self.assertEqual([value['stage'] for _,value in saved],['delete-intent','delete-returned'])
             self.assertEqual(saved[-1][1]['success'],success)
             self.assertEqual(saved[-1][1]['name'],caller[2]['name'])

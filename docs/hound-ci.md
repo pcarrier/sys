@@ -443,7 +443,8 @@ legacy migration helper, not an enabled service or guest payload:
    STOP strictly before the boundary **with the first read absent** is
    historical; a record present at the first read (an escaped old DELETE),
    any STOP after the boundary, or a wall-clock step never removes the need
-   for a captured DELETE receipt.
+   for a captured DELETE receipt, **unless** the same pinned process later
+   STARTed another VM (see "Adoption and DELETE coverage" below).
 6. `wait-drained.py` subscribes to trusted root controller/PID1 lifecycle,
    pidfds and subtree `cgroup.events` without timers. It replays this boot to
    bind genuine root-generated START/QEMU-verification/STOP in order and resets
@@ -460,7 +461,9 @@ legacy migration helper, not an enabled service or guest payload:
    MainPID/cgroup evidence, an unclosed latest VM, uncertain pre-gate POST or
    missing local route-block receipt all fail closed.
 7. A separate trusted operator obtains bounded ordinary Actions job metadata
-   in finite, lifecycle-triggered requests with complete pagination. Every
+   in finite, lifecycle-triggered requests with complete pagination (closed
+   run-creation windows and a pinned gh configuration, see "Actions
+   collection" below). Every
    adopted runner must bind by exact repository/runner ID/name to a real job,
    run and attempt with positive `completed` status, valid completion time and
    known terminal conclusion. Failed/cancelled jobs remain failed/cancelled,
@@ -479,7 +482,10 @@ legacy migration helper, not an enabled service or guest payload:
    unit content/links/enable links/GC roots/image and unchanged host profile.
    Check exact loaded executable/full argv/fragment/drop-ins for each slot,
    require existing dependencies already active and no conflicting jobs, then
-   remove only the four owned holds and start only their replacements. Do not
+   remove only the four owned holds — all four unlinks plus ONE
+   `daemon-reload` as a single durable step (`holds-remove-reload`), because
+   an unlinked-but-loaded drop-in sets `NeedDaemonReload=yes`, which the effect
+   proof rejects — and start only their replacements. Do not
    repair/activate storage, firewall, image, slice or other services implicitly.
    Verify fresh QEMU cap0/NNP/seccomp, cache-v2 backing, guest offline cache/native
    preflight, private new overlays/JITs, registrations, cache hits and real results.
@@ -504,6 +510,94 @@ legacy migration helper, not an enabled service or guest payload:
    untouched by every nixpkgs patch/postPatch, and why the one core patch
    (postponed D-Bus queue dispatch) and the v261→261.2 core changes do not alter
    START transaction semantics.
+
+### Adoption and DELETE coverage (arm-overlap-v1)
+
+- The finisher adopts a slot's root VM (Actions terminal proof + DELETE
+  coverage) iff its root STOP monotonic is at/after **that slot's** gate
+  observation-start boundary, or a pre/post gate registration names it, or it
+  is the slot's last root VM. VMs that started after the 11:56 approval but
+  stopped before arming ran and ended before any drain action touched their
+  controller; they stay fully replayed, ordered, bounded and identity-checked
+  history, but are not adopted. (Earlier revisions adopted every VM stopped
+  after 11:56; at ~23 VMs/hour that multiplied match/HOLD risk and API calls.)
+- **Same-process successor proof.** Every VM in a slot's history comes from
+  ONE pinned (boot, InvocationID, PID, starttime) controller. The exact legacy
+  `worker()` reaches its next root START only after the previous VM's
+  `finally: cleanup_record()` returned normally (exact-id DELETE returned 0 or
+  legacy-accepted HTTP 404, record unlinked); a DELETE that raised exits the
+  process before any later START. So an adopted VM followed by a later START in
+  the same history is DELETE-covered. The last VM of each slot still needs a
+  positive gate receipt or the strict historical exemption; a receipt that
+  exists but never returned (`delete-intent`) still HOLDs.
+- HTTP 404 counts as a returned DELETE exactly as the legacy supervisor does
+  (an already-removed runner). The gate maps a signal-killed gh to 128+N and
+  never records it as success; it restores default SIGPIPE/SIGXFSZ before
+  exec'ing the original gh.
+
+### Actions collection (closed windows, pinned gh)
+
+- Runs are listed only through `created=A..B` windows: 6-hour, disjoint and
+  gapless, from 31 days (GitHub's 30-day re-run limit keeps the original
+  `created_at`) before the earliest adopted VM START to `drained_utc` + 5 s.
+  Every window is a closed past interval; the root capture refuses to start
+  (creating nothing) until a minute after it closes. Each window is listed
+  until two consecutive complete passes agree exactly (at most three): newly
+  visible runs may appear (shifted duplicates are skipped by ID), but a run
+  disappearing, a shrinking total, or more than 1000 results (GitHub's filter
+  cap) HOLDs. Every listed run's `created_at` must lie in its window.
+- Completed runs last updated before earliest-START − 5 s are listed but not
+  job-scanned: all their jobs completed before any adopted VM started, which the
+  validator rejects anyway. Every other run (any non-`completed` status
+  included) has all attempts' job pages read. The validator recomputes windows,
+  window membership, scan decisions and exact request accounting.
+- Measured 2026-10-05 19:31 UTC: 223 runs created in ~23.5 h and ~0.55 s per
+  gh GET. Expected cost: ~125 windows × 2 passes plus the attempts of runs
+  updated near the drain, a few hundred to ~1000 GETs, within the unchanged
+  4096-call / 45 s-per-call / 30-minute bounds.
+- **Trust boundary (P1-4).** The root-launched collector never reads the
+  UID-1000-writable `~/.config/gh` (a host-scoped `http_unix_socket` or other
+  override there could forge metadata). Root creates `/run/hound-ci-actions-gh`
+  (root:2000001005, 0750) holding a fixed `config.yml` and a `hosts.yml` with
+  only github.com's login and `oauth_token`, both root-owned 0440. Root reads
+  that one token from pcarrier's own `hosts.yml` via a no-follow walk from `/`,
+  requiring a single-link regular file owned by UID 1000 (so the copy discloses
+  nothing new); it is never printed, logged, hashed into a receipt or exported.
+  The collector runs as UID 1000 with the private GID 2000001005, which no
+  account, group or subordinate-GID range holds (checked at capture): other
+  accounts (gid 100 is shared with `dauriac`) cannot read the copy and a
+  hostile UID-1000 process can neither read it nor ptrace the collector
+  (ptrace also requires matching GIDs; Yama scope is 1). HOME, GH_CONFIG_DIR
+  and all XDG paths point at the pinned directory; the update notifier and
+  prompts are off. The directory is removed after the capture and must not
+  pre-exist. Token integrity does not affect authenticity (TLS to
+  api.github.com plus response repository identity); keyring-only storage
+  HOLDs. This is a deliberate exception to "no credential reads by root".
+
+### Bounds and operating rules
+
+- Replay caps: 2048 VMs per slot and 4096 in all (the all-slot cap binds
+  first). Read-only counts at 19:14 UTC were 75/59/74/62 (270) for the current
+  invocations, ~23 per hour since approval. The waiter rewrites
+  `manifest.json` with full histories, so the gate, waiter, finisher and
+  activation all read manifests up to 16 MiB (a full-cap manifest is < 2 MiB);
+  the activation journal is bounded at 64 MiB.
+- `drain-old.py`, `wait-drained.py` and `activate-cache-v2.py` refuse to run
+  except under the pinned Nix Python with `-I -B`. Before arming, `drain-old`
+  checks the reviewed old wrapper (SHA-pinned): its exported PATH reaches the
+  gated gh directory before any other `gh`, and every loaded ExecStart is that
+  wrapper.
+- A tracked NEW controller may atomically replace its registration file
+  mid-read; activation reads that slot's record by inode content, untracked
+  slots stay strict.
+- Lifecycle clocks: journal and boundary use CLOCK_MONOTONIC while
+  `/proc/PID/stat` starttime uses boot time. After a suspend, records may be
+  filtered as predating the controller, which fails closed (HOLD). Hound
+  showed no suspend this boot (BOOTTIME − MONOTONIC = 0 at 19:31 UTC).
+- **NEVER run `nixos-rebuild switch` (or any profile activation) on hound
+  while the drain or activation is in progress.** It would reload/restart the
+  four units outside the reviewed transition, replace their invocations and
+  strand the drain in HOLD.
 
 The helper deliberately does **not** automatically unmount/restore/start on a
 partial failure. Receipt-persistence failure before a delegated DELETE prevents

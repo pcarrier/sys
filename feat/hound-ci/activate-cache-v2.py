@@ -50,6 +50,7 @@ import re
 import shlex
 import stat
 import subprocess
+import sys
 
 STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
 BACKUP = Path('/var/lib/hound-ci/rollout-cache-v2-backup-20261005')
@@ -74,7 +75,10 @@ DROPIN = '90-cache-rollout-drain.conf'
 HOLD = b'[Service]\nRestart=no\n'
 DEPENDENCIES = {'hound-ci-storage.service', 'hound-ci-firewall.service',
                 'hound-ci-image.service', 'hound-ci.slice'}
-JSON_LIMIT = 1024 * 1024
+# Manifest/control/certificate reads share finish-drain.py's 16 MiB bound
+# (full-boot VM histories); the activation journal embeds them (64 MiB).
+JSON_LIMIT = 16 * 1024 * 1024
+JOURNAL_LIMIT = 64 * 1024 * 1024
 UNIT_LIMIT = 256 * 1024
 BUS = ['busctl', '--system', '--json=short', '--']
 BUS_NAME = 'org.freedesktop.systemd1'
@@ -83,6 +87,16 @@ SCALARS = ('Id', 'LoadState', 'ActiveState', 'SubState',
            'Requires', 'Wants', 'Requisite', 'BindsTo')
 SERVICE_SCALARS = ('MainPID', 'Restart', 'Slice', 'ControlGroup', 'InvocationID')
 INVOCATION = re.compile('[0-9a-f]{32}')
+
+
+PINNED_PYTHON = '/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3'
+
+
+def require_pinned_interpreter():
+    """Root entry points run ONLY under the pinned Nix Python with -I -B."""
+    if not (sys.flags.isolated and sys.flags.dont_write_bytecode and
+            os.path.realpath(sys.executable) == os.path.realpath(PINNED_PYTHON)):
+        raise RuntimeError('Run with the pinned Nix Python: ' + PINNED_PYTHON + ' -I -B')
 
 
 def require(condition, message):
@@ -159,6 +173,26 @@ def read_public_json(path):
     value = strict_json(read_file(path, mode=0o600, limit=JSON_LIMIT))
     require(isinstance(value, dict), 'Public manifest must be an object')
     return value
+
+
+def read_inode_snapshot(path, limit=4096):
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        meta = os.fstat(fd)
+        require(stat.S_ISREG(meta.st_mode) and meta.st_uid == meta.st_gid == 0 and
+                stat.S_IMODE(meta.st_mode) == 0o600 and 0 < meta.st_size <= limit,
+                f'Registration snapshot identity/bound invalid: {path}')
+        data = os.read(fd, limit + 1)
+        after = os.fstat(fd)
+        # Content identity only: a rename-over drops the old inode's link count
+        # (and so its ctime) without touching its bytes, size or mtime.
+        require(len(data) == meta.st_size and
+                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) ==
+                (meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns),
+                f'Registration inode changed while read: {path}')
+        return data
+    finally:
+        os.close(fd)
 
 
 def sha256(data):
@@ -276,10 +310,11 @@ class Journal:
         self.serial += 1
         self.value['updated_utc'] = timestamp()
         temporary = STATE / f'.activation-{os.getpid()}-{self.serial}.tmp'
+        data = (json.dumps(self.value, indent=2, sort_keys=True) + '\n').encode()
+        require(len(data) <= JOURNAL_LIMIT, 'Activation journal bound exceeded')
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC |
                      os.O_NOFOLLOW, 0o600)
         try:
-            data = (json.dumps(self.value, indent=2, sort_keys=True) + '\n').encode()
             with os.fdopen(fd, 'wb', closefd=False) as stream:
                 stream.write(data)
                 stream.flush()
@@ -821,6 +856,12 @@ class DrainView:
     def public_registration(self, slot):
         path = STATE.parent / f'slot-{slot}-registration.json'
         try:
+            if slot in self.activation_new_controllers:
+                # A tracked NEW controller legitimately replaces/unlinks this
+                # record (fsynced temp + rename). One opened inode is always a
+                # complete record; only the name may move, so a name swap
+                # mid-read is not drift. Untracked slots stay strict.
+                return strict_json(read_inode_snapshot(path))
             return read_public_json(path)
         except FileNotFoundError:
             return None
@@ -980,12 +1021,24 @@ class Activation:
         self.change('reload-new-held', {}, lambda: run(['systemctl', 'daemon-reload']),
                     [ATTACHED, RUNTIME])
         self.loaded_new = True
-        for slot in UNITS:
-            name = f'hound-ci-{slot}.service'
-            hold = RUNTIME / (name + '.d') / DROPIN
-            self.change('hold-remove', {'unit': name, 'path': str(hold)}, hold.unlink, [hold.parent])
-            self.disk_holds.remove(slot)
-        self.change('reload-final', {}, lambda: run(['systemctl', 'daemon-reload']), [ATTACHED, RUNTIME])
+        # ONE durable step: unlink all four owned holds, then ONE daemon-reload.
+        # Unlinking a loaded drop-in makes systemd report NeedDaemonReload=yes
+        # for that unit (v261 unit_need_daemon_reload(): on-disk drop-in list
+        # differs from the loaded one), which the effect proof rejects; no
+        # recheck may run between an unlink and the reload. Replacing a unit
+        # LINK does not have this effect: old and new targets are /nix/store
+        # files with the same normalized mtime (1 s), and that rule compares
+        # mtimes only. A crash inside this step leaves the intent and some
+        # holds removed on disk but still loaded (Restart=no): HOLD/reconcile.
+        holds = [RUNTIME / (f'hound-ci-{slot}.service.d') / DROPIN for slot in UNITS]
+        def release_holds():
+            for hold in holds:
+                hold.unlink()
+                fsync_dir(hold.parent)
+            run(['systemctl', 'daemon-reload'])
+        self.change('holds-remove-reload', {'paths': [str(hold) for hold in holds]}, release_holds,
+                    [ATTACHED, RUNTIME, *[hold.parent for hold in holds]])
+        self.disk_holds.clear()
         self.loaded_holds.clear()
         starts = self.journal.value.setdefault('slot_starts', {})
         for slot in UNITS:
@@ -1110,6 +1163,7 @@ def main():
     parser.add_argument('--control-window-sha256', required=True)
     parser.add_argument('--parent-ack', required=True, help='Literal independently accepted parent message pointer')
     args = parser.parse_args()
+    require_pinned_interpreter()
     activate(args.validator_source, args.validator_sha256, activation_sha=args.activation_sha256,
              effect_source=args.effect_source, effect_sha=args.effect_sha256,
              control_window=args.control_window, control_window_sha=args.control_window_sha256,

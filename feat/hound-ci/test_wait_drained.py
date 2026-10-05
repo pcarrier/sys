@@ -585,8 +585,9 @@ class PureWitnessTests(unittest.TestCase):
         self.assertEqual(first['stop_realtime'], '1791201600000003')
         self.assertEqual(first['start_monotonic'], '20000001')
         self.assertEqual(first['stop_monotonic'], '20000003')
+        self.assertEqual((waiter.MAX_VM_HISTORY, waiter.MAX_ALL_VM_HISTORY), (2048, 4096))
         with self.assertRaisesRegex(RuntimeError, 'history bound'):
-            waiter.consume_journal(e, item, start_row(e, 1000))
+            waiter.consume_journal(e, item, start_row(e, 3 * waiter.MAX_VM_HISTORY + 1))
 
     def test_latest_hardware_record_requires_exact_name_and_ordered_root_clocks(self):
         for mutate in (lambda i: i['latest_vm'].update(name='hound-ci-1-ffffffffffff'),
@@ -790,7 +791,7 @@ class ReplayTests(unittest.TestCase):
         m = manifest(); state = {e['slot']: waiter.new_witness(e) for e in m['controllers']}
         rows = []
         for e in m['controllers']:
-            for i in range(33):
+            for i in range(waiter.MAX_ALL_VM_HISTORY // 4 + 1):
                 rows.extend((start_row(e, 3 * i + 1), security_row(e, 3 * i + 2), controller_row(e, clock=3 * i + 3)))
         process = Mock(); process.stdout = io.BytesIO(b''.join(json.dumps(row).encode() + b'\n' for row in rows)); process.poll.return_value = None
         with patch.object(waiter.subprocess, 'Popen', return_value=process), self.assertRaisesRegex(RuntimeError, 'All-controller root VM history bound'):
