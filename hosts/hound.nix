@@ -12,7 +12,12 @@ lib.bare {
     ../feat/flatpak.nix
     ../feat/github-runner.nix
     ../feat/hound-ci.nix
-    { services.hound-ci.enable = true; }
+    {
+      services.hound-ci = {
+        enable = true;
+        imageName = "base-cache-v2.qcow2";
+      };
+    }
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix

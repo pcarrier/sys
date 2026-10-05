@@ -393,3 +393,68 @@ shared `/src/sys` checkout stayed unchanged. This candidate is qualified for
 review, **not selected/deployed**. Keep the old image/attached units/GC roots
 until Pierre approves a separate narrow rollout. No sys/app main merge,
 indentbox operation or live pool restart/image switch was performed.
+
+## Approved cache-v2 rollout and legacy drain
+
+Pierre approved a narrow Hound rollout on October5 at11:56UTC: let all busy jobs
+finish, then replace **only** the four CI controller/guest units, explicitly
+selecting `base-cache-v2.qcow2`. No whole-host/profile switch, legacy runner,
+indentbox, main merge, pool-size/resource/storage/kernel/firewall change.
+`hosts/hound.nix` now records that explicit image choice for future rebuilds;
+the reusable module's default remains `base.qcow2`.
+
+### Why the old controller needs a one-shot gate
+
+The deployed legacy supervisor loops after each single-job VM. Its SIGTERM
+handler terminates QEMU; SIGSTOP also freezes its console-reader thread. Neither
+is a safe busy-job drain. `feat/hound-ci/drain-old.py` is an **operator-only**
+legacy migration helper, not an enabled service or guest payload:
+
+1. Pin each exact old service MainPID/starttime/pidfd and its mount-namespace FD.
+   Require four different namespace inodes, none equal to the host namespace;
+   require the exact known old supervisor/guest/repo/slot argument shape.
+2. Install only four temporary runtime `Restart=no` drop-ins and reload unit
+   definitions, without stopping/signalling anything. Verify the loaded holds
+   and pinned identities before mounting any gate.
+3. In each pinned **private** mount namespace, make propagation recursively
+   private, then bind the independently reviewed immutable `drain-gh-gate.py`
+   read-only over the old public gh wrapper. Never write a Nix-store file or
+   mount in the host/other controller namespaces.
+4. Reject ONLY gh API POST requests to
+   `repos/xmit-dev/ultimator/actions/runners/generate-jitconfig`, including gh's
+   body/input-inferred POST form. No arguments, stdin, environment, credentials,
+   JIT or guest console data are read/logged. Other calls, including exact old
+   registration DELETE cleanup, exec the original immutable non-shadowed gh ELF
+   with the original wrapper's argv0/telemetry semantics and untouched stdin.
+5. Current QEMU and its reader continue without pause. Any request already
+   executing before the gate is adopted and drained; it is never cancelled.
+   After each accepted job completes/VM exits/registration cleans up, the old
+   next-JIT call receives the fixed drain refusal and the old supervisor exits.
+   `Restart=no` prevents another old process or old-image job claim.
+6. Await completion-driven trusted journal/cgroup exit evidence: original PID
+   exit and cgroup empty, positive completed-job/QEMU lifecycle, registration
+   recovery state understood. API busy=false or QEMU disappearance alone is
+   **not** sufficient. Do not poll; retain the original job's finite lifetime.
+7. Only when ALL4 are safely drained, install the four checked cache-v2 unit
+   links and their GC roots, preserve old unit/enable/GC-root/image rollback,
+   then remove only the four owned runtime restart holds and start replacements.
+   New service namespaces have no old route gate; LoadCredential remains host
+   only. Verify fresh QEMU cap0/NNP/seccomp, guest offline cache/native preflight,
+   private new overlays/JITs, GitHub registration, cache hits and real results.
+
+The helper deliberately does **not** automatically unmount/restore/start on a
+partial failure. Its root0700 state and0600 phase manifest record exactly which
+identities/gates were armed. Transport EOF requires one bounded phase/PID
+reconciliation before any continuation, never duplicate arming. A rollback
+must be explicit and must not restart/reclaim old slots during handoff. Existing
+job/controller failures remain honest; a post-job next-JIT refusal is intentional
+drain, not a claim that the job itself failed or passed.
+
+Before arming, host-free tests cover endpoint/method inference, exact cleanup
+and other-repository delegation, byte-preserving argv/env behaviour, constant
+no-data-leak refusal, four-private-namespace constraints, pinned PID exit/reuse,
+namespace FD inheritance, ordering and fail-closed controls. A separate owned
+`unshare --mount` smoke test onOctober5 at12:22:18UTC verified actual read-only
+bind semantics, POST refusal75, original gh version delegation and unchanged
+host gh bytes, **without touching any real CI namespace or registering a job**.
+Independent review and normal source PR publication precede critical arming.
