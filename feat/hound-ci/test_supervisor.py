@@ -114,6 +114,22 @@ class SupervisorTests(unittest.TestCase):
         provision = Path(__file__).with_name('provision.sh').read_text()
         self.assertIn('70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613', provision)
 
+    def test_all_four_source_argument_combinations(self):
+        valid_sha='0'*64
+        for image,sha,accepted in ((None,None,True),('base.qcow2',None,False),
+                                   (None,valid_sha,False),('base.qcow2',valid_sha,True)):
+            with self.subTest(image=image,sha=sha):
+                if accepted:supervisor.validate_source_pair(image,sha)
+                else:
+                    with self.assertRaises(ValueError):supervisor.validate_source_pair(image,sha)
+
+    def test_incomplete_source_pair_has_no_staging_or_download_side_effect(self):
+        for image,sha in (('base.qcow2',None),(None,'0'*64)):
+            with patch.object(supervisor,'admission') as admission,patch.object(supervisor,'run') as run:
+                with self.assertRaises(ValueError):
+                    supervisor.base(SimpleNamespace(source_image=image,source_sha256=sha))
+                admission.assert_not_called();run.assert_not_called()
+
     def test_seed_text_format_bounds(self):
         with tempfile.TemporaryDirectory() as root:
             path=Path(root)/'source';path.write_text('trusted')

@@ -1,0 +1,117 @@
+{
+  "builder_sha256": "117e48860c6d282add6e688a223e4f5a40e88a75e6fa56d3e2752bf619050d5c",
+  "contract": 1,
+  "fixtures": [
+    {
+      "bytes": 294099049,
+      "id": "sha256:ce48074c941da518c99cc10cf6d8ccfd4fdbedd0be3fbd5651694a608a83887a",
+      "name": "browser",
+      "sha256": "586803cf86d612cb9f2ea2b685856a0d7b6ad92f45b578358f74bf765a6520df",
+      "tag": "ultimator-browser-test"
+    },
+    {
+      "bytes": 33187478,
+      "id": "sha256:9f88b3f647eaf335ef34919b7da7d133e778692553c87473d0dae14a9adfe41a",
+      "name": "yas",
+      "sha256": "2194e2f664731497cc2c9c43d82e376e837662882511e8ef9ba247f5ae1686ba",
+      "tag": "ultimator-yas-test"
+    }
+  ],
+  "images": [
+    {
+      "bytes": 28239917,
+      "compressed_bytes": 28238443,
+      "digest": "sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "id": "sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "manifest_sha256": "3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "tag": "debian:bookworm-slim"
+    },
+    {
+      "bytes": 3851371,
+      "compressed_bytes": 3849738,
+      "digest": "sha256:d56c381f961d307a21b3ca004cf1e3910f106644aefb1f43e654c8a56c4fd395",
+      "id": "sha256:d56c381f961d307a21b3ca004cf1e3910f106644aefb1f43e654c8a56c4fd395",
+      "manifest_sha256": "294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+      "tag": "alpine:latest"
+    },
+    {
+      "bytes": 409773354,
+      "compressed_bytes": 409764189,
+      "digest": "sha256:5a750d3be5e5c80275f8c9a5367c3aed99c2875656590c8d0701c7ee687f5f0a",
+      "id": "sha256:5a750d3be5e5c80275f8c9a5367c3aed99c2875656590c8d0701c7ee687f5f0a",
+      "manifest_sha256": "64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4",
+      "tag": "node:24"
+    },
+    {
+      "bytes": 137344138,
+      "compressed_bytes": 137327910,
+      "digest": "sha256:dcac6f16dc25ddec91e2d467605775b95a035ab884b94cb4c2cc7cbef6fd726d",
+      "id": "sha256:dcac6f16dc25ddec91e2d467605775b95a035ab884b94cb4c2cc7cbef6fd726d",
+      "manifest_sha256": "7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1",
+      "tag": "docker:dind"
+    },
+    {
+      "bytes": 29766898,
+      "compressed_bytes": 29764422,
+      "digest": "sha256:f610ab94648195aa356059f5b41d6085c9d4d903c072430cdd1af7bdb646106b",
+      "id": "sha256:f610ab94648195aa356059f5b41d6085c9d4d903c072430cdd1af7bdb646106b",
+      "manifest_sha256": "534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55",
+      "tag": "ubuntu:24.04"
+    },
+    {
+      "bytes": 161336749,
+      "compressed_bytes": 161322974,
+      "digest": "sha256:e31e3d5327d1806f6177827c9710643e4f35f7ab3f14d26d05332753d3e95ee0",
+      "id": "sha256:e31e3d5327d1806f6177827c9710643e4f35f7ab3f14d26d05332753d3e95ee0",
+      "manifest_sha256": "d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f",
+      "tag": "postgres:17"
+    },
+    {
+      "bytes": 279534619,
+      "compressed_bytes": 279518069,
+      "digest": "sha256:64d113c47aa264dd5b84a4f56a8c14ff21872b95c6526f476d4375ffc4c2427e",
+      "id": "sha256:64d113c47aa264dd5b84a4f56a8c14ff21872b95c6526f476d4375ffc4c2427e",
+      "manifest_sha256": "2a079e2dc7938acff06e815d8182fb362f4c56f06793de2362d23058a10a2b9b",
+      "tag": "clickhouse/clickhouse-server:26.8"
+    }
+  ],
+  "native_packages": {
+    "build-essential": "12.10ubuntu1",
+    "clang": "1:18.0-59~exp2",
+    "cmake": "3.28.3-1build7",
+    "dbus-daemon": "1.14.10-4ubuntu4.1",
+    "fonts-dejavu-core": "2.37-8",
+    "gir1.2-gtk-3.0": "3.24.41-4ubuntu1.3",
+    "gir1.2-webkit2-4.1": "2.52.6-0ubuntu0.24.04.1",
+    "libc6": "2.39-0ubuntu8.9",
+    "libclang-dev": "1:18.0-59~exp2",
+    "libssl-dev": "3.0.13-0ubuntu3.16",
+    "libstdc++6": "14.2.0-4ubuntu2~24.04.1",
+    "libvulkan1": "1.3.275.0-1build1",
+    "mesa-vulkan-drivers": "25.2.8-0ubuntu0.24.04.4",
+    "mkcert": "1.4.4-1ubuntu3.2",
+    "pkg-config": "1.8.1-2build1",
+    "python3-gi": "3.48.2-1",
+    "xauth": "1:1.1.2-1build1",
+    "xvfb": "2:21.1.12-1ubuntu1.8",
+    "zlib1g": "1:1.3.dfsg-3.1ubuntu2.2"
+  },
+  "nodes": [
+    {
+      "node_binary_sha256": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c",
+      "npm": "11.19.0",
+      "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
+      "version": "24.21.0"
+    },
+    {
+      "node_binary_sha256": "ab9c8eecf9f82d6693cdc3accced17034065c8d96213b0aa76a7e803d20ae1da",
+      "npm": "11.19.1",
+      "sha256": "ca70e9e349de048b9522abb3adc05b3bd6f43c5ffd3ec57916c7da292f59f022",
+      "version": "26.10.0"
+    }
+  ],
+  "pins_sha256": "deb2c6e9e9625aef1fd24c194d651ff375bf7d4344fc9b4660fd0713949ee192",
+  "schema": 1,
+  "seed_seconds": 379.188,
+  "source_commit": "204a1d57af728b4d26f2155f864b8981f11c520c"
+}

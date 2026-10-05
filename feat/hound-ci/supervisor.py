@@ -207,7 +207,18 @@ def bounded_text(path, limit=65536):
     return path.read_text()
 
 
+def validate_source_pair(source_image, source_sha256):
+    if (source_image is None) != (source_sha256 is None):
+        raise ValueError('Source image and SHA256 must both be explicitly provided')
+    if source_image is not None:
+        image_path(source_image)
+        if not re.fullmatch(r'[0-9a-f]{64}', source_sha256):
+            raise ValueError('Invalid source image SHA256')
+
+
 def base(args):
+    # Reject ambiguous clone/fresh requests before ANY staging or download.
+    validate_source_pair(args.source_image, args.source_sha256)
     admission(256)
     final = image_path(args.image)
     if final.exists():
@@ -462,7 +473,7 @@ def main():
     bake.add_argument('--cache-script', required=True); bake.add_argument('--cache-pins', required=True)
     bake.add_argument('--fixtures', required=True)
     bake.add_argument('--image', default='base.qcow2'); bake.add_argument('--source-sha256')
-    bake.add_argument('--source-image', default='base.qcow2')
+    bake.add_argument('--source-image')
     slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True); slot.add_argument('--image', default='base.qcow2')
     acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
     volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)
