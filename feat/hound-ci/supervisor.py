@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
+import stat
 import shutil
 import signal
 import subprocess
@@ -167,25 +169,74 @@ def admission(required_gib):
         raise RuntimeError('Dedicated CI storage capacity gate refused new VM')
 
 
+def image_path(name):
+    if not re.fullmatch(r'base(?:-[a-z0-9][a-z0-9-]{0,31})?\.qcow2', name):
+        raise ValueError('Invalid immutable CI image name')
+    return STATE / name
+
+
+def verify_image(path, expected_sha256=None):
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or stat.S_IMODE(metadata.st_mode) != 0o444:
+        raise RuntimeError('Only root-owned immutable regular CI images may be used')
+    # Attest known source bytes BEFORE asking a root parser to interpret them.
+    if expected_sha256 is not None:
+        if not re.fullmatch(r'[0-9a-f]{64}', expected_sha256):
+            raise ValueError('Invalid source image SHA256')
+        with path.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != expected_sha256:
+                raise RuntimeError('CI source image SHA256 mismatch')
+    info = json.loads(run(['qemu-img', 'info', '-f', 'qcow2', '--output=json', str(path)],
+                          stdout=subprocess.PIPE, timeout=60).stdout)
+    def external_data(value):
+        if isinstance(value, dict):
+            return any((key in ('data-file', 'full-backing-filename', 'backing-filename') and bool(item))
+                       or external_data(item) for key, item in value.items())
+        if isinstance(value, list):
+            return any(external_data(item) for item in value)
+        return False
+    if info['format'] != 'qcow2' or external_data(info) or not 0 < info['virtual-size'] <= 120 * 1024 ** 3:
+        raise RuntimeError('CI source image format/size/external-data/backing contract refused')
+
+
+
+def bounded_text(path, limit=65536):
+    path = Path(path)
+    if not path.is_file() or path.is_symlink() or not 0 < path.stat().st_size <= limit:
+        raise ValueError('Seed text format bound refused')
+    return path.read_text()
+
+
 def base(args):
     admission(256)
+    final = image_path(args.image)
+    if final.exists():
+        raise RuntimeError('Immutable image already exists; never overwrite an active base')
     STATE.mkdir(mode=0o751, exist_ok=True)
     STATE.chmod(0o751)
-    directory = STATE / 'image'
+    directory = STATE / ('image-' + final.stem)
     if directory.exists():
         raise RuntimeError('Image staging already exists; inspect before explicit rebuild')
     directory.mkdir(mode=0o700)
-    download = directory / 'ubuntu.img'
-    run(['curl', '--fail', '--location', '--silent', '--show-error', '--max-time', '1800', '-o', str(download), IMAGE_URL])
-    with download.open('rb') as stream:
-        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
-    if actual != IMAGE_SHA256:
-        raise RuntimeError('Ubuntu cloud image SHA256 mismatch; update pin deliberately')
     disk = directory / 'base.qcow2'
-    run(['qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2', str(download), str(disk)])
-    download.unlink()
-    run(['qemu-img', 'resize', str(disk), '120G'])
-    provision = Path(args.provision).read_text()
+    if args.source_sha256:
+        # A deliberate cache-only upgrade can clone the known pristine old
+        # golden base, NEVER a slot/job disk or arbitrary provided path.
+        # Only an explicitly SHA-attested, immutable named generation is allowed.
+        source = image_path(args.source_image)
+        verify_image(source, args.source_sha256)
+        run(['qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2', str(source), str(disk)])
+    else:
+        download = directory / 'ubuntu.img'
+        run(['curl', '--fail', '--location', '--silent', '--show-error', '--max-time', '1800', '-o', str(download), IMAGE_URL])
+        with download.open('rb') as stream:
+            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if actual != IMAGE_SHA256:
+            raise RuntimeError('Ubuntu cloud image SHA256 mismatch; update pin deliberately')
+        run(['qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2', str(download), str(disk)])
+        download.unlink()
+        run(['qemu-img', 'resize', str(disk), '120G'])
+    provision = bounded_text(args.provision)
     # Run provisioning only after cloud-final completes, so cleaning its state
     # and powering off never race the cloud-init process which supplied the seed.
     seal_script = r'''#!/bin/bash
@@ -221,6 +272,11 @@ exit "$status"
     shutdown_unit = '[Unit]\nAfter=hound-ci-provision.service\n[Service]\nType=oneshot\nExecStart=/bin/systemctl --no-block poweroff\n'
     iso = seed(directory, [
         {'path': '/root/provision-ci.sh', 'permissions': '0700', 'content': provision},
+        {'path': '/root/cache-ci.py', 'permissions': '0700', 'content': bounded_text(args.cache_script)},
+        {'path': '/root/cache-pins.json', 'permissions': '0600', 'content': bounded_text(args.cache_pins)},
+        *[{'path': '/root/ci-fixtures/' + name + '.Dockerfile', 'permissions': '0644',
+           'content': bounded_text(Path(args.fixtures, name + '.Dockerfile'), 16384)}
+          for name in ('browser', 'yas')],
         {'path': '/root/seal-ci-image.sh', 'permissions': '0700', 'content': seal_script},
         {'path': '/etc/systemd/system/hound-ci-image-shutdown.service', 'permissions': '0644', 'content': shutdown_unit},
         {'path': '/etc/systemd/system/hound-ci-provision.service', 'permissions': '0644', 'content': provision_unit}], {
@@ -232,9 +288,10 @@ exit "$status"
     log = boot(directory, disk, iso, 'hound-ci-image', 4096, 2, 2)
     if not all(marker in log.read_bytes() for marker in (b'HOUND_CI_PROVISION_OK', b'HOUND_CI_IMAGE_SEALED_OK')):
         raise RuntimeError('Guest image preflight/sealing did not pass; image not published')
-    final = STATE / 'base.qcow2'
     os.chown(disk, 0, 0)
     disk.chmod(0o444)
+    verify_image(disk)
+    run(['qemu-img', 'check', '-f', 'qcow2', '--output=json', str(disk)], stdout=subprocess.PIPE, timeout=120)
     disk.rename(final)
     iso.unlink()
     message('image provisioning/preflight passed; immutable base published')
@@ -306,6 +363,7 @@ def worker(args):
     # Only this root-owned slot is reclaimed, never another job's targets.
     if directory.exists():
         shutil.rmtree(directory)
+    verify_image(image_path(args.image))
     admission(128)
     directory.mkdir(mode=0o700)
     name = f'hound-ci-{args.slot}-{uuid.uuid4().hex[:12]}'
@@ -322,7 +380,7 @@ def worker(args):
         registered = True
         jit = registration['encoded_jit_config']
         disk = directory / 'job.qcow2'
-        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(STATE / 'base.qcow2'), str(disk)], stdout=subprocess.DEVNULL)
+        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(image_path(args.image)), str(disk)], stdout=subprocess.DEVNULL)
         guest = Path(args.guest).read_text()
         config = json.dumps({'jit': jit, 'name': name})
         iso = seed(directory, [
@@ -401,7 +459,11 @@ def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='mode', required=True)
     bake = sub.add_parser('base'); bake.add_argument('--provision', required=True)
-    slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True)
+    bake.add_argument('--cache-script', required=True); bake.add_argument('--cache-pins', required=True)
+    bake.add_argument('--fixtures', required=True)
+    bake.add_argument('--image', default='base.qcow2'); bake.add_argument('--source-sha256')
+    bake.add_argument('--source-image', default='base.qcow2')
+    slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True); slot.add_argument('--image', default='base.qcow2')
     acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
     volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)
     args = parser.parse_args()

@@ -6,6 +6,7 @@ import ast
 import os
 import subprocess
 import tempfile
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -112,6 +113,50 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(int(supervisor.IMAGE_SHA256, 16).bit_length() > 0, True)
         provision = Path(__file__).with_name('provision.sh').read_text()
         self.assertIn('70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613', provision)
+
+    def test_seed_text_format_bounds(self):
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'source';path.write_text('trusted')
+            self.assertEqual(supervisor.bounded_text(path),'trusted')
+            path.write_text('x'*16385)
+            with self.assertRaises(ValueError):supervisor.bounded_text(path,16384)
+            path.unlink();path.symlink_to('/etc/passwd')
+            with self.assertRaises(ValueError):supervisor.bounded_text(path)
+
+    def test_image_names_and_standalone_format(self):
+        self.assertEqual(supervisor.image_path('base-cache-v1.qcow2'), supervisor.STATE/'base-cache-v1.qcow2')
+        for name in ('../slot-1/job.qcow2', 'slot-1.qcow2', 'base-cache_v1.qcow2'):
+            with self.assertRaises(ValueError): supervisor.image_path(name)
+        metadata = SimpleNamespace(st_mode=stat.S_IFREG|0o444,st_uid=0,st_gid=0)
+        with patch.object(Path,'lstat',return_value=metadata):
+            for data in ({'format':'qcow2','virtual-size':120*1024**3},
+                         {'format':'qcow2','virtual-size':121*1024**3},
+                         {'format':'qcow2','virtual-size':120*1024**3,'backing-filename':'a'},
+                         {'format':'qcow2','virtual-size':120*1024**3,'format-specific':{'data':{'data-file':'outside'}}}):
+                with patch.object(supervisor,'run',return_value=SimpleNamespace(stdout=json.dumps(data).encode())) as run:
+                    if len(data)==2 and data['virtual-size']==120*1024**3:
+                        supervisor.verify_image(Path('/unused'))
+                    else:
+                        with self.assertRaises(RuntimeError): supervisor.verify_image(Path('/unused'))
+                    self.assertEqual(run.call_args.kwargs['timeout'],60)
+                    self.assertIn('-f',run.call_args.args[0])
+
+    def test_wrong_image_checksum_rejected_before_root_parser(self):
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'base.qcow2';path.write_bytes(b'wrong')
+            metadata=SimpleNamespace(st_mode=stat.S_IFREG|0o444,st_uid=0,st_gid=0)
+            with patch.object(Path,'lstat',return_value=metadata),patch.object(supervisor,'run') as run:
+                with self.assertRaises(RuntimeError):supervisor.verify_image(path,'0'*64)
+                run.assert_not_called()
+
+    def test_current_generation_default_and_candidate_publish_guard(self):
+        nix=Path(__file__).parent.parent.joinpath('hound-ci.nix').read_text()
+        self.assertIn('default = "base.qcow2"',nix)
+        self.assertIn('LimitFSIZE = "32G"',nix)
+        self.assertIn('Slice = "hound-ci.slice"',nix)
+        code=Path(__file__).with_name('supervisor.py').read_text()
+        self.assertLess(code.index('verify_image(disk)'),code.index('disk.rename(final)'))
+        self.assertLess(code.index("run(['qemu-img', 'check'"),code.index('disk.rename(final)'))
 
     def test_security_contract(self):
         code = Path(__file__).with_name('supervisor.py').read_text()

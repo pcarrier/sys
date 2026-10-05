@@ -3,8 +3,10 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 "${PYTHON:-python3}" feat/hound-ci/test_supervisor.py
+"${PYTHON:-python3}" feat/hound-ci/test_cache.py
 bash -n feat/hound-ci/guest.sh
 bash -n feat/hound-ci/provision.sh
+bash -n feat/hound-ci/cache-only.sh
 git diff --check
 git diff --cached --check
 nix eval --json .#nixosConfigurations.hound.config.services.hound-ci

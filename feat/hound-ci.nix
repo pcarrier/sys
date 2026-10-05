@@ -109,6 +109,11 @@ in
       default = "tank/hound-ci";
       description = "Dedicated CI-only ZFS dataset, hard quota/refquota 512 GiB; existing mismatched properties fail without mutation";
     };
+    imageName = lib.mkOption {
+      type = lib.types.strMatching "base(-[a-z0-9][a-z0-9-]{0,31})?\\.qcow2";
+      default = "base.qcow2";
+      description = "Immutable generation; deploy only after candidate qualification and explicit approval";
+    };
     ghCredentialFile = lib.mkOption {
       type = lib.types.path;
       default = "/home/pcarrier/.config/gh/hosts.yml";
@@ -168,12 +173,14 @@ in
           "hound-ci-firewall.service"
           "network-online.target"
         ];
-        unitConfig.ConditionPathExists = "!/var/lib/hound-ci/base.qcow2";
+        unitConfig.ConditionPathExists = "!/var/lib/hound-ci/${cfg.imageName}";
         serviceConfig = common // {
           Type = "oneshot";
           RemainAfterExit = true;
-          ExecStart = "${supervisor}/bin/hound-ci base --provision ${./hound-ci/provision.sh}";
+          ExecStart = "${supervisor}/bin/hound-ci base --provision ${./hound-ci/provision.sh} --cache-script ${./hound-ci/cache.py} --cache-pins ${./hound-ci/cache-pins.json} --fixtures ${./hound-ci/fixture-recipes} --image ${cfg.imageName}";
           TimeoutStartSec = "2h";
+          Slice = "hound-ci.slice";
+          LimitFSIZE = "32G";
           MemoryMax = "6G";
           CPUQuota = "200%";
         };
@@ -202,7 +209,7 @@ in
           };
           serviceConfig = common // {
             Slice = "hound-ci.slice";
-            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --guest ${./hound-ci/guest.sh}";
+            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --guest ${./hound-ci/guest.sh} --image ${cfg.imageName}";
             LoadCredential = [ "gh-hosts:${cfg.ghCredentialFile}" ];
             RuntimeDirectory = "hound-ci-${toString n}";
             RuntimeDirectoryMode = "0700";

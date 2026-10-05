@@ -11,7 +11,8 @@
 #   * after cloud-init finishes, clean with `cloud-init clean --logs --seed`
 #     and power off in a separate shutdown unit. Do NOT power off/clean here or
 #     wait for cloud-init here: this script itself runs inside cloud-final.
-# No registration state, signing identities or Docker images are baked in.
+# No registration state or signing identities are baked in. Public pinned
+# Docker images are seeded by the separate, bounded trusted cache builder.
 set -Eeuo pipefail
 umask 022
 
@@ -151,25 +152,16 @@ CARGO_HOME=/home/runner/.cargo
 RUSTUP_HOME=/home/runner/.rustup
 PATH=/home/runner/.cargo/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
 LANG=C.UTF-8
+RUNNER_TOOL_CACHE=/opt/hostedtoolcache
 WORKER_ENV
 chmod 0644 /etc/profile.d/hound-ci.sh /etc/hound-ci/runner.env
 
-# Resolve the newest official Node 24 release ONCE, then use its exact version
-# and archive hash for the entire build. Record the resolved pin in the image.
-# Rebuilding at a later date can intentionally resolve a newer Node 24 patch;
-# use the sealed image/its version ledger when exact reproducibility matters.
-fetch https://nodejs.org/dist/index.json "$scratch/node-index.json"
-NODE_VERSION=$(jq -er '[.[] | select(.version | test("^v24\\.[0-9]+\\.[0-9]+$")) | select(.files | index("linux-x64"))][0].version' "$scratch/node-index.json")
-[[ $NODE_VERSION =~ ^v24\.[0-9]+\.[0-9]+$ ]]
-readonly NODE_VERSION
-node_archive="node-${NODE_VERSION}-linux-x64.tar.xz"
-fetch "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" "$scratch/node-shasums"
-NODE_SHA256=$(awk -v name="$node_archive" '$2 == name { print $1; found++ } END { if (found != 1) exit 1 }' "$scratch/node-shasums")
-readonly NODE_SHA256
-fetch "https://nodejs.org/dist/${NODE_VERSION}/${node_archive}" "$scratch/$node_archive"
-verify_sha256 "$NODE_SHA256" "$scratch/$node_archive"
-tar --extract --xz --file "$scratch/$node_archive" --directory /usr/local \
-  --strip-components=1 --no-same-owner
+# Exact official Node 24 AND 26 pins; Actions-compatible layout and sentinels.
+# The controller supplies only this audited source and data-only bounded pins.
+python3 /root/cache-ci.py nodes --pins /root/cache-pins.json
+NODE_VERSION=v24.21.0
+NODE_SHA256=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+readonly NODE_VERSION NODE_SHA256
 
 # Pinned Helm v3 release, verified against the official release checksum.
 helm_archive="helm-${HELM_VERSION}-linux-amd64.tar.gz"
@@ -247,6 +239,12 @@ timeout --signal=TERM --kill-after=5s 60s runuser -u runner -- env -i \
   >"$scratch/chrome-dom.html"
 grep --fixed-strings --quiet '<body>HOUND_CI_CHROME_SANDBOX_OK</body>' "$scratch/chrome-dom.html"
 rm -rf -- "$chrome_profile"
+
+# Full private Docker seeds and provenance, built only from exact trusted main.
+# This also performs an offline preflight and stops Docker/socket/containerd.
+install -m 0755 /root/cache-ci.py /opt/hound-ci-cache.py
+install -m 0644 /root/cache-pins.json /etc/hound-ci/cache-pins.json
+python3 /opt/hound-ci-cache.py build --pins /etc/hound-ci/cache-pins.json
 
 # Nonsecret provenance for this sealed image; apt packages intentionally follow
 # their official signed repositories at build time and are recorded here.

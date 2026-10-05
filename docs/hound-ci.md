@@ -206,3 +206,102 @@ nix eval --json .#nixosConfigurations.hound.config.services.hound-ci
 The Python suite mocks gh/nft/QEMU and tests rule construction, the uid negative
 check program, source pins, JIT usage and absence of forwarding/shared mounts.
 It is not a substitute for the runtime acceptance checks above.
+
+## Trusted image/cache generations (October 5, 2026)
+
+`services.hound-ci.imageName` deliberately defaults to the **existing**
+`base.qcow2`. Opening/merging this source change is not approval to switch the
+pool. Build a separately named candidate first; select it only during a new,
+explicitly approved narrow rollout. Never overwrite an image used by a worker.
+The old image remains usable: the new bootstrap uses the normal runner-owned
+`_work/_tool` directory when the cache ledger is absent.
+
+### Seed contract
+
+- `/opt/hostedtoolcache/node/24.21.0/x64` and `26.10.0/x64`, with their sibling
+  `x64.complete` markers. Official Node release archives are exact-version and
+  SHA256 pinned. Archive bytes, member count, expanded bytes, paths, links,
+  special-file types and permissions are checked before extraction/publication.
+  Both toolcache parents are writable by `runner` **inside its private VM**, so
+  setup-node's ordinary unseeded-version download still works.
+- The actual `run.sh --jitconfig` process receives `RUNNER_TOOL_CACHE`, home,
+  Cargo/rustup homes, path, user and locale explicitly via `env -i`; a profile
+  or environment-file marker alone is not the contract.
+- Seven **public**, linux/amd64 Docker images are digest pinned in
+  `feat/hound-ci/cache-pins.json`: Debian bookworm-slim, Alpine, Node24, dind,
+  Ubuntu24.04, PostgreSQL17 and ClickHouse26.8. The builder independently verifies
+  the immutable registry index, amd64 child manifest and compressed-byte count
+  before pulling; Docker verifies content digests. Tags are installed only
+  inside the golden builder's private Docker store.
+- `ultimator-browser-test` and `ultimator-yas-test` are **complete images**, not
+  partial APT download caches. Labels are
+  `app.ultimator.ci.recipe-contract=1` and
+  `app.ultimator.ci.recipe-sha256=<SHA256 of exact Dockerfile bytes>`.
+  Contract1 recipes are context-free (no COPY/ADD, extra stage or external
+  frontend). A job with a changed recipe/context must privately rebuild;
+  existing fixture labels do not authorize a different recipe.
+- Ultimator is private. The two tiny data-only recipe snapshots were
+  independently extracted from freshly fetched upstream main
+  `204a1d57af728b4d26f2155f864b8981f11c520c` and committed under
+  `feat/hound-ci/fixture-recipes/`. Their hashes are checked again in the guest,
+  before downloads. No GitHub credential, checkout, parent job artifact,
+  `node_modules`, Cargo target, arbitrary npm/Cargo config, or job root disk is
+  used as a seed. Refresh those snapshots and pins deliberately from trusted
+  main, never from a PR branch.
+- `/etc/hound-ci/cache-manifest.json` is bounded schema1/contract1 provenance:
+  source commit, pins hash, exact Node/archive/binary hashes, actual native
+  package versions, registry pins, image IDs/sizes and fixture IDs/hashes.
+  A positive offline preflight compares real package/tool/Docker state before
+  any JIT job runs. Missing or mismatched state fails rather than becoming zero.
+- Docker, its socket and containerd are stopped before sealing. The controller
+  requires successful provisioning **and** clean/seal markers, immutable root
+  ownership, standalone qcow2 format (no backing or external data file), bounded
+  qemu-img checks and successful final qcow integrity validation before rename.
+
+### Bounds and refreshes
+
+The trusted builder is now in the same 72GiB/24CPU-equivalent aggregate slice
+as the four workers, with its own 6GiB host/4GiB guest/2CPU caps and a **32GiB
+per-file ceiling**. That ceiling also bounds the growing standalone candidate
+qcow2; exceeding it fails the build, not a storage-health hold. Conservative
+sum of unique Docker image sizes must stay within 16GiB. Source disk virtual
+size stays at most120GiB, the dedicated dataset quota remains512GiB, and
+admission requires256GiB CI space before a build. These are bounds, not a
+reservation against concurrent jobs. No dataset/pool/global storage property,
+firewall exception, kernel setting or host Docker/Cargo share is added.
+
+An optional cache-only refresh uses `cache-only.sh` and **both** an explicit
+`--source-image base-<generation>.qcow2` and `--source-sha256 <known hash>`.
+Only root-owned0444 regular files with the safe golden basename are accepted;
+checksum verification precedes the root image parser. The source must be a
+previously qualified credential-free trusted golden image. Never rename/chmod a
+job/canary/failed builder disk to qualify as a source. A warm trusted refresh
+may reuse complete, hash-labelled fixtures; a divergent job clone is always
+removed, never sealed/promoted.
+
+### Qualification and rollout gate
+
+Build only the eight unit derivations listed above. For qualification, clone
+the candidate into a separate no-JIT VM under the identical QEMU uid/group,
+cap0/NNP/seccomp/network policy. Exercise the actual pinned setup-node action
+for24and26, normal fallback-parent writes, native helper fast path, matching
+fixture reuse, and a deliberately changed YAS recipe's private rebuild. Remove
+that deliberately divergent canary disk; retain bounded public evidence.
+
+**No activation authority is implied.** After Pierre explicitly approves:
+verify the candidate hash/source ledger and fresh main/source state, select its
+imageName in a reviewed config, build only the CI units, drain/restart only the
+CI-owned slots as agreed, install exact approved unit links/GC roots, then
+qualify fresh JIT jobs. Preserve the old immutable base and rollback manifest.
+Do not switch a whole host, touch indentbox, merge PRs, restart shared services,
+change kernel/global storage, or promote job state as part of this cache work.
+
+### First candidate failure retained
+
+The first credential-free cache-v1 bake ran07:51:53–08:01:53UTC onOctober5.
+The public Node/Docker downloads succeeded, then unauthenticated raw GitHub
+recipe access returned404 because the repository is private. Provisioning
+failed, no seal marker/final image was published, and four active workers kept
+NRestarts0. The exact first private console/result remains under
+`/var/lib/hound-ci/image-base-cache-v1/`; the corrected generation uses the
+bounded independently verified snapshots described above, not builder auth.
