@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""Host supervisor. Credentials stay root-only; no host path is shared with guests."""
+import argparse
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import pwd
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+STATE = Path('/var/lib/hound-ci')
+IMAGE_URL = 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'
+IMAGE_SHA256 = '6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2'
+STOP_REQUESTED = False
+
+
+def run(argv, **kw):
+    return subprocess.run(argv, check=True, **kw)
+
+
+def message(text):
+    print(f'HOUND_CI {text}', flush=True)
+
+
+def seed(directory, files, user_data):
+    cloud = directory / 'cloud'
+    cloud.mkdir(mode=0o700)
+    (cloud / 'meta-data').write_text(json.dumps({'instance-id': str(uuid.uuid4()), 'local-hostname': directory.name}))
+    (cloud / 'network-config').write_text(json.dumps({'version': 2, 'ethernets': {'nic': {
+        'match': {'name': 'en*'}, 'dhcp4': True, 'dhcp6': False, 'accept-ra': False,
+        'dhcp4-overrides': {'use-dns': False},
+        'nameservers': {'addresses': ['1.1.1.1', '9.9.9.9']}}}}))
+    user_data['write_files'] = files
+    (cloud / 'user-data').write_text('#cloud-config\n' + json.dumps(user_data))
+    iso = directory / 'seed.iso'
+    run(['xorriso', '-as', 'mkisofs', '-quiet', '-volid', 'cidata', '-joliet', '-rock', '-output', str(iso), str(cloud)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shutil.rmtree(cloud)
+    return iso
+
+
+def boot(directory, disk, iso, user, memory, cpus, hours):
+    account = pwd.getpwnam(user)
+    # Shared base is public and immutable. Writable disks/seeds are private to one uid.
+    os.chown(directory, 0, account.pw_gid)
+    directory.chmod(0o750)
+    for path in (disk, iso):
+        os.chown(path, account.pw_uid, account.pw_gid)
+        path.chmod(0o600)
+    # Host service owns the log; the guest cannot append outside its virtual console.
+    log = directory / 'console.log'
+    with log.open('wb') as console:
+        log.chmod(0o600)
+        command = ['setpriv', '--reuid', str(account.pw_uid), '--regid', str(account.pw_gid),
+                   '--groups', str(__import__('grp').getgrnam('kvm').gr_gid),
+                   '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--no-new-privs',
+                   'qemu-system-x86_64', '-enable-kvm', '-machine', 'q35', '-cpu', 'host',
+                   '-smp', str(cpus), '-m', str(memory), '-display', 'none', '-monitor', 'none',
+                   '-serial', 'stdio', '-no-reboot', '-nodefaults',
+                   '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny',
+                   '-device', 'virtio-rng-pci',
+                   '-drive', f'file={disk},if=virtio,format=qcow2,cache=none,discard=unmap',
+                   '-drive', f'file={iso},if=virtio,format=raw,readonly=on',
+                   '-netdev', 'user,id=nic,ipv6=off', '-device', 'virtio-net-pci,netdev=nic']
+        # Never inherit the root controller's credential variables into QEMU.
+        child_env = {'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'HOME': '/var/empty'}
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=child_env)
+        def drain():
+            # Host disk cannot be exhausted by a guest-controlled serial stream.
+            remaining = 64 * 1024 * 1024
+            while block := process.stdout.read(65536):
+                if remaining:
+                    console.write(block[:remaining])
+                    remaining = max(0, remaining - len(block))
+                    console.flush()
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
+        def terminate(_signum, _frame):
+            global STOP_REQUESTED
+            STOP_REQUESTED = True
+            process.terminate()
+        signal.signal(signal.SIGTERM, terminate)
+        try:
+            result = process.wait(timeout=hours * 3600)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise RuntimeError('VM lifetime exceeded; slot stopped')
+        finally:
+            reader.join(timeout=60)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if result:
+        raise RuntimeError(f'QEMU exited with status {result}; private console at {log}')
+    return log
+
+
+def storage(args):
+    """Create only the dedicated CI dataset, with a hard aggregate quota."""
+    dataset = args.dataset
+    limit = 512 * 1024 ** 3
+    pool = dataset.split('/')[0]
+    available = int(run(['zfs', 'get', '-Hp', '-o', 'value', 'available', pool], stdout=subprocess.PIPE).stdout)
+    if available < 1024 ** 4:
+        raise RuntimeError('Shared pool has less than 1 TiB free; storage admission refused')
+    exists = subprocess.run(['zfs', 'list', '-H', '-o', 'name', dataset], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if exists.returncode:
+        if STATE.exists() and next(STATE.iterdir(), None) is not None:
+            raise RuntimeError('CI mountpoint is nonempty; inspect before dataset creation')
+        run(['zfs', 'create', '-o', f'mountpoint={STATE}', '-o', 'quota=512G', '-o', 'refquota=512G', dataset])
+    properties = run(['zfs', 'get', '-Hp', '-o', 'property,value', 'mountpoint,quota,refquota,mounted', dataset], stdout=subprocess.PIPE).stdout.decode()
+    values = dict(line.split('\t', 1) for line in properties.splitlines())
+    if values != {'mountpoint': str(STATE), 'quota': str(limit), 'refquota': str(limit), 'mounted': 'yes'}:
+        raise RuntimeError('Existing CI dataset properties do not match; no automatic mutation')
+    STATE.chmod(0o751)
+    message('dedicated CI dataset mounted; hard aggregate quota=512 GiB; shared-pool admission passed')
+
+
+def admission(required_gib):
+    fs = os.statvfs(STATE)
+    if fs.f_bavail * fs.f_frsize < required_gib * 1024 ** 3:
+        raise RuntimeError('Dedicated CI storage capacity gate refused new VM')
+
+
+def base(args):
+    admission(256)
+    STATE.mkdir(mode=0o751, exist_ok=True)
+    STATE.chmod(0o751)
+    directory = STATE / 'image'
+    if directory.exists():
+        raise RuntimeError('Image staging already exists; inspect before explicit rebuild')
+    directory.mkdir(mode=0o700)
+    download = directory / 'ubuntu.img'
+    run(['curl', '--fail', '--location', '--silent', '--show-error', '--max-time', '1800', '-o', str(download), IMAGE_URL])
+    with download.open('rb') as stream:
+        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if actual != IMAGE_SHA256:
+        raise RuntimeError('Ubuntu cloud image SHA256 mismatch; update pin deliberately')
+    disk = directory / 'base.qcow2'
+    run(['qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2', str(download), str(disk)])
+    download.unlink()
+    run(['qemu-img', 'resize', str(disk), '120G'])
+    provision = Path(args.provision).read_text()
+    # Run provisioning only after cloud-final completes, so cleaning its state
+    # and powering off never race the cloud-init process which supplied the seed.
+    provision_unit = '[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/bash -c " /root/provision-ci.sh && cloud-init clean --logs --seed && echo HOUND_CI_IMAGE_SEALED_OK >/dev/ttyS0; systemctl poweroff "\n'
+    iso = seed(directory, [
+        {'path': '/root/provision-ci.sh', 'permissions': '0700', 'content': provision},
+        {'path': '/etc/systemd/system/hound-ci-provision.service', 'permissions': '0644', 'content': provision_unit}], {
+        'users': [{'name': 'runner', 'groups': ['sudo'], 'sudo': 'ALL=(ALL) NOPASSWD:ALL', 'shell': '/bin/bash', 'lock_passwd': True}],
+        'ssh_pwauth': False, 'disable_root': True,
+        'runcmd': [['systemctl', 'daemon-reload'], ['systemctl', 'start', '--no-block', 'hound-ci-provision.service']],
+        'output': {'all': '| tee -a /var/log/cloud-init-output.log /dev/ttyS0'}})
+    message('image provisioning started (private console)')
+    log = boot(directory, disk, iso, 'hound-ci-image', 4096, 2, 2)
+    if not all(marker in log.read_bytes() for marker in (b'HOUND_CI_PROVISION_OK', b'HOUND_CI_IMAGE_SEALED_OK')):
+        raise RuntimeError('Guest image preflight/sealing did not pass; image not published')
+    final = STATE / 'base.qcow2'
+    disk.chmod(0o444)
+    os.chown(disk, 0, 0)
+    disk.rename(final)
+    iso.unlink()
+    message('image provisioning/preflight passed; immutable base published')
+
+
+def gh(arguments):
+    # systemd LoadCredential, inaccessible after QEMU drops uid/capabilities.
+    credentials = Path(os.environ['CREDENTIALS_DIRECTORY']) / 'gh-hosts'
+    config = Path(os.environ['RUNTIME_DIRECTORY']) / 'gh'
+    config.mkdir(mode=0o700, exist_ok=True)
+    hosts = config / 'hosts.yml'
+    if not hosts.exists():
+        hosts.symlink_to(credentials)
+    env = os.environ.copy()
+    env['GH_CONFIG_DIR'] = str(config)
+    result = run(['gh', 'api', *arguments], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def save_record(path, value):
+    temporary = path.with_suffix('.tmp')
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(value, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.replace(path)
+    directory = os.open(path.parent, os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def cleanup_record(path, repo):
+    if not path.exists():
+        return
+    record = json.loads(path.read_text())
+    if record['repo'] != repo or type(record['id']) is not int or record['id'] <= 0:
+        raise RuntimeError('Registration recovery record invalid; inspect without replacing it')
+    try:
+        gh(['-X', 'DELETE', f"repos/{repo}/actions/runners/{record['id']}"])
+    except subprocess.CalledProcessError as error:
+        if b'HTTP 404' not in (error.stderr or b''):
+            raise
+    path.unlink()
+
+
+def worker(args):
+    account = pwd.getpwnam(f'hound-ci-{args.slot}')
+    record = STATE / f'slot-{args.slot}-registration.json'
+    # Reconcile a prior exact id before erasing its disk or requesting a new JIT.
+    cleanup_record(record, args.repo)
+    directory = STATE / f'slot-{args.slot}'
+    # Only this root-owned slot is reclaimed, never another job's targets.
+    if directory.exists():
+        shutil.rmtree(directory)
+    admission(128)
+    directory.mkdir(mode=0o700)
+    name = f'hound-ci-{args.slot}-{uuid.uuid4().hex[:12]}'
+    registered = False
+    try:
+        registration = gh(['-X', 'POST', f'repos/{args.repo}/actions/runners/generate-jitconfig',
+                           '-f', f'name={name}', '-F', 'runner_group_id=1',
+                           '-f', 'labels[]=self-hosted', '-f', 'labels[]=Linux',
+                           '-f', 'labels[]=X64', '-f', 'labels[]=hound-ci', '-f', 'work_folder=_work'])
+        runner_id = registration['runner']['id']
+        save_record(record, {'repo': args.repo, 'id': runner_id, 'name': name})
+        registered = True
+        jit = registration['encoded_jit_config']
+        disk = directory / 'job.qcow2'
+        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(STATE / 'base.qcow2'), str(disk)], stdout=subprocess.DEVNULL)
+        guest = Path(args.guest).read_text()
+        config = json.dumps({'jit': jit, 'name': name})
+        iso = seed(directory, [
+            {'path': '/etc/hound-ci-registration.json', 'permissions': '0600', 'content': config},
+            {'path': '/root/start-ci.sh', 'permissions': '0700', 'content': guest}], {
+            'ssh_pwauth': False, 'runcmd': [['bash', '/root/start-ci.sh']],
+            'output': {'all': '| tee -a /var/log/cloud-init-output.log /dev/ttyS0'}})
+        del jit, registration, config
+        registered = True
+        message(f'slot={args.slot} name={name} repo={args.repo} disposable VM started')
+        log = boot(directory, disk, iso, account.pw_name, 16384, 6, 8)
+        # Do not publish raw guest/PR-controlled console content in host journal.
+        console = log.read_bytes()
+        preflight = b'HOUND_CI_GUEST_PREFLIGHT_OK' in console
+        completed = b'HOUND_CI_GUEST_JOB_FINISHED' in console
+        message(f'slot={args.slot} VM stopped; preflight={preflight}; runner completed={completed}; erasing disk')
+        if not STOP_REQUESTED and not (preflight and completed):
+            raise RuntimeError('Guest preflight/runner startup failed; restart rate-limited')
+    finally:
+        try:
+            if registered:
+                cleanup_record(record, args.repo)
+        finally:
+            # Preserve a failed API cleanup record, but never retain job credentials/disk.
+            shutil.rmtree(directory, ignore_errors=False)
+
+
+def firewall(args):
+    # A separate table, no flush of the host/Docker firewall. The kernel's local
+    # route lookup protects newly added/rotated host addresses without polling.
+    users = ['hound-ci-image'] + [f'hound-ci-{i}' for i in range(1, args.count + 1)]
+    ids = ', '.join(str(pwd.getpwnam(user).pw_uid) for user in users)
+    v4 = {'0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16', '198.18.0.0/15', '224.0.0.0/4', '240.0.0.0/4'}
+    v6 = {'::/128', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8'}
+    for family, prefixes in [('-4', v4), ('-6', v6)]:
+        routes = json.loads(run(['ip', '-j', family, 'route', 'show', 'proto', 'kernel'], stdout=subprocess.PIPE).stdout)
+        for route in routes:
+            if route.get('dst') not in (None, 'default'):
+                prefixes.add(str(ipaddress.ip_network(route['dst'], strict=False)))
+    # nft interval sets reject overlaps; connected Docker/LAN routes are often
+    # already covered by the private-space blanket, so collapse them first.
+    v4 = {str(n) for n in ipaddress.collapse_addresses(map(ipaddress.ip_network, v4))}
+    v6 = {str(n) for n in ipaddress.collapse_addresses(map(ipaddress.ip_network, v6))}
+    rules = f'''destroy table inet hound_ci
+ table inet hound_ci {{
+ chain output {{ type filter hook output priority -20; policy accept;
+ meta skuid {{ {ids} }} fib daddr type local counter reject
+ meta skuid {{ {ids} }} ip daddr {{ {', '.join(sorted(v4))} }} counter reject
+ meta skuid {{ {ids} }} ip6 daddr {{ {', '.join(sorted(v6))} }} counter reject
+ }}
+ }}\n'''
+    run(['nft', '--check', '-f', '-'], input=rules.encode())
+    run(['nft', '-f', '-'], input=rules.encode())
+    # Fail closed against a KNOWN listening host socket, not a possibly closed
+    # port. This checks the actual QEMU uid, not just firewall configuration.
+    import socket
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        with socket.create_connection(('127.0.0.1', port), timeout=2):
+            accepted, _ = listener.accept()
+            accepted.close()
+        check = ('import socket,sys; s=socket.socket(); s.settimeout(2); '
+                 '\ntry: s.connect(("127.0.0.1",int(sys.argv[1])))'
+                 '\nexcept OSError: sys.exit(0)'
+                 '\nelse: sys.exit(1)')
+        for user in users:
+            account = pwd.getpwnam(user)
+            run(['setpriv', '--reuid', str(account.pw_uid), '--regid', str(account.pw_gid),
+                 '--clear-groups', '--no-new-privs', sys.executable, '-c', check, str(port)])
+    message('isolated QEMU UID egress firewall installed; all uid negative-connect tests passed')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest='mode', required=True)
+    bake = sub.add_parser('base'); bake.add_argument('--provision', required=True)
+    slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True)
+    acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
+    volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)
+    args = parser.parse_args()
+    try:
+        if args.mode == 'worker':
+            # Completion-driven lifecycle, not status polling. Successful jobs
+            # do not consume systemd's bounded failure/restart allowance.
+            while not STOP_REQUESTED:
+                worker(args)
+                if not STOP_REQUESTED:
+                    time.sleep(10)
+        else:
+            {'base': base, 'firewall': firewall, 'storage': storage}[args.mode](args)
+    except Exception as error:
+        # Never echo gh API response/token/credential paths or guest-controlled output.
+        message(f'{args.mode} failed: {type(error).__name__}; inspect private state (no automatic unlimited retries)')
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
