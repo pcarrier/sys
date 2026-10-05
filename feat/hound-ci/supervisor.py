@@ -45,6 +45,23 @@ def seed(directory, files, user_data):
     return iso
 
 
+def vm_security_ok(fields, account, kvm_gid):
+    """Accept only positive evidence for the actual QEMU child, never unknown=0."""
+    try:
+        return (
+            fields['Name'].startswith(('qemu-system', '.qemu-system'))
+            and fields['Uid'].split() == [str(account.pw_uid)] * 4
+            and fields['Gid'].split() == [str(account.pw_gid)] * 4
+            and {int(group) for group in fields['Groups'].split()} <= {account.pw_gid, kvm_gid}
+            and kvm_gid in {int(group) for group in fields['Groups'].split()}
+            and all(int(fields[key], 16) == 0 for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))
+            and fields['NoNewPrivs'] == '1'
+            and int(fields['Seccomp']) > 0
+        )
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return False
+
+
 def boot(directory, disk, iso, user, memory, cpus, hours):
     account = pwd.getpwnam(user)
     # Shared base is public and immutable. Writable disks/seeds are private to one uid.
@@ -72,14 +89,26 @@ def boot(directory, disk, iso, user, memory, cpus, hours):
         # Never inherit the root controller's credential variables into QEMU.
         child_env = {'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'HOME': '/var/empty'}
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=child_env)
+        cap_event = threading.Event()
+        cap_fields = {}
         def drain():
             # Host disk cannot be exhausted by a guest-controlled serial stream.
             remaining = 64 * 1024 * 1024
-            while block := process.stdout.read(65536):
-                if remaining:
-                    console.write(block[:remaining])
-                    remaining = max(0, remaining - len(block))
-                    console.flush()
+            try:
+                while block := process.stdout.read1(65536):
+                    if not cap_event.is_set():
+                        try:
+                            status = Path(f'/proc/{process.pid}/status').read_text()
+                            cap_fields.update({line.partition(':')[0]: line.partition(':')[2].strip() for line in status.splitlines() if ':' in line})
+                        except OSError:
+                            pass  # Unknown/vanished is rejected, never treated as zero.
+                        cap_event.set()
+                    if remaining:
+                        console.write(block[:remaining])
+                        remaining = max(0, remaining - len(block))
+                        console.flush()
+            finally:
+                cap_event.set()
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
         def terminate(_signum, _frame):
@@ -88,6 +117,12 @@ def boot(directory, disk, iso, user, memory, cpus, hours):
             process.terminate()
         signal.signal(signal.SIGTERM, terminate)
         try:
+            cap_event.wait(timeout=120)
+            if not vm_security_ok(cap_fields, account, __import__('grp').getgrnam('kvm').gr_gid):
+                process.terminate()
+                process.wait(timeout=60)
+                raise RuntimeError('Actual QEMU UID/group/capability attestation failed or unavailable')
+            message(f'QEMU_SECURITY_VERIFIED pid={process.pid} uid={account.pw_uid} gid={account.pw_gid} CapInh/Prm/Eff/Bnd/Amb=0 NNP=1')
             result = process.wait(timeout=hours * 3600)
         except subprocess.TimeoutExpired:
             process.terminate()
@@ -153,9 +188,41 @@ def base(args):
     provision = Path(args.provision).read_text()
     # Run provisioning only after cloud-final completes, so cleaning its state
     # and powering off never race the cloud-init process which supplied the seed.
-    provision_unit = '[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/bash -c " /root/provision-ci.sh && cloud-init clean --logs --seed --machine-id && echo HOUND_CI_IMAGE_SEALED_OK >/dev/ttyS0; systemctl poweroff "\n'
+    seal_script = r'''#!/bin/bash
+# Independent child: no AND-list errexit suppression and no serial-only log.
+set -u
+umask 077
+log=/var/log/hound-ci-provision.log
+result=/var/log/hound-ci-provision.result
+: > "$log"
+bash -Eeuo pipefail /root/provision-ci.sh >> "$log" 2>&1
+status=$?
+printf 'HOUND_CI_PROVISION_EXIT status=%s\n' "$status" > "$result"
+cat "$result" > /dev/ttyS0
+if [ "$status" != 0 ]; then
+  tail -60 "$log" > /dev/ttyS0
+  exit "$status"
+fi
+if ! grep -q '^HOUND_CI_PROVISION_OK$' "$log"; then
+  printf 'HOUND_CI_PROVISION_INCOMPLETE child_status=0\n' > /dev/ttyS0
+  tail -60 "$log" > /dev/ttyS0
+  exit 70
+fi
+printf 'HOUND_CI_PROVISION_OK\n' > /dev/ttyS0
+cloud-init clean --logs --seed --machine-id
+status=$?
+printf 'HOUND_CI_CLEAN_EXIT status=%s\n' "$status" > /dev/ttyS0
+if [ "$status" = 0 ]; then
+  printf 'HOUND_CI_IMAGE_SEALED_OK\n' > /dev/ttyS0
+fi
+exit "$status"
+'''
+    provision_unit = '[Unit]\nAfter=cloud-final.service\nOnSuccess=hound-ci-image-shutdown.service\nOnFailure=hound-ci-image-shutdown.service\n[Service]\nType=oneshot\nStandardOutput=journal+console\nStandardError=journal+console\nExecStart=/bin/bash /root/seal-ci-image.sh\n'
+    shutdown_unit = '[Unit]\nAfter=hound-ci-provision.service\n[Service]\nType=oneshot\nExecStart=/bin/systemctl --no-block poweroff\n'
     iso = seed(directory, [
         {'path': '/root/provision-ci.sh', 'permissions': '0700', 'content': provision},
+        {'path': '/root/seal-ci-image.sh', 'permissions': '0700', 'content': seal_script},
+        {'path': '/etc/systemd/system/hound-ci-image-shutdown.service', 'permissions': '0644', 'content': shutdown_unit},
         {'path': '/etc/systemd/system/hound-ci-provision.service', 'permissions': '0644', 'content': provision_unit}], {
         'users': [{'name': 'runner', 'groups': ['sudo'], 'sudo': 'ALL=(ALL) NOPASSWD:ALL', 'shell': '/bin/bash', 'lock_passwd': True}],
         'ssh_pwauth': False, 'disable_root': True,

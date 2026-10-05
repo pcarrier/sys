@@ -2,6 +2,8 @@
 """Host-free tests: never register runners, launch QEMU, or alter nftables."""
 import importlib.util
 import json
+import ast
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -69,6 +71,34 @@ class SupervisorTests(unittest.TestCase):
         code = Path(__file__).with_name('supervisor.py').read_text()
         self.assertLess(code.index('path.chmod(0o600)'), code.index('os.chown(path, account.pw_uid, account.pw_gid)'))
         self.assertLess(code.index('os.chown(disk, 0, 0)'), code.index('disk.chmod(0o444)'))
+
+    def test_live_vm_attestation_rejects_unknown_or_preexec(self):
+        account = SimpleNamespace(pw_uid=123, pw_gid=124)
+        fields = {'Name': '.qemu-system-x8', 'Uid': '123 123 123 123', 'Gid': '124 124 124 124', 'Groups': '125', 'NoNewPrivs': '1', 'Seccomp': '2', **{key: '0000000000000000' for key in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')}}
+        self.assertTrue(supervisor.vm_security_ok(fields, account, 125))
+        self.assertFalse(supervisor.vm_security_ok({}, account, 125))
+        self.assertFalse(supervisor.vm_security_ok(fields | {'Name':'setpriv'}, account, 125))
+        self.assertFalse(supervisor.vm_security_ok(fields | {'CapEff':'0000000000000080'}, account, 125))
+        self.assertFalse(supervisor.vm_security_ok(fields | {'Uid':'0 0 0 0'}, account, 125))
+        self.assertFalse(supervisor.vm_security_ok(fields | {'Groups':'0 125'}, account, 125))
+
+    def test_guest_wrapper_preserves_function_failure_and_refuses_sealing(self):
+        tree = ast.parse(Path(__file__).with_name('supervisor.py').read_text())
+        script = next(ast.literal_eval(node.value) for node in ast.walk(tree) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'seal_script' for t in node.targets))
+        for child in ["failure(){ echo actual-fetch-failure >&2; return 6; }; failure\n", 'echo "$missing_variable"\n']:
+            with tempfile.TemporaryDirectory() as root:
+                folder=Path(root)
+                stub=folder/'provision.sh'; stub.write_text(child)
+                clean=folder/'cloud-init'; clean.write_text('#!/bin/bash\ntouch "'+str(folder/'incorrectly-cleaned')+'"\n'); clean.chmod(0o755)
+                wrapper=script.replace('/var/log/hound-ci-provision.log',str(folder/'provision.log')).replace('/var/log/hound-ci-provision.result',str(folder/'result')).replace('/root/provision-ci.sh',str(stub)).replace('/dev/ttyS0',str(folder/'serial'))
+                path=folder/'wrapper.sh'; path.write_text(wrapper)
+                env=os.environ.copy(); env['PATH']=root+':'+env['PATH']
+                run=subprocess.run(['bash',str(path)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                self.assertNotEqual(run.returncode,0)
+                self.assertIn(f'status={run.returncode}',(folder/'result').read_text())
+                self.assertTrue((folder/'provision.log').read_text())
+                self.assertNotIn('HOUND_CI_IMAGE_SEALED_OK',(folder/'serial').read_text())
+                self.assertFalse((folder/'incorrectly-cleaned').exists())
 
     def test_storage_admission_fails_closed(self):
         with patch.object(supervisor.os, 'statvfs', return_value=SimpleNamespace(f_bavail=1, f_frsize=4096)):

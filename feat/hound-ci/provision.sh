@@ -12,7 +12,7 @@
 #     and power off in a separate shutdown unit. Do NOT power off/clean here or
 #     wait for cloud-init here: this script itself runs inside cloud-final.
 # No registration state, signing identities or Docker images are baked in.
-set -euo pipefail
+set -Eeuo pipefail
 umask 022
 
 [[ ${EUID} -eq 0 ]] || { echo 'Provisioning requires guest root.' >&2; exit 1; }
@@ -31,9 +31,9 @@ systemd-detect-virt --quiet --vm || {
 [[ ! -e /opt/actions-runner/.runner && ! -e /opt/actions-runner/.credentials && ! -e /opt/actions-runner/.credentials_rsaparams ]] || {
   echo 'Refusing to provision an already registered runner guest.' >&2; exit 1;
 }
-# Direct writes keep the final success marker ordered; no asynchronous tee
-# process can lose buffered output when the caller subsequently shuts down.
-exec >/dev/ttyS0 2>&1
+# Keep an independent guest-file witness; the wrapper reports its real exit
+# and bounded failure excerpt after the child exits. Serial/getty is not the log.
+exec >>/var/log/hound-ci-provision.log 2>&1
 provision_failed() {
   local rc=$?
   printf 'HOUND_CI_PROVISION_FAILED line=%s status=%s\n' "$1" "$rc"
@@ -88,8 +88,10 @@ apt_packages=(
   python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 xvfb xauth
 )
 apt-get install -y --no-install-recommends "${apt_packages[@]}"
+printf 'HOUND_CI_STAGE native-apt-complete\n'
 
 install -d -m 0755 /etc/apt/keyrings
+printf 'HOUND_CI_STAGE google-key-fetch\n'
 # Official Google APT repository, scoped signing key (never apt-key).
 fetch https://dl.google.com/linux/linux_signing_key.pub "$scratch/google.asc"
 gpg --batch --yes --dearmor --output /etc/apt/keyrings/google-chrome.gpg "$scratch/google.asc"
