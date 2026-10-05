@@ -424,29 +424,95 @@ legacy migration helper, not an enabled service or guest payload:
    `repos/xmit-dev/ultimator/actions/runners/generate-jitconfig`, including the tested
    canonical body/input-inferred POST forms. The guarantee is deliberately
    limited to the immutable legacy supervisor's fixed argv contract, not every
-   possible gh CLI placeholder/clustered-option/enterprise invocation. No arguments, stdin, environment, credentials,
-   JIT or guest console data are read/logged. Other calls, including exact old
-   registration DELETE cleanup, exec the original immutable non-shadowed gh ELF
-   with the original wrapper's argv0/telemetry semantics and untouched stdin.
+   possible gh CLI placeholder/clustered-option/enterprise invocation. No raw arguments, stdin, environment, credentials,
+   JIT or guest console data are copied/logged. Exact legacy DELETE cleanup
+   delegates the original immutable non-shadowed gh ELF with preserved argv0,
+   stdin and telemetry semantics. A root-only public receipt records just the
+   pinned caller, exact runner ID/name, source/nonce, intent and return outcome
+   (including the old controller's explicit HTTP404 cleanup semantics). All
+   other calls exec the original ELF directly.
 5. Current QEMU and its reader continue without pause. Any request already
    executing before the gate is adopted and drained; it is never cancelled.
    After each accepted job completes/VM exits/registration cleans up, the old
    next-JIT call receives the fixed drain refusal and the old supervisor exits.
    `Restart=no` prevents another old process or old-image job claim.
-6. Await completion-driven trusted journal/cgroup exit evidence: original PID
-   exit and cgroup empty, positive completed-job/QEMU lifecycle, registration
-   recovery state understood. API busy=false or QEMU disappearance alone is
-   **not** sufficient. Do not poll; retain the original job's finite lifetime.
-7. Only when ALL4 are safely drained, install the four checked cache-v2 unit
-   links and their GC roots, preserve old unit/enable/GC-root/image rollback,
-   then remove only the four owned runtime restart holds and start replacements.
-   New service namespaces have no old route gate; LoadCredential remains host
-   only. Verify fresh QEMU cap0/NNP/seccomp, guest offline cache/native preflight,
-   private new overlays/JITs, GitHub registration, cache hits and real results.
+   The armer pins each slot's original systemd `InvocationID` and the kernel
+   boot ID. It takes the same-boot CLOCK_MONOTONIC boundary **before** the
+   first registration read and records that first read verbatim
+   (`first_registration_read`, bound to the armer's source SHA). Only a root
+   STOP strictly before the boundary **with the first read absent** is
+   historical; a record present at the first read (an escaped old DELETE),
+   any STOP after the boundary, or a wall-clock step never removes the need
+   for a captured DELETE receipt.
+6. `wait-drained.py` subscribes to trusted root controller/PID1 lifecycle,
+   pidfds and subtree `cgroup.events` without timers. It replays this boot to
+   bind genuine root-generated START/QEMU-verification/STOP in order and resets
+   prior completion on each new VM. The exact pinned legacy source writes raw
+   serial **only** to a private console file, never the host journal. Its
+   guest-derived preflight/completion booleans remain **advisory**. The waiter
+   produces a hardware-drained, **non-certificate** phase only. Manager
+   terminal records count only with PID1 + `UNIT` + typed `MESSAGE_ID` **and**
+   the exact pinned original `INVOCATION_ID` on the pinned `_BOOT_ID`;
+   controller records need the original `_SYSTEMD_INVOCATION_ID`. Records of a
+   later invocation (e.g. activation's tracked replacement) can neither satisfy
+   nor revoke the original proof; a wrong boot or an unattributable record
+   HOLDs. Absence, stale
+   MainPID/cgroup evidence, an unclosed latest VM, uncertain pre-gate POST or
+   missing local route-block receipt all fail closed.
+7. A separate trusted operator obtains bounded ordinary Actions job metadata
+   in finite, lifecycle-triggered requests with complete pagination. Every
+   adopted runner must bind by exact repository/runner ID/name to a real job,
+   run and attempt with positive `completed` status, valid completion time and
+   known terminal conclusion. Failed/cancelled jobs remain failed/cancelled,
+   not 'all green'. No match, ambiguous identity, nonterminal job, truncated
+   pages or a startup failure with no independently proven job stays **HOLD**.
+   Completed job A must never certify a later accepted VM/job B. This step
+   requires no runner-admin bypass or credentials in the continuous waiter.
+8. `finish-drain.py` validates the source/nonce/manifest-bound receipts and
+   freshly rechecks all four original exits, holds, identity-bound descendant
+   emptiness and registration cleanup before issuing a final certificate.
+   `activate-cache-v2.py` must independently validate that complete certificate
+   and freshly revalidate the four slots again before replacement/release/start.
+   A phase string or four summary booleans is never sufficient.
+9. Only after that certificate and exact-source review, replace the four scoped
+   controller links and add a separate new GC-root namespace. Preserve old
+   unit content/links/enable links/GC roots/image and unchanged host profile.
+   Check exact loaded executable/full argv/fragment/drop-ins for each slot,
+   require existing dependencies already active and no conflicting jobs, then
+   remove only the four owned holds and start only their replacements. Do not
+   repair/activate storage, firewall, image, slice or other services implicitly.
+   Verify fresh QEMU cap0/NNP/seccomp, cache-v2 backing, guest offline cache/native
+   preflight, private new overlays/JITs, registrations, cache hits and real results.
+10. Sequential starts use the validator's `ACTIVATION_TRANSITION_API =
+   "tracked-controller-identity-v1"`. Before each `systemctl --job-mode=fail
+   start -- hound-ci-N.service`, activation fsyncs a per-slot start intent in
+   `activation.json` (`slot_starts`): request, store unit source, full argv,
+   candidate image path/SHA and the strict pre-start state (MainPID 0, the
+   ORIGINAL InvocationID, empty/removed original cgroup, validation SHA). After
+   the start it records the result: returncode 0, job `{start, fail, done}`,
+   the NEW InvocationID, MainPID, starttime and cgroup. The validator moves a
+   slot from strict-stopped to tracked-new only for such a complete record that
+   equals activation's in-memory view and the live MainPID/starttime/
+   InvocationID/kernel cgroup; the original certificate, old exit, old ordered
+   lifecycle, DELETE receipts and Actions proof stay immutable and are
+   revalidated at every phase. Unstarted slots must still carry their original
+   InvocationID. Unknown, partial or foreign transitions HOLD: nothing is rolled
+   back, stopped or killed. Holds may be released only in the start phases.
+11. The host's PID1 (systemd 261.2, `baxgs…`) was qualified against upstream
+   tag v261 for the effect proof: `feat/hound-ci/systemd-261.2-qualification.json`
+   records that all eight effect-proof sources are byte-identical to v261 and
+   untouched by every nixpkgs patch/postPatch, and why the one core patch
+   (postponed D-Bus queue dispatch) and the v261→261.2 core changes do not alter
+   START transaction semantics.
 
 The helper deliberately does **not** automatically unmount/restore/start on a
-partial failure. Its root0700 state and0600 fsynced phase manifest record per-slot drop-in
-written/loaded and gate intent/bound/read-only/probe stages (including partial
+partial failure. Receipt-persistence failure before a delegated DELETE prevents
+that API call; failure after its return leaves outcome UNKNOWN to the final
+validator even if the API succeeded. It may change the old controller's exit
+status and must never be reported as byte/result-preserving success. Missing or
+partial cleanup proof requires explicit reconciliation, not a retry/rollback.
+Its root0700 state and0600 fsynced phase manifest record per-slot drop-in
+write-intent/written/loaded and gate intent/bound/read-only/probe stages (including partial
 mutation). An early pre-hold failure must not be reported as a loaded hold. Transport EOF requires one bounded phase/PID
 reconciliation before any continuation, never duplicate arming. A rollback
 must be explicit and must not restart/reclaim old slots during handoff. Existing

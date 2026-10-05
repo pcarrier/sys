@@ -1,0 +1,152 @@
+{
+  "core_files_changed_v261_to_261.2": [
+    "bpf-restrict-fs.c",
+    "dbus.c",
+    "exec-credential.c",
+    "exec-invoke.c",
+    "execute.c",
+    "load-fragment.c",
+    "main.c",
+    "manager-serialize.c",
+    "manager.c",
+    "manager.h",
+    "namespace.c",
+    "scope.c",
+    "timer.c"
+  ],
+  "effect_proof_files": {
+    "dbus-device.c": {
+      "equal": true,
+      "host_src_sha256": "d220f19d80f8c941e88c764d8487eb60e7e6ae20abb933ebc7774acd6adff766",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "d220f19d80f8c941e88c764d8487eb60e7e6ae20abb933ebc7774acd6adff766"
+    },
+    "dbus-unit.c": {
+      "equal": true,
+      "host_src_sha256": "80e1b2328ab84338dab095a6496adbf1be5f47d0e7093b2089a347dbcded5a42",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "80e1b2328ab84338dab095a6496adbf1be5f47d0e7093b2089a347dbcded5a42"
+    },
+    "device.c": {
+      "equal": true,
+      "host_src_sha256": "1e4352d2f24655c706ccf6a162345b13413180d35a2536bd5cb675d16934b693",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "1e4352d2f24655c706ccf6a162345b13413180d35a2536bd5cb675d16934b693"
+    },
+    "job.c": {
+      "equal": true,
+      "host_src_sha256": "b53ad79e94d80980f6212f6c67770d1daad02d1ba5d23c0a8cbd831da911eca7",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "b53ad79e94d80980f6212f6c67770d1daad02d1ba5d23c0a8cbd831da911eca7"
+    },
+    "swap.c": {
+      "equal": true,
+      "host_src_sha256": "ec67a334600979f80f7af84d841e5ee973ae22d2bc3c68f22bc424004819c360",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "ec67a334600979f80f7af84d841e5ee973ae22d2bc3c68f22bc424004819c360"
+    },
+    "transaction.c": {
+      "equal": true,
+      "host_src_sha256": "2b8ad73d0b34a10175530544e88d98343114fcbe50fa7047fb3224facc2b9ffa",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "2b8ad73d0b34a10175530544e88d98343114fcbe50fa7047fb3224facc2b9ffa"
+    },
+    "unit-dependency-atom.c": {
+      "equal": true,
+      "host_src_sha256": "ac00161e86f4522648d3986496b80d726836de41972456209c52ad2a171bf0f5",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "ac00161e86f4522648d3986496b80d726836de41972456209c52ad2a171bf0f5"
+    },
+    "unit.c": {
+      "equal": true,
+      "host_src_sha256": "51c0cadb42612bd074f67055a02909b850390e405dc26218e8203441d03e2df4",
+      "touched_by_patch": false,
+      "touched_by_postPatch": false,
+      "v261_sha256": "51c0cadb42612bd074f67055a02909b850390e405dc26218e8203441d03e2df4"
+    }
+  },
+  "kind": "hound-systemd-261.2-effect-source-qualification",
+  "patches": {
+    "02vibjrm4hqch7bjgks4hcbzaj0x73di-0004-path-util.h-add-placeholder-for-DEFAULT_PATH_NORMAL.patch": {
+      "files": [
+        "src/basic/path-util.h"
+      ],
+      "sha256": "231bd6871c33b7cf91bddfd99dab2a3c274a47e019e7c807658ced08354e0bc5"
+    },
+    "43h40cv9yh0zay79l2xi1pylrymfmw1k-0006-timesyncd-disable-NSCD-when-DNSSEC-validation-is-dis.patch": {
+      "files": [
+        "src/timesync/timesyncd.c"
+      ],
+      "sha256": "b04c6916f08d4f1d77a1a05434186aa243cd08b81d718f20f18be26f8340dac3"
+    },
+    "bnj45njlm8y8r3gx6ncqzmyky9scp81d-postpone-d-bus-queue-dispatch.patch": {
+      "files": [
+        "src/core/dbus.c",
+        "src/core/manager.c",
+        "src/core/manager.h"
+      ],
+      "sha256": "744133654aa27279a00ee5d5055d72d01c7380a6dbe90e3b0e6c63f8eef56c51"
+    },
+    "h5bls36dwyyy882dz5pdy2ng5s7h9fv4-0005-core-don-t-taint-on-unmerged-usr.patch": {
+      "files": [
+        "src/core/taint.c"
+      ],
+      "sha256": "c982b2bf5ac06e9b9266c1c94634cf6bf185401d17ccb3c9521a6fe4ab997860"
+    },
+    "l6yb9bz146w392zy8d2ss4dbrg4yd35k-0003-add-rootprefix-to-lookup-dir-paths.patch": {
+      "files": [
+        "src/basic/constants.h"
+      ],
+      "sha256": "e567b66c9b637c0221a0546f2834ffa05e7434af887f955f84b74670731979f3"
+    },
+    "zgn4mjbwrzwm50cwz4pbq0hszmv13771-0002-Change-usr-share-zoneinfo-to-etc-zoneinfo.patch": {
+      "files": [
+        "man/localtime.xml",
+        "src/basic/time-util.c",
+        "src/firstboot/firstboot.c",
+        "src/nspawn/nspawn.c",
+        "src/timedate/timedated.c"
+      ],
+      "sha256": "bf876d876ae38aba0a6638583f93c013c7c3d609053df96c7f366daeba5c7725"
+    },
+    "zhcn39kfdxys6z6kmwn9k3krc5iwp8r7-0001-Don-t-try-to-unmount-nix-or-nix-store.patch": {
+      "files": [
+        "src/shared/fstab-util.c",
+        "src/shutdown/umount.c"
+      ],
+      "sha256": "a50ae1b7e89ac11da3dd474a155cf25a9d72663bea4cf977662319310420d47c"
+    }
+  },
+  "pid1": {
+    "derivation": "/nix/store/lwx4rdi6ljx0cy7kf3cky1qwca40h6jm-systemd-261.2.drv",
+    "derivation_sha256": "444493fa347218b7338f36ead026797f75e823b9c6d221218f842106a747572d",
+    "executable": "/nix/store/baxgs06659w4i6ggsfr56srjrb52v1h8-systemd-261.2/lib/systemd/systemd",
+    "note": "drv out = PID1 store path; binary-from-source is Nix input-addressing trust, not a local rebuild",
+    "sha256": "448f82f2920f1f3d4919981565d4663b19b60e13b0d0dfacd2f2b9641c883a0c"
+  },
+  "postPatch_files": [
+    "src/basic/path-util.h",
+    "src/bpf/meson.build",
+    "shebangs under tools/ test/ src/ (patchShebangs)"
+  ],
+  "preConfigure_files": [
+    "src/libsystemd/sd-journal/catalog.c"
+  ],
+  "schema": 1,
+  "source": {
+    "path": "/nix/store/kmjp175p5kwpaab5vcvs97i3xcmay856-source",
+    "version": "261.2"
+  },
+  "upstream_v261": {
+    "tarball": "https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v261",
+    "tarball_sha256": "f1c2e6a0d19ea5cae946386eb288432de12f3c6b7730cdb0d2a06f8ab8e3f8dc"
+  },
+  "verdict": "All 8 effect-proof files are byte-identical in upstream tag v261 and the host 261.2 source, and no patch/postPatch/preConfigure touches them. The only core patch (postpone-d-bus-queue-dispatch) adds an early return in manager_dispatch_dbus_queue() while the API bus is connected but not yet set up: it delays PropertiesChanged/JobNew/JobRemoved signal emission and reload replies only; transaction construction, job merge/redundancy/GC, dependency atoms, job-mode parsing and StartUnit dispatch are unaffected. v261->261.2 core changes (ratelimit CLOCK_BOOTTIME, async API-bus GetId + subscription serialization, first-boot file, timer weekday warning, scope chown idempotence, sd-bus vtable cleanup, hashmap asserts) do not alter START transaction semantics. Operational effect on activation: a postponed JobRemoved can only delay synchronous systemctl start/daemon-reload replies, bounded by run() timeout=60s -> exception -> HOLD."
+}

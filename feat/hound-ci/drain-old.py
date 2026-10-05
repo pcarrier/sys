@@ -14,10 +14,16 @@ from pathlib import Path
 import select
 import stat
 import subprocess
+import time
+import uuid
+import pwd
+import re
 from datetime import datetime, timezone
 
 OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
 OLD_GUEST = '/nix/store/0zmll6kia11538x699kra2nb6kcnyfr1-guest.sh'
+OLD_SOURCE_SHA = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
+QEMU_ELF = '/nix/store/53pb1l8qlby0jzb7n8c1qiwq5nw89krx-qemu-host-cpu-only-11.1.1/bin/.qemu-system-x86_64-wrapped'
 GH = Path('/nix/store/bsjdf8dh5k8sylwzgp58ip47sbpbzw5l-gh-2.101.0/bin/gh')
 GH_ELF = GH.with_name('.gh-wrapped')
 STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
@@ -38,8 +44,23 @@ def digest(path):
 
 
 def properties(slot):
-    text = run(['systemctl', 'show', f'hound-ci-{slot}.service', '-p', 'MainPID', '-p', 'Restart', '-p', 'ControlGroup'], stdout=subprocess.PIPE, text=True).stdout
+    text = run(['systemctl', 'show', f'hound-ci-{slot}.service', '-p', 'MainPID', '-p', 'Restart', '-p', 'ControlGroup', '-p', 'InvocationID'], stdout=subprocess.PIPE, text=True).stdout
     return dict(line.split('=', 1) for line in text.splitlines())
+
+
+INVOCATION = re.compile('[0-9a-f]{32}')
+
+
+def current_boot_id():
+    """Canonical hyphenated kernel boot UUID; journal _BOOT_ID is its .hex."""
+    value = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    try:
+        canonical = str(uuid.UUID(value))
+    except ValueError:
+        raise RuntimeError('Canonical kernel boot identity missing') from None
+    if canonical != value:
+        raise RuntimeError('Canonical kernel boot identity missing')
+    return value
 
 
 def starttime(pid):
@@ -50,14 +71,20 @@ def starttime(pid):
 def pin(slot):
     values = properties(slot)
     pid = int(values['MainPID'])
-    if pid <= 1 or values['ControlGroup'] != f'/hound-ci.slice/hound-ci-{slot}.service':
+    if pid <= 1 or values['ControlGroup'] != f'/hound.slice/hound-ci.slice/hound-ci-{slot}.service':
         raise RuntimeError('Unexpected exact legacy service identity')
+    if not INVOCATION.fullmatch(values.get('InvocationID', '')):
+        raise RuntimeError('Original systemd invocation identity missing')
+    # Pin the exact ORIGINAL invocation and boot: the waiter/finisher accept
+    # manager/controller journal evidence ONLY for this (boot, invocation).
+    boot_id = current_boot_id()
     before = starttime(pid)
     pidfd = os.pidfd_open(pid)
     nsfd = None
     try:
         nsfd = os.open(f'/proc/{pid}/ns/mnt', os.O_RDONLY | os.O_CLOEXEC)
-        entry = {'slot': slot, 'pid': pid, 'starttime': before, 'namespace_inode': os.fstat(nsfd).st_ino,
+        entry = {'slot': slot, 'pid': pid, 'starttime': before, 'invocation_id': values['InvocationID'], 'boot_id': boot_id, 'namespace_inode': os.fstat(nsfd).st_ino,
+                 'qemu_uid': pwd.getpwnam(f'hound-ci-{slot}').pw_uid, 'qemu_gid': pwd.getpwnam(f'hound-ci-{slot}').pw_gid,
                  'pidfd': pidfd, 'nsfd': nsfd, 'control_group': values['ControlGroup']}
         identity(entry)
         expected = ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator', '--guest', OLD_GUEST]
@@ -76,6 +103,11 @@ def identity(entry, allow_exit=False, require_hold=False):
     values = properties(entry['slot'])
     if require_hold and values['Restart'] != 'no':
         raise RuntimeError('Loaded restart hold drifted')
+    # Mandatory, including the natural-exit path: systemd assigns a NEW
+    # InvocationID on every start (service_start -> unit_acquire_invocation_id)
+    # and keeps the last one while dead, so any restart/replacement changes it.
+    if not INVOCATION.fullmatch(entry.get('invocation_id') or '') or values.get('InvocationID') != entry['invocation_id']:
+        raise RuntimeError('Original systemd invocation changed')
     if select.select([entry['pidfd']], [], [], 0)[0]:
         if allow_exit and values['MainPID'] == '0' and values['Restart'] == 'no':
             return False  # Natural post-gate exit, NEVER a replacement process.
@@ -138,6 +170,34 @@ def save(value):
     finally: os.close(fd)
 
 
+def fsync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+
+
+def fixed_dropin_paths():
+    # Recovery MUST inspect all fixed paths, even an interrupted intent/save.
+    return [Path(f'/run/systemd/system/hound-ci-{slot}.service.d') / DROPIN for slot in range(1, 5)]
+
+
+def write_hold(entry, manifest):
+    target = fixed_dropin_paths()[entry['slot'] - 1]
+    item = {'slot': entry['slot'], 'path': str(target), 'stage': 'write-intent', 'utc': timestamp()}
+    manifest['dropins'].append(item)
+    save(manifest)  # Intent is durable BEFORE directory/file creation.
+    target.parent.mkdir(exist_ok=True)
+    fsync_directory(target.parent.parent)
+    if target.exists() or target.is_symlink():
+        raise RuntimeError('Owned drain drop-in already exists; no overwrite')
+    with target.open('x') as stream:
+        os.fchmod(stream.fileno(), 0o644)
+        stream.write('[Service]\nRestart=no\n'); stream.flush(); os.fsync(stream.fileno())
+    fsync_directory(target.parent)
+    item.update(stage='written-not-yet-loaded', utc=timestamp())
+    save(manifest)
+
+
 def validated_gate(gate, expected_sha):
     if gate.parent != Path('/nix/store') or gate.resolve(strict=True) != gate:
         raise RuntimeError('Gate must be a canonical direct Nix-store file')
@@ -148,29 +208,121 @@ def validated_gate(gate, expected_sha):
         raise RuntimeError('Reviewed gate source SHA mismatch')
 
 
+def reviewed_source(source, expected_sha):
+    if source.parent != Path('/nix/store') or source.resolve(strict=True) != source:
+        raise RuntimeError('Helper must be a canonical direct Nix-store file')
+    meta = source.lstat()
+    if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o222 or digest(source) != expected_sha:
+        raise RuntimeError('Helper reviewed source/ownership/type mismatch')
+
+
 def public_registration(slot):
     path = Path(f'/var/lib/hound-ci/slot-{slot}-registration.json')
-    if not path.exists(): return None
-    if path.stat().st_size > 4096: raise RuntimeError('Public registration record bound exceeded')
-    value = json.loads(path.read_text())
+    try: fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except FileNotFoundError: return None
+    try:
+        meta = os.fstat(fd)
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) != 0o600 or not 0 < meta.st_size <= 4096:
+            raise RuntimeError('Public root registration ownership/type/bound changed')
+        raw = os.read(fd, 4097)
+        if len(raw) > 4096: raise RuntimeError('Public registration record bound exceeded')
+        value = json.loads(raw)
+    finally: os.close(fd)
     if set(value) != {'repo', 'id', 'name'} or value['repo'] != 'xmit-dev/ultimator':
         raise RuntimeError('Unexpected public registration record schema')
     if value['id'] is not None and (type(value['id']) is not int or value['id'] <= 0):
         raise RuntimeError('Invalid public runner ID')
+    if not re.fullmatch(f'hound-ci-{slot}-[0-9a-f]{{12}}', value['name']):
+        raise RuntimeError('Invalid root-generated runner name')
     return value
+
+
+def validate_qemu_binding(entry, pid, before, fields, args, account):
+    expected_disk = f'file=/var/lib/hound-ci/slot-{entry["slot"]}/job.qcow2,if=virtio,format=qcow2,cache=none,discard=unmap'
+    if fields['PPid'] != str(entry['pid']) or fields['Uid'].split() != [str(account.pw_uid)] * 4 or fields['Gid'].split() != [str(account.pw_gid)] * 4:
+        raise RuntimeError('Actual QEMU parent/slot UID identity mismatch')
+    if any(int(fields[key],16) != 0 for key in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')) or fields['NoNewPrivs'] != '1' or int(fields['Seccomp']) <= 0:
+        raise RuntimeError('Actual QEMU isolation mismatch')
+    if expected_disk not in args or args[args.index(expected_disk)-1] != '-drive':
+        raise RuntimeError('Actual QEMU private disk mismatch')
+    return {'pid':pid,'starttime':before,'parent_pid':entry['pid'],'uid':account.pw_uid,'gid':account.pw_gid,
+            'disk':f'/var/lib/hound-ci/slot-{entry["slot"]}/job.qcow2','isolation_verified':True}
+
+
+def current_qemu(entry):
+    """Finite pre-gate actual-host QEMU binding; never read seeds/console/env."""
+    identity(entry, require_hold=True)
+    observation_boot_id = current_boot_id()
+    if observation_boot_id != entry['boot_id']:
+        raise RuntimeError('Observation belongs to another boot than the pinned controller')
+    observation_started_monotonic_us = str(time.monotonic_ns() // 1000)
+    observation_started_utc = timestamp()
+    # These boundaries precede the FIRST broker read, not the end of this
+    # potentially delayed snapshot. Historical STOP classification uses the
+    # same-boot monotonic boundary, never a wallclock-labelled substitute.
+    registration = public_registration(entry['slot'])
+    # Source-bound FIRST-read result: recorded verbatim by THIS reviewed armer
+    # (manifest operator_sha256) for the exact public path, read strictly after
+    # the monotonic boundary above. The finisher's historical exemption needs
+    # present=False here; later reads never substitute for it.
+    first_read = {'path': f'/var/lib/hound-ci/slot-{entry["slot"]}-registration.json',
+                  'present': registration is not None,
+                  'boot_id': observation_boot_id,
+                  'after_monotonic_us': observation_started_monotonic_us}
+    children = Path(f'/proc/{entry["pid"]}/task/{entry["pid"]}/children').read_text().split()
+    found = []
+    for child in children:
+        pid = int(child)
+        try:
+            before = starttime(pid)  # Anchor BEFORE status/argv/exe attestation.
+            fd = os.pidfd_open(pid)
+        except (FileNotFoundError, ProcessLookupError): continue
+        try:
+            if select.select([fd], [], [], 0)[0]: continue
+            text = Path(f'/proc/{pid}/status').read_text()
+            fields = {key: value.strip() for key, value in (line.split(':', 1) for line in text.splitlines() if ':' in line)}
+            if not fields['Name'].startswith(('qemu-system', '.qemu-system')): continue
+            account = pwd.getpwnam(f'hound-ci-{entry["slot"]}')
+            args = [arg.decode() for arg in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0') if arg]
+            executable = os.readlink(f'/proc/{pid}/exe')
+            # A process name/drive string is not executable provenance. The
+            # deployed immutable wrapper pins this exact underlying QEMU ELF.
+            if executable != QEMU_ELF:
+                raise RuntimeError('Actual QEMU immutable executable mismatch')
+            if starttime(pid) != before or select.select([fd],[],[],0)[0]:
+                continue  # NO mixed/reused PID snapshot may become positive.
+            binding = validate_qemu_binding(entry, pid, before, fields, args, account)
+            binding['executable'] = executable
+            found.append(binding)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        finally: os.close(fd)
+    if len(found) > 1: raise RuntimeError('More than one actual QEMU in single-job slot')
+    after = public_registration(entry['slot'])
+    identity(entry, require_hold=True)
+    if found and (registration is None or registration['id'] is None or after != registration):
+        raise RuntimeError('Live actual QEMU/root registration binding raced; reconcile')
+    return {'registration':registration, 'qemu':found[0] if found else None, 'utc':timestamp(),
+            'observation_boot_id': observation_boot_id,
+            'observation_started_monotonic_us': observation_started_monotonic_us,
+            'observation_started_utc': observation_started_utc,
+            'first_registration_read': first_read}
 
 
 def public(entry):
     return {key: value for key, value in entry.items() if key not in ('pidfd', 'nsfd')}
 
 
-def arm(gate, expected_sha):
+def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validator_sha):
     if os.geteuid() != 0 or os.stat('/proc/self/ns/mnt').st_ino != os.stat('/proc/1/ns/mnt').st_ino:
         raise RuntimeError('Operator must start in the host mount namespace')
     validated_gate(gate, expected_sha)
+    reviewed_source(waiter_source, waiter_sha)
+    reviewed_source(validator_source, validator_sha)
+    reviewed_source(Path(OLD_SOURCE), OLD_SOURCE_SHA)
     if STATE.exists():
         raise RuntimeError('Rollout state exists; reconcile, never duplicate arm')
-    targets = [Path(f'/run/systemd/system/hound-ci-{slot}.service.d') / DROPIN for slot in range(1, 5)]
+    targets = fixed_dropin_paths()
     for target in targets:
         if target.exists() or target.is_symlink():
             raise RuntimeError('Preflight ALL four owned drop-in paths; no overwrite')
@@ -182,26 +334,25 @@ def arm(gate, expected_sha):
     if GH_ELF.open('rb').read(4) != b'\x7fELF':
         raise RuntimeError('Original non-shadowed gh must be the immutable ELF')
     entries = []
-    manifest = {'phase': 'pinning', 'operator_sha256': digest(__file__), 'created_utc': timestamp(), 'gate': str(gate), 'gate_sha256': expected_sha,
+    manifest = {'phase': 'pinning', 'boot_id': current_boot_id(),
+                'drain_nonce': str(uuid.uuid4()), 'operator_source': str(Path(__file__)), 'operator_sha256': digest(__file__),
+                'waiter_source': str(waiter_source), 'waiter_sha256': waiter_sha, 'validator_source': str(validator_source), 'validator_sha256': validator_sha,
+                'old_source': OLD_SOURCE, 'old_source_sha256': digest(OLD_SOURCE),
+                'created_utc': timestamp(), 'witness_since': '2026-10-05T11:56:00+00:00', 'gate': str(gate), 'gate_sha256': expected_sha,
                 'old_gh_sha256': old_hash, 'original_elf_sha256': elf_hash, 'controllers': [], 'armed': [], 'dropins': [], 'gates': {}}
     try:
         for slot in range(1, 5): entries.append(pin(slot))
+        if any(entry['boot_id'] != manifest['boot_id'] for entry in entries):
+            raise RuntimeError('Controller pin crossed a boot boundary')
+        if len({entry['invocation_id'] for entry in entries}) != 4:
+            raise RuntimeError('Four distinct original invocation identities required')
         if not namespaces_valid(entries, os.stat('/proc/1/ns/mnt').st_ino):
             raise RuntimeError('Four private namespaces must be distinct and not host')
         manifest['controllers'] = [public(entry) for entry in entries]
         save(manifest)
         for entry in entries:
             identity(entry)
-            folder = Path(f'/run/systemd/system/hound-ci-{entry["slot"]}.service.d')
-            folder.mkdir(exist_ok=True)
-            target = folder / DROPIN
-            if target.exists():
-                raise RuntimeError('Owned drain drop-in already exists; no overwrite')
-            with target.open('x') as stream:
-                os.fchmod(stream.fileno(), 0o644)
-                stream.write('[Service]\nRestart=no\n'); stream.flush(); os.fsync(stream.fileno())
-            manifest['dropins'].append({'slot': entry['slot'], 'stage': 'written-not-yet-loaded', 'utc': timestamp()})
-            save(manifest)
+            write_hold(entry, manifest)
         manifest['phase'] = 'reload-intent'
         save(manifest)
         run(['systemctl', 'daemon-reload'])
@@ -220,7 +371,16 @@ def arm(gate, expected_sha):
             def receipt(stage):
                 manifest['gates'].setdefault(str(entry['slot']), {}).update({'stage': stage, 'utc': timestamp()})
                 save(manifest)
-            manifest['gates'][str(entry['slot'])] = {'stage': 'before-gate', 'registration': public_registration(entry['slot'])}
+            before = current_qemu(entry)
+            if before['observation_boot_id'] != manifest['boot_id']:
+                raise RuntimeError('Observation belongs to another boot')
+            manifest['gates'][str(entry['slot'])] = {
+                'stage': 'before-gate', 'registration': before['registration'],
+                'host_qemu_before_gate': before['qemu'], 'observed_utc': before['utc'],
+                'observation_boot_id': before['observation_boot_id'],
+                'observation_started_monotonic_us': before['observation_started_monotonic_us'],
+                'observation_started_utc': before['observation_started_utc'],
+                'first_registration_read': dict(before['first_registration_read'], operator_sha256=manifest['operator_sha256'])}
             save(manifest)
             gate_namespace(entry, gate, receipt)
             manifest['gates'][str(entry['slot'])]['registration_after_gate'] = public_registration(entry['slot'])
@@ -243,8 +403,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gate', type=Path, required=True)
     parser.add_argument('--gate-sha256', required=True)
+    parser.add_argument('--waiter-source', type=Path, required=True)
+    parser.add_argument('--waiter-sha256', required=True)
+    parser.add_argument('--validator-source', type=Path, required=True)
+    parser.add_argument('--validator-sha256', required=True)
     args = parser.parse_args()
-    arm(args.gate, args.gate_sha256)
+    arm(args.gate, args.gate_sha256, args.waiter_source, args.waiter_sha256, args.validator_source, args.validator_sha256)
 
 
 if __name__ == '__main__':
