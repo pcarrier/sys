@@ -522,12 +522,25 @@ class DrainTests(unittest.TestCase):
         self.assertEqual(manifest['gates']['2']['idle_risk'],['new-registration-before-bind'])
         self.assertEqual(manifest['phase'],'armed-awaiting-job-completion')  # flagged, never refused
         self.assertIn('HOUND_CI_DRAIN_IDLE_RISK slot=2 new-registration-before-bind',[c.args[0] for c in printed.call_args_list])
+        self.assertEqual(printed.call_args.args[0],'HOUND_CI_DRAIN_ARMED four-private-namespaces host-gh-unchanged no-signals no-job-stop idle_risk=2:new-registration-before-bind')
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            state,_=self.arm_fixture(stack,folder)
+            printed=stack.enter_context(patch('builtins.print'))
+            drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+        self.assertTrue(printed.call_args.args[0].endswith(' idle_risk=none'))
         with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
             moved=lambda:{'controllers':{str(s):{'pid':1000+s+(s==3),'invocation_id':f'{s:x}'*32} for s in range(1,5)},'registrations':{str(k):v for k,v in self.REG.items()}}
             state,_=self.arm_fixture(stack,folder,ready=moved)
             with self.assertRaisesRegex(RuntimeError,'Controller changed after the readiness check'):
                 drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
             drain.write_hold.assert_not_called()
+            self.assertFalse(state.exists())  # pins are checked BEFORE the state directory exists
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+            state,_=self.arm_fixture(stack,folder)
+            drain.pin.side_effect=RuntimeError('Only the exact known legacy supervisor may be drained')
+            with self.assertRaisesRegex(RuntimeError,'legacy supervisor'):
+                drain.arm(Path('/nix/store/g'),'g',Path('/nix/store/w'),'w',Path('/nix/store/v'),'v')
+            self.assertFalse(state.exists());drain.write_hold.assert_not_called();drain.run.assert_not_called()
 
     def test_main_maps_not_ready_to_exit_75_with_one_line(self):
         argv=['drain-old.py','--gate','/nix/store/g','--gate-sha256','g','--waiter-source','/nix/store/w','--waiter-sha256','w','--validator-source','/nix/store/v','--validator-sha256','v']
@@ -543,7 +556,8 @@ class DrainTests(unittest.TestCase):
 
     def test_source_order_and_no_signal_restart_credentials_or_payload_reads(self):
         source=Path(__file__).with_name('drain-old.py').read_text()
-        self.assertLess(source.index("if any(entry['boot_id'] != manifest['boot_id']"),source.rindex('write_hold(entry, manifest)'))
+        self.assertLess(source.index("if any(entry['boot_id'] != boot_id"),source.rindex('write_hold(entry, manifest)'))
+        self.assertLess(source.index("if any(entry['boot_id'] != boot_id"),source.index('STATE.mkdir(mode=0o700)'))  # pins before state
         self.assertIn("'first_registration_read': dict(before['first_registration_read'], operator_sha256=manifest['operator_sha256'])",source)
         self.assertLess(source.index("properties(entry['slot'])['Restart'] != 'no'"),source.index('gate_namespace(entry, gate, receipt)'))
         self.assertNotIn('os.kill(',source)

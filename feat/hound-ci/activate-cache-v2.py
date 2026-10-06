@@ -34,8 +34,14 @@ Integration contract (fail CLOSED until finish-drain.py implements it):
   linklists (entries {path,target,uid,gid}). Unit copies must be root:root0600.
   No summaries or booleans substitute for the validator's full certificate.
 
-A durable intent with no completion is an EXPLICIT HOLD for manual reconcile.
-Never rerun this program to complete/undo an interrupted activation.
+A durable intent with no completion is an EXPLICIT HOLD for manual reconcile:
+the operation may or may not have happened. Never rerun this program to
+complete/undo an interrupted activation. --resume continues ONLY a recorded
+activation whose every event completed and which is a prefix of the reviewed
+plan (activation_plan), under a new held lease, after the same full recheck;
+it never undoes, repeats or skips a step. A start whose result was not
+recorded, an open intent, or state the journal does not describe (e.g. steps
+done by hand) HOLDs.
 """
 import argparse
 from contextlib import contextmanager
@@ -279,7 +285,8 @@ def fsync_dir(path):
 
 
 @contextmanager
-def exclusive_lock():
+def exclusive_lock(resume=False):
+    """flock among cooperating invocations; yields the recorded journal on --resume."""
     trusted_directory(STATE, 0o700)
     path = STATE / 'activation.lock'
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
@@ -294,11 +301,56 @@ def exclusive_lock():
             raise RuntimeError('Another activation owns the exclusive lock') from None
         require(fingerprint(path.lstat()) == fingerprint(os.fstat(fd)), 'Lock identity drift')
         fsync_dir(STATE)
-        require(not os.path.lexists(STATE / 'activation.json'),
-                'Prior activation exists; explicit reconcile required, NEVER rerun')
-        yield
+        journal = STATE / 'activation.json'
+        if resume:
+            require(os.path.lexists(journal), 'No recorded activation to resume')
+            value = strict_json(read_file(journal, mode=0o600, limit=JOURNAL_LIMIT))
+            require(isinstance(value, dict), 'Recorded activation journal must be an object')
+            yield value
+        else:
+            require(not os.path.lexists(journal),
+                    'Prior activation exists; --resume (completed steps only) or manual reconcile, NEVER rerun')
+            yield None
     finally:
         os.close(fd)
+
+
+def activation_plan():
+    """The reviewed durable steps, in order, as (operation, unit or None)."""
+    steps = [('root-namespace-create', None)]
+    for slot in UNITS:
+        steps += [('gc-root-create', f'hound-ci-{slot}.service'), ('unit-link-replace', f'hound-ci-{slot}.service')]
+    steps += [('reload-new-held', None), ('holds-remove-reload', None)]
+    return steps + [('start-anchor', f'hound-ci-{slot}.service') for slot in UNITS]
+
+
+RESUME_PHASE = 'resume-validated'
+
+
+def recorded_progress(value):
+    """The completed steps of a recorded activation, or HOLD.
+
+    Every event must have completed (an open intent may or may not have taken
+    effect), the events must be exactly a prefix of activation_plan(), the
+    phase must be the last completion (or a resume preflight), and some step
+    must remain. The journal says nothing of steps done outside this program.
+    """
+    require(isinstance(value, dict) and value.get('schema') == 2 and isinstance(value.get('events'), list),
+            'Recorded activation journal schema unknown: manual reconcile')
+    plan, done = activation_plan(), []
+    for event in value['events']:
+        require(isinstance(event, dict) and set(event) == {'operation', 'details', 'intent_utc', 'completion_utc'} and
+                isinstance(event['details'], dict) and isinstance(event['intent_utc'], str),
+                'Recorded activation event malformed: manual reconcile')
+        require(isinstance(event['completion_utc'], str),
+                'Recorded INTENT without completion (' + str(event['operation']) +
+                '): it may or may not have happened; manual reconcile, never resume')
+        done.append((event['operation'], event['details'].get('unit')))
+    require(done == plan[:len(done)], 'Recorded events are not a prefix of the reviewed plan: manual reconcile')
+    require(len(done) < len(plan), 'Recorded activation dispatched all four starts: nothing to resume')
+    phases = {RESUME_PHASE, done[-1][0] + '-complete'} if done else {RESUME_PHASE, 'preflight', 'validated-all-four-stopped'}
+    require(value.get('phase') in phases, 'Recorded phase is not its last completed step: manual reconcile')
+    return done
 
 
 class Journal:
@@ -441,10 +493,14 @@ def device_sysfs_snapshot(index):
     # Read the COMPLETE loaded device index, not only currently reached names.
     names = sorted(name for name in index if name.endswith('.device'))
     require(len(names) <= 4096, 'Complete device peer-index bound exceeded')
-    result = {}
+    result, vanished = {}, []
     for name in names:
-        value = bus_value(['get-property', BUS_NAME, index[name]['path'],
-                           BUS_NAME + '.Device', 'SysFSPath'], 's')
+        try:
+            value = bus_value(['get-property', BUS_NAME, index[name]['path'],
+                               BUS_NAME + '.Device', 'SysFSPath'], 's')
+        except subprocess.CalledProcessError:
+            vanished.append(name)  # Decided below, against a later index.
+            continue
         require(isinstance(value, str) and (not value or
                 value.startswith('/sys/') and '\x00' not in value and len(value) <= 4096),
                 'Unmodeled typed Device.SysFSPath')
@@ -454,7 +510,29 @@ def device_sysfs_snapshot(index):
         require('..' not in Path(value).parts and (not value or value == str(Path(value))),
                 'Noncanonical device sysfs key: do not infer path_hash_ops identity')
         result[name] = value
+    if vanished:
+        # Docker veths come and go between ListUnits and the property read.
+        # Only a device the manager no longer lists at that object counts as
+        # gone (left out: a closure device then HOLDs in effect_metadata, a
+        # peer in closure_device_peers); any other read failure HOLDs.
+        after = loaded_index()
+        require(all(after.get(name, {}).get('path') != index[name]['path'] for name in vanished),
+                'Device SysFSPath unreadable while still loaded')
     return result
+
+
+def closure_device_peers(device_sysfs, aliases):
+    """The devices whose follow sets the closure can reach, with their keys.
+
+    Closure devices, and every device sharing a NON-empty SysFSPath with one
+    (an empty path is an unlinked singleton). Other devices (Docker veths,
+    block devices nobody in the closure names) cannot join a closure device's
+    follow set without taking its SysFSPath, so their churn is not bound.
+    """
+    names = set(aliases) | set(aliases.values())
+    closure = {name for name in names if name.endswith('.device')}
+    keys = {device_sysfs[name] for name in closure if device_sysfs.get(name)}
+    return {name: key for name, key in device_sysfs.items() if name in closure or (key and key in keys)}
 
 
 def effect_metadata(name, effects, index, device_sysfs=None):
@@ -513,11 +591,63 @@ JOB_RELATIONS = {
 PROJECTION = 'barrier-job-relations-v1'
 
 
+def derive_job_relations(effects):
+    """Per job type, the relations along which effects.closure() actually reaches units.
+
+    Behavioural, not a copy of its tuples: for each type and relation, a
+    two- or three-unit synthetic graph gives a unit of that job type ONE edge of
+    that relation to a probe unit, and the probe counts as job-forming when
+    closure() fetches it or refuses the edge (STOP's PropagatesStopTo HOLD).
+    START is the anchor's; STOP comes through Conflicts, VERIFY through
+    Requisite. NOP is unreachable from a START anchor in v261 and forms none.
+    """
+    def unit(name, **relations):
+        value = {key: [] for key in effects.UNIT_ARRAYS}
+        value.update({key: '' for key in effects.UNIT_STRINGS})
+        value.update({key: False for key in effects.UNIT_BOOLS})
+        value.update(Id=name, Names=[name], FollowingSet=[], LoadState='loaded', ActiveState='inactive',
+                     SubState='dead', FreezerState='running', Job=[0, '/'], LoadError=['', ''],
+                     FailureAction='none', SuccessAction='none', StartLimitAction='none', JobTimeoutAction='none')
+        value.update(relations)
+        return value
+
+    def forms(kind, relation):
+        via = {'START': None, 'STOP': 'Conflicts', 'VERIFY': 'Requisite'}[kind]
+        if via:
+            units = {'anchor.service': unit('anchor.service', **{via: ['typed.service']}),
+                     'typed.service': unit('typed.service', **{relation: ['probe.service']})}
+        else:
+            units = {'anchor.service': unit('anchor.service', **{relation: ['probe.service']})}
+        units['probe.service'] = unit('probe.service')
+        fetched = set()
+        def fetch(name):
+            fetched.add(name)
+            return json.loads(json.dumps(units[name]))
+        try:
+            effects.closure('anchor.service', fetch)
+        except RuntimeError:
+            return True
+        return 'probe.service' in fetched
+
+    try:
+        derived = {kind: tuple(key for key in RELATION_KEYS if forms(kind, key)) for kind in ('START', 'STOP', 'VERIFY')}
+    except Exception as error:  # e.g. a traversal tuple naming a field no unit has
+        raise RuntimeError('Effect source job traversal contract drift: ' + type(error).__name__) from None
+    derived['NOP'] = ()
+    return derived
+
+
 def check_traversal_contract(effects):
+    """JOB_RELATIONS must be exactly what the pinned effect source traverses."""
     require(tuple(effects.RELATIONS) == RELATION_KEYS, 'Effect source relation contract drift')
     require(tuple(effects.START_REQUIRED) + tuple(effects.START_IGNORED) == ('Requires', 'BindsTo', 'Wants', 'Upholds') and
             tuple(effects.STOP_REQUIRED) == ('RequiredBy', 'RequisiteOf', 'BoundBy', 'ConsistsOf') and
             set(effects.TYPES) == set(JOB_RELATIONS), 'Effect source job traversal contract drift')
+    derived = derive_job_relations(effects)
+    require({kind: set(names) for kind, names in derived.items()} ==
+            {kind: set(names) for kind, names in JOB_RELATIONS.items()} and
+            all(len(set(names)) == len(names) for names in JOB_RELATIONS.values()),
+            'Effect source job traversal contract drift: JOB_RELATIONS differs from closure()')
 
 
 def projection_context(certificates):
@@ -605,11 +735,12 @@ RELATION_KEYS = ('Requires', 'Requisite', 'Wants', 'BindsTo', 'PartOf', 'Upholds
     'ReloadPropagatedFrom', 'PropagatesStopTo', 'StopPropagatedFrom', 'JoinsNamespaceOf', 'SliceOf')
 
 
-def relevant_index(index, aliases):
+def relevant_index(index, aliases, devices):
     # Closure units (they must stay loaded at the same object/Following) and the
-    # COMPLETE device index (follow sets need every same-SysFSPath peer). Other
-    # transient units (Docker mounts/scopes, sessions) are not transaction inputs.
-    return {name: value for name, value in index.items() if name in aliases or name.endswith('.device')}
+    # devices of closure_device_peers (follow sets need every same-SysFSPath
+    # peer). Other transient units (Docker mounts/scopes/veths, sessions) are
+    # not transaction inputs: 04:07 UTC 10-06's HOLD was a veth leaving.
+    return {name: value for name, value in index.items() if name in aliases or name in devices}
 
 
 def validate_dependencies(worker_values, effects, window, started=()):
@@ -654,15 +785,25 @@ def validate_dependencies(worker_values, effects, window, started=()):
         ident = value['Id']
         require(fresh['Id'] == ident and project_unit(ident, fresh, context, effects) ==
                 project_unit(ident, value, context, effects), 'Loaded graph/state changed during proof')
-    require(relevant_index(loaded_index(), context[1]) == relevant_index(index, context[1]) and
-            device_sysfs_snapshot(index) == device_sysfs,
-            'Loaded complete Following/SysFS peer index changed during proof')
+    # The complete device index is READ again (a new device can take a closure
+    # device's SysFSPath), but only closure devices and their peers are bound.
+    peers = closure_device_peers(device_sysfs, context[1])
+    after = loaded_index()
+    after_peers = closure_device_peers(device_sysfs_snapshot(after), context[1])
+    require(after_peers == peers and
+            relevant_index(after, context[1], after_peers) == relevant_index(index, context[1], peers),
+            'Loaded closure Following/SysFS peer index changed during proof')
     # A second queue snapshot catches even compatible reload/start/nop additions.
     rows = queued_jobs()
     for name in certificates:
         if name not in started:
             certificates[name] = effects.prove(name, fetch, rows, window.value['ignored_not_found'])
     no_queued_jobs(set(cache) | {value['Id'] for value in cache.values()} | neighbours)
+    # Defence in depth, NOT a check expected to fire: fetch() serves the cached
+    # first reads, so prove() over the same cache yields the same job graph, and
+    # a changed queue raises inside prove() rather than changing the graph. It
+    # catches a nondeterministic effect source; tests reach it only by
+    # substituting prove(). Fresh state changes are caught by the reads above.
     require(projection_context(certificates) == context, 'Prospective job graph changed during proof')
     window.check()
     # The full shared structure stays bound after previous anchors start. All
@@ -978,6 +1119,7 @@ class Activation:
         self.old_commands, self.new_commands, self.new_contents = {}, {}, {}
         self.replaced, self.root_units = set(), set()
         self.roots_created = False
+        self.completed = set()
         self.disk_holds = set(UNITS)
         self.loaded_holds = set(UNITS)
         self.loaded_new = False
@@ -1006,6 +1148,50 @@ class Activation:
                                 'terminal_certificate': strict_json(read_file(STATE / 'actions-terminal.json', mode=0o600, limit=JSON_LIMIT)),
                                 'control_window': window.value, 'control_window_sha256': window.expected_sha,
                                 'events': []})
+
+    def adopt(self, recorded):
+        """Take over a recorded activation's completed steps (recorded_progress)."""
+        done = recorded_progress(recorded)
+        for key in ('candidate_sha256', 'old_image_sha256', 'certificate_sha256', 'validator_source',
+                    'validator_sha256', 'manifest'):
+            require(recorded.get(key) == self.journal.value[key],
+                    'Recorded activation belongs to another certificate/image/validator: manual reconcile')
+        starts = recorded.get('slot_starts', {})
+        require(isinstance(starts, dict), 'Recorded slot starts malformed: manual reconcile')
+        slots = {f'hound-ci-{slot}.service': slot for slot in UNITS}
+        for label, name in done:
+            if label == 'root-namespace-create':
+                self.roots_created = True
+            elif label == 'gc-root-create':
+                self.root_units.add(name)
+            elif label == 'unit-link-replace':
+                self.replaced.add(name)
+            elif label == 'reload-new-held':
+                self.loaded_new = True
+            elif label == 'holds-remove-reload':
+                self.disk_holds.clear()
+                self.loaded_holds.clear()
+            else:
+                slot = slots[name]
+                record = starts.get(str(slot))
+                result = record.get('result') if isinstance(record, dict) else None
+                require(isinstance(record, dict) and record.get('stage') == 'started' and isinstance(result, dict) and
+                        type(result.get('pid')) is int and isinstance(result.get('starttime'), str) and
+                        INVOCATION.fullmatch(str(result.get('invocation_id'))) and
+                        result.get('control_group') == f'/hound.slice/hound-ci.slice/{name}',
+                        'Start dispatched but its result was not recorded: manual reconcile')
+                self.started[slot] = {'pid': result['pid'], 'starttime': result['starttime'],
+                                      'control_group': result['control_group'],
+                                      'argv': self.new_commands[name], 'unit': name}
+                self.invocations[slot] = result['invocation_id']
+        self.completed = set(done)
+        recorded.setdefault('resumes', []).append({
+            'utc': timestamp(), 'from_phase': recorded['phase'], 'completed_steps': len(done),
+            'control_window': self.window.value, 'control_window_sha256': self.window.expected_sha})
+        self.journal.value = recorded
+
+    def pending(self, label, name=None):
+        return (label, name) not in self.completed
 
     def recheck(self, phase):
         self.window.check()
@@ -1092,17 +1278,22 @@ class Activation:
         self.journal.change(label, details, checked_operation, directories)
 
     def execute(self):
-        self.recheck('validated-all-four-stopped')
-        self.journal.value['phase'] = 'validated-all-four-stopped'
+        # A resume rechecks the recorded partial state exactly as the next step
+        # of a single run would, and changes nothing unless it holds.
+        phase = RESUME_PHASE if self.completed else 'validated-all-four-stopped'
+        self.recheck(phase)
+        self.journal.value['phase'] = phase
         self.journal.save()
         roots = GCROOTS / ROOT_NAME
-        self.change('root-namespace-create', {'path': str(roots)},
-                    lambda: roots.mkdir(mode=0o755), [GCROOTS])
+        if self.pending('root-namespace-create'):
+            self.change('root-namespace-create', {'path': str(roots)},
+                        lambda: roots.mkdir(mode=0o755), [GCROOTS])
         self.roots_created = True
         for slot, store in UNITS.items():
             name = f'hound-ci-{slot}.service'
-            self.change('gc-root-create', {'unit': name, 'target': store},
-                        lambda name=name, store=store: os.symlink(store, roots / name), [roots])
+            if self.pending('gc-root-create', name):
+                self.change('gc-root-create', {'unit': name, 'target': store},
+                            lambda name=name, store=store: os.symlink(store, roots / name), [roots])
             self.root_units.add(name)
             target = ATTACHED / name
             temporary = target.with_name(name + '.cache-v2-new')
@@ -1110,11 +1301,13 @@ class Activation:
                 os.symlink(self.sources[name], temporary)
                 fsync_dir(ATTACHED)
                 os.replace(temporary, target)
-            self.change('unit-link-replace', {'unit': name, 'target': str(self.sources[name]),
-                                            'stage': str(temporary)}, replace, [ATTACHED])
+            if self.pending('unit-link-replace', name):
+                self.change('unit-link-replace', {'unit': name, 'target': str(self.sources[name]),
+                                                'stage': str(temporary)}, replace, [ATTACHED])
             self.replaced.add(name)
-        self.change('reload-new-held', {}, lambda: run(['systemctl', 'daemon-reload']),
-                    [ATTACHED, RUNTIME])
+        if self.pending('reload-new-held'):
+            self.change('reload-new-held', {}, lambda: run(['systemctl', 'daemon-reload']),
+                        [ATTACHED, RUNTIME])
         self.loaded_new = True
         # ONE durable step: unlink all four owned holds, then ONE daemon-reload.
         # Unlinking a loaded drop-in makes systemd report NeedDaemonReload=yes
@@ -1131,13 +1324,16 @@ class Activation:
                 hold.unlink()
                 fsync_dir(hold.parent)
             run(['systemctl', 'daemon-reload'])
-        self.change('holds-remove-reload', {'paths': [str(hold) for hold in holds]}, release_holds,
-                    [ATTACHED, RUNTIME, *[hold.parent for hold in holds]])
+        if self.pending('holds-remove-reload'):
+            self.change('holds-remove-reload', {'paths': [str(hold) for hold in holds]}, release_holds,
+                        [ATTACHED, RUNTIME, *[hold.parent for hold in holds]])
         self.disk_holds.clear()
         self.loaded_holds.clear()
         starts = self.journal.value.setdefault('slot_starts', {})
         for slot in UNITS:
             name = f'hound-ci-{slot}.service'
+            if not self.pending('start-anchor', name):
+                continue  # adopt() took its recorded NEW identity; recheck binds it.
             entry = next(entry for entry in self.manifest['controllers'] if entry['slot'] == slot)
             request = ['systemctl', '--job-mode=fail', 'start', '--', name]
             def prepare(before, digest, slot=slot, name=name, entry=entry, request=request):
@@ -1203,12 +1399,12 @@ class Activation:
 
 
 def activate(validator_source, validator_sha, *, activation_sha, effect_source, effect_sha,
-             control_window, control_window_sha, parent_ack):
+             control_window, control_window_sha, parent_ack, resume=False):
     require(os.geteuid() == 0, 'Operator root required')
     # Opening this namespace descriptor does not read credentials or mount.
     require(os.stat('/proc/self/ns/mnt').st_ino == os.stat('/proc/1/ns/mnt').st_ino,
             'Activation must be in the original host mount namespace')
-    with exclusive_lock():
+    with exclusive_lock(resume) as recorded:
         for path in (BACKUP, ATTACHED, RUNTIME, GCROOTS, ENABLE):
             trusted_directory(path, 0o700 if path == BACKUP else None)
         manifest = read_public_json(STATE / 'manifest.json')
@@ -1240,7 +1436,10 @@ def activate(validator_source, validator_sha, *, activation_sha, effect_source, 
                     'Reviewed primary-systemd proof source differs from explicit lease')
             for path, digest in ((CANDIDATE, CANDIDATE_SHA), (OLD_IMAGE, OLD_SHA)):
                 images.append(ImagePin(path, digest))
-            Activation(validator, DrainView(operator), manifest, backup, images, effects, window).execute()
+            activation = Activation(validator, DrainView(operator), manifest, backup, images, effects, window)
+            if recorded is not None:
+                activation.adopt(recorded)
+            activation.execute()
         finally:
             for image in images:
                 image.close()
@@ -1257,12 +1456,14 @@ def main():
     parser.add_argument('--control-window', type=Path, required=True)
     parser.add_argument('--control-window-sha256', required=True)
     parser.add_argument('--parent-ack', required=True, help='Literal independently accepted parent message pointer')
+    parser.add_argument('--resume', action='store_true',
+                        help='Continue a recorded activation whose every step completed (never an open intent)')
     args = parser.parse_args()
     require_pinned_interpreter()
     activate(args.validator_source, args.validator_sha256, activation_sha=args.activation_sha256,
              effect_source=args.effect_source, effect_sha=args.effect_sha256,
              control_window=args.control_window, control_window_sha=args.control_window_sha256,
-             parent_ack=args.parent_ack)
+             parent_ack=args.parent_ack, resume=args.resume)
 
 
 if __name__ == '__main__':

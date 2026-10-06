@@ -537,13 +537,37 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
         if target.parent.exists() and (target.parent.is_symlink() or target.parent.stat().st_uid != 0):
             raise RuntimeError('Unexpected drop-in directory ownership/type')
     ready = readiness()  # Read-only; NotReady/errors leave NOTHING changed.
-    STATE.mkdir(mode=0o700)
-    old_hash = digest(GH)
-    elf_hash = digest(GH_ELF)
-    if GH_ELF.open('rb').read(4) != b'\x7fELF':
-        raise RuntimeError('Original non-shadowed gh must be the immutable ELF')
     entries = []
-    manifest = {'phase': 'pinning', 'boot_id': current_boot_id(),
+    boot_id = current_boot_id()
+    try:
+        # Pin (pidfd + namespace fd, read-only) and check all four BEFORE the
+        # state directory exists: a pin failure leaves nothing to reconcile.
+        for slot in range(1, 5): entries.append(pin(slot))
+        for entry in entries:
+            item = ready['controllers'][str(entry['slot'])]
+            if (entry['pid'], entry['invocation_id']) != (item['pid'], item['invocation_id']):
+                raise RuntimeError('Controller changed after the readiness check')
+        if any(entry['boot_id'] != boot_id for entry in entries):
+            raise RuntimeError('Controller pin crossed a boot boundary')
+        if len({entry['invocation_id'] for entry in entries}) != 4:
+            raise RuntimeError('Four distinct original invocation identities required')
+        if not namespaces_valid(entries, os.stat('/proc/1/ns/mnt').st_ino):
+            raise RuntimeError('Four private namespaces must be distinct and not host')
+    except BaseException:
+        for entry in entries:
+            os.close(entry['pidfd']); os.close(entry['nsfd'])
+        raise
+    try:
+        STATE.mkdir(mode=0o700)
+        old_hash = digest(GH)
+        elf_hash = digest(GH_ELF)
+        if GH_ELF.open('rb').read(4) != b'\x7fELF':
+            raise RuntimeError('Original non-shadowed gh must be the immutable ELF')
+    except BaseException:
+        for entry in entries:
+            os.close(entry['pidfd']); os.close(entry['nsfd'])
+        raise
+    manifest = {'phase': 'pinning', 'boot_id': boot_id,
                 'drain_nonce': str(uuid.uuid4()), 'operator_source': str(Path(__file__)), 'operator_sha256': digest(__file__),
                 'waiter_source': str(waiter_source), 'waiter_sha256': waiter_sha, 'validator_source': str(validator_source), 'validator_sha256': validator_sha,
                 'old_source': OLD_SOURCE, 'old_source_sha256': digest(OLD_SOURCE),
@@ -551,17 +575,6 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
                 'old_gh_sha256': old_hash, 'original_elf_sha256': elf_hash, 'controllers': [], 'armed': [], 'dropins': [], 'gates': {},
                 'readiness': ready}
     try:
-        for slot in range(1, 5): entries.append(pin(slot))
-        for entry in entries:
-            item = ready['controllers'][str(entry['slot'])]
-            if (entry['pid'], entry['invocation_id']) != (item['pid'], item['invocation_id']):
-                raise RuntimeError('Controller changed after the readiness check')
-        if any(entry['boot_id'] != manifest['boot_id'] for entry in entries):
-            raise RuntimeError('Controller pin crossed a boot boundary')
-        if len({entry['invocation_id'] for entry in entries}) != 4:
-            raise RuntimeError('Four distinct original invocation identities required')
-        if not namespaces_valid(entries, os.stat('/proc/1/ns/mnt').st_ino):
-            raise RuntimeError('Four private namespaces must be distinct and not host')
         manifest['controllers'] = [public(entry) for entry in entries]
         save(manifest)
         for entry in entries:
@@ -586,9 +599,12 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
             def receipt(stage, entry=entry, expected=expected):
                 record = manifest['gates'].setdefault(str(entry['slot']), {})
                 if stage == 'bind-intent':
-                    # Re-read IMMEDIATELY before the bind: R or absent means
-                    # the next record write (which precedes its POST) has not
-                    # happened yet. A new name is flagged, never refused.
+                    # Re-read IMMEDIATELY before the bind. R or absent: the
+                    # next record write (which precedes its POST) had not
+                    # happened at THIS read. Absent does not cover the read-
+                    # to-bind gap (the legacy sleep may end in it): a write
+                    # and POST there show as a new name after the gate. New
+                    # names are flagged in idle_risk, never refused.
                     record['pre_bind_monotonic_us'] = str(time.monotonic_ns() // 1000)
                     record['registration_pre_bind'] = public_registration(entry['slot'])
                 elif stage == 'bound':
@@ -620,7 +636,10 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
         manifest['phase'] = 'armed-awaiting-job-completion'
         manifest['armed_utc'] = timestamp()
         save(manifest)
-        print('HOUND_CI_DRAIN_ARMED four-private-namespaces host-gh-unchanged no-signals no-job-stop', flush=True)
+        risks = ';'.join(f'{slot}:' + ','.join(record['idle_risk']) for slot, record in sorted(manifest['gates'].items())
+                         if record.get('idle_risk'))
+        print('HOUND_CI_DRAIN_ARMED four-private-namespaces host-gh-unchanged no-signals no-job-stop '
+              f'idle_risk={risks or "none"}', flush=True)
     finally:
         for entry in entries:
             os.close(entry['pidfd']); os.close(entry['nsfd'])

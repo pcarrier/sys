@@ -25,6 +25,7 @@ spec.loader.exec_module(act)
 spec_effect = importlib.util.spec_from_file_location('effect', Path(__file__).with_name('effect-proof.py'))
 effect = importlib.util.module_from_spec(spec_effect)
 spec_effect.loader.exec_module(effect)
+REAL_NO_QUEUED_JOBS = act.no_queued_jobs
 
 
 def is_start(argv):
@@ -304,10 +305,18 @@ class Fixture:
             raise AssertionError(f'Unapproved command in fixture: {argv}')
         return ''
 
-    def activate(self, source=None):
+    def activate(self, source=None, resume=False):
         act.activate(Path(source or self.manifest['validator_source']), self.manifest['validator_sha256'],
                      activation_sha=self.activation_sha, effect_source=self.effect_source, effect_sha=self.effect_sha,
-                     control_window=act.STATE / 'control-window.json', control_window_sha=self.window_sha, parent_ack=self.ack)
+                     control_window=act.STATE / 'control-window.json', control_window_sha=self.window_sha, parent_ack=self.ack,
+                     resume=resume)
+
+    def rebind_window(self, metadata=None):
+        """Bind the lease to the current fixture graph (as an operator would after review)."""
+        fetch = metadata or self.effect_metadata
+        proofs = {name: effect.prove(name, lambda name: fetch(name)) for name in self.manager}
+        self.window['effect_structure_sha256'] = act.effect_structure(proofs, effect)
+        self.write_window()
 
     def receipt(self):
         return json.loads((act.STATE / 'activation.json').read_text())
@@ -1071,15 +1080,137 @@ class EffectProjectionTests(unittest.TestCase):
             self.assertTrue(any('network-online.target' in call.args[0] for call in act.no_queued_jobs.call_args_list))
         self.assertFalse(any(is_start(argv) for argv in self.fixture.commands))
 
-    def test_closure_unit_leaving_the_index_or_a_device_appearing_holds(self):
-        for change in (lambda names: names - {'hound-ci-image.service'}, lambda names: names | {'sys-new.device'}):
-            calls = {'n': 0}
-            def index(change=change, calls=calls):
-                calls['n'] += 1
-                names = set(self.fixture.manager) | set(self.fixture.dependencies)
-                return {name: {} for name in (change(names) if calls['n'] % 2 == 0 else names)}
-            with self.subTest(change=change), patch.object(act, 'loaded_index', side_effect=index):
-                self.assert_holds_before_start('peer index changed during proof')
+    def test_closure_unit_leaving_the_index_holds(self):
+        calls = {'n': 0}
+        def index():
+            calls['n'] += 1
+            names = set(self.fixture.manager) | set(self.fixture.dependencies)
+            return {name: {} for name in (names - {'hound-ci-image.service'} if calls['n'] % 2 == 0 else names)}
+        with patch.object(act, 'loaded_index', side_effect=index):
+            self.assert_holds_before_start('peer index changed during proof')
+
+    def with_closure_device(self):
+        # hound-ci-image.service Requires dev-kvm.device: a device in the closure.
+        self.fixture.dependencies['dev-kvm.device'] = {'Id': 'dev-kvm.device', 'LoadState': 'loaded', 'ActiveState': 'active',
+                                                        'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}
+        self.fixture.dependencies['hound-ci-image.service']['Requires'] = 'dev-kvm.device'
+        self.fixture.rebind_window()
+
+    def device_churn(self, later):
+        """Odd reads: kvm plus a veth; even (after-proof) reads: later(n)."""
+        calls = {'n': 0}
+        def snapshot(index):
+            calls['n'] += 1
+            if calls['n'] % 2:
+                return {'dev-kvm.device': '/sys/devices/virtual/misc/kvm', 'sys-devices-virtual-net-veth1.device': '/sys/devices/virtual/net/veth1'}
+            return later(calls['n'])
+        def index():
+            names = set(self.fixture.manager) | set(self.fixture.dependencies)
+            return {name: {} for name in names | {f'sys-devices-virtual-net-veth{calls["n"]}.device'}}
+        return patch.object(act, 'device_sysfs_snapshot', side_effect=snapshot), patch.object(act, 'loaded_index', side_effect=index)
+
+    def test_unrelated_device_churn_passes_like_the_0407_veth(self):
+        # 10-06 04:07 UTC: vethabedac0 left the index mid-proof and the complete
+        # device index HOLD fired. Devices sharing no SysFSPath with a closure
+        # device are not bound: veths leaving and appearing pass.
+        self.with_closure_device()
+        churn = lambda n: {'dev-kvm.device': '/sys/devices/virtual/misc/kvm',
+                           f'sys-devices-virtual-net-veth{n}.device': f'/sys/devices/virtual/net/veth{n}', 'sys-empty.device': ''}
+        first, second = self.device_churn(churn)
+        with first, second:
+            self.fixture.activate()
+        self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+
+    def test_closure_device_peer_appearing_or_leaving_or_moving_holds(self):
+        cases = {
+            'peer appears': lambda n: {'dev-kvm.device': '/sys/devices/virtual/misc/kvm',
+                                       'sys-devices-virtual-misc-kvm.device': '/sys/devices/virtual/misc/kvm'},
+            'closure device leaves': lambda n: {'sys-devices-virtual-net-veth1.device': '/sys/devices/virtual/net/veth1'},
+            'closure device moves': lambda n: {'dev-kvm.device': '/sys/devices/virtual/misc/kvm2'},
+        }
+        for label, later in cases.items():
+            with self.subTest(case=label):
+                self.fresh_fixture()
+                self.with_closure_device()
+                first, second = self.device_churn(later)
+                with first, second:
+                    self.assert_holds_before_start('peer index changed during proof')
+
+    def test_queued_job_on_an_anchor_ordering_neighbour_outside_the_closure_holds(self):
+        # After/Before are not job-forming, so network-online.target is outside
+        # every closure (prove() never sees it), but a job queued there can gate
+        # the anchor: the REAL no_queued_jobs must refuse it.
+        def order(name, value, reads):
+            if name in self.fixture.manager:
+                value['After'] = sorted(set(value['After']) | {'network-online.target'})
+                value['Before'] = sorted(set(value['Before']) | {'multi-user.target'})
+        with self.churned(order):
+            self.fixture.rebind_window(act.effect_metadata)
+        for neighbour in ('network-online.target', 'multi-user.target'):
+            rows = [[11, neighbour, 'start', 'waiting', '/job/11', '/unit']]
+            def listed(argv, signature, rows=rows):
+                self.assertEqual((argv[-1], signature), ('ListJobs', 'a(usssoo)'))
+                return deepcopy(rows)
+            with self.subTest(neighbour=neighbour), self.churned(order), \
+                    patch.object(act, 'no_queued_jobs', side_effect=REAL_NO_QUEUED_JOBS), \
+                    patch.object(act, 'bus_value', side_effect=listed):
+                self.fixture.jobs = deepcopy(rows)  # the same snapshot prove() reads
+                self.assert_holds_before_start('Conflicting queued systemd job')
+        # Control: the same graph with an unrelated queued job dispatches.
+        rows = [[12, 'unrelated.service', 'start', 'waiting', '/job/12', '/unit']]
+        self.fixture.jobs = deepcopy(rows)
+        with self.churned(order), patch.object(act, 'no_queued_jobs', side_effect=REAL_NO_QUEUED_JOBS), \
+                patch.object(act, 'bus_value', side_effect=lambda argv, signature: deepcopy(rows)):
+            self.fixture.activate()
+        self.assertEqual(sum(is_start(argv) for argv in self.fixture.commands), 4)
+
+    def with_stop_barrier(self):
+        # hound-ci-image.service (active) Conflicts shutdown.target (inactive):
+        # START of the image unit gives shutdown.target a redundant STOP, so it
+        # is a STOP barrier whose STOP-forming reverse edges stay bound.
+        self.fixture.dependencies['hound-ci-image.service']['Conflicts'] = ['shutdown.target']
+        self.fixture.dependencies['shutdown.target'] = {'Id': 'shutdown.target', 'LoadState': 'loaded', 'ActiveState': 'inactive',
+            'SubState': 'dead', 'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': '',
+            'ConflictedBy': ['hound-ci-image.service'], 'WantedBy': ['outside-a.service'], 'Before': ['outside-b.service']}
+        self.fixture.dependencies['intruder.service'] = {'Id': 'intruder.service', 'LoadState': 'loaded',
+            'ActiveState': 'inactive', 'SubState': 'dead', 'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}
+        self.fixture.rebind_window()
+
+    def test_stop_barrier_gaining_a_stop_forming_reverse_edge_holds(self):
+        for key in ('RequiredBy', 'RequisiteOf', 'BoundBy', 'ConsistsOf'):
+            for first, message in ((2, 'Loaded graph/state changed during proof'),
+                                   (1, 'differs from explicit control-window')):
+                def gain(name, value, fetch, key=key, first=first):
+                    if name == 'shutdown.target' and fetch >= first:
+                        value[key] = sorted(set(value[key]) | {'intruder.service'})
+                with self.subTest(key=key, first=first):
+                    self.fresh_fixture()
+                    self.with_stop_barrier()
+                    with self.churned(gain):
+                        self.assert_holds_before_start(message)
+        # PropagatesStopTo on a STOP job is refused by the effect proof itself.
+        self.fresh_fixture()
+        self.with_stop_barrier()
+        def graceful(name, value, fetch):
+            if name == 'shutdown.target':
+                value['PropagatesStopTo'] = ['intruder.service']
+        with self.churned(graceful):
+            self.assert_holds_before_start('graceful STOP')
+
+    def test_stop_barrier_reverse_edges_that_form_no_job_are_not_bound(self):
+        # Negative control for the above: START-forming and ordering/reverse
+        # names outside the closure on a STOP barrier churn freely.
+        self.with_stop_barrier()
+        def churn(name, value, fetch):
+            if name == 'shutdown.target':
+                for key in ('WantedBy', 'Before', 'After', 'UpheldBy', 'TriggeredBy', 'OnFailureOf'):
+                    value[key] = sorted(set(value[key]) | {f'outside-{fetch}.service'})
+        with self.churned(churn):
+            self.fixture.activate()
+        units = self.fixture.receipt()['fresh_validation']['effect_certificates']['hound-ci-1.service']['units']
+        self.assertEqual(units['shutdown.target']['projection'], act.PROJECTION)
+        self.assertEqual(units['shutdown.target']['ConflictedBy'], ['hound-ci-image.service'])
+        self.assertEqual(units['shutdown.target']['WantedBy'], [])
 
     def test_unknown_relation_or_job_type_holds(self):
         with patch.object(effect, 'RELATIONS', effect.RELATIONS + ('Spawns',)):
@@ -1095,7 +1226,9 @@ class EffectProjectionTests(unittest.TestCase):
 
     def test_job_graph_change_between_queue_snapshots_holds_even_if_projection_is_unchanged(self):
         # A redundant VERIFY on an active barrier changes neither its forming
-        # relations nor its barrier status: only the job-graph recheck sees it.
+        # relations nor its barrier status. This reaches the defence-in-depth
+        # job-graph recheck only by substituting prove(): with the real one,
+        # the cached fetch makes the second pass's graph identical.
         real, calls = effect.prove, {}
         def prove(anchor, *args):
             proof = real(anchor, *args)
@@ -1145,6 +1278,271 @@ class EffectProjectionTests(unittest.TestCase):
         self.assertEqual(act.project_unit('var.mount', p['var.mount'], context, effect), p['var.mount'])  # idempotent
         inactive = dict(barrier, ActiveState='inactive')  # no longer redundant: everything bound again
         self.assertEqual(act.project_unit('var.mount', inactive, context, effect)['RequiredBy'], ['docker-1.mount', 'hound-ci-1.service'])
+
+
+
+class ResumeTests(unittest.TestCase):
+    """--resume continues only fully completed recorded prefixes of the plan."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.fixture = Fixture(self.temp.name)
+
+    def tearDown(self):
+        self.fixture.close()
+        self.temp.cleanup()
+
+    def hold_at(self, label, when):
+        """Run once, HOLDing at the pre-intent recheck of `label` when when(activation) holds."""
+        real = act.Activation.recheck
+        def recheck(activation, phase):
+            if phase == label and when(activation):
+                raise RuntimeError('fixture HOLD before ' + label)
+            return real(activation, phase)
+        with patch.object(act.Activation, 'recheck', autospec=True, side_effect=recheck):
+            with self.assertRaisesRegex(RuntimeError, 'fixture HOLD'):
+                self.fixture.activate()
+
+    def test_resume_from_the_0407_hold_shape_finishes_without_repeating_steps(self):
+        # 10-06 04:07 UTC: HOLD at slot 4's unit-link-replace recheck, after
+        # 8 completed events (phase gc-root-create-complete).
+        self.hold_at('unit-link-replace', lambda activation: len(activation.replaced) == 3)
+        receipt = self.fixture.receipt()
+        self.assertEqual((receipt['phase'], len(receipt['events'])), ('gc-root-create-complete', 8))
+        self.assertEqual(act.recorded_progress(receipt), act.activation_plan()[:8])
+        self.assertEqual(self.fixture.commands, [])
+        self.fixture.activate(resume=True)
+        receipt = self.fixture.receipt()
+        self.assertEqual([(e['operation'], e['details'].get('unit')) for e in receipt['events']], act.activation_plan())
+        self.assertTrue(all(e['completion_utc'] for e in receipt['events']))
+        self.assertEqual(receipt['phase'], 'new-four-started-awaiting-runtime-proof')
+        self.assertEqual(len(receipt['resumes']), 1)
+        self.assertEqual((receipt['resumes'][0]['from_phase'], receipt['resumes'][0]['completed_steps']),
+                         ('gc-root-create-complete', 8))
+        self.assertEqual(receipt['resumes'][0]['control_window_sha256'], self.fixture.window_sha)
+        self.assertEqual([c[:2] for c in self.fixture.commands],
+                         [['systemctl', 'daemon-reload']] * 2 + [['systemctl', '--job-mode=fail']] * 4)
+        self.assertEqual({p.name for p in (act.GCROOTS / act.ROOT_NAME).iterdir()}, set(self.fixture.manager))
+        with self.assertRaisesRegex(RuntimeError, 'nothing to resume'):
+            self.fixture.activate(resume=True)
+        with self.assertRaisesRegex(RuntimeError, 'Prior activation exists'):
+            self.fixture.activate()
+
+    def test_resume_after_two_recorded_starts_dispatches_only_the_rest(self):
+        self.hold_at('start-anchor', lambda activation: len(activation.started) == 2)
+        receipt = self.fixture.receipt()
+        self.assertEqual(sorted(receipt['slot_starts']), ['1', '2'])
+        before = [argv for argv in self.fixture.commands if is_start(argv)]
+        self.fixture.activate(resume=True)
+        starts = [argv[4] for argv in self.fixture.commands if is_start(argv)]
+        self.assertEqual(starts, [argv[4] for argv in before] + ['hound-ci-3.service', 'hound-ci-4.service'])
+        self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+
+    def test_resume_binds_the_recorded_new_identity_of_started_slots(self):
+        self.hold_at('start-anchor', lambda activation: len(activation.started) == 2)
+        # Same PID, but a start outside the record gives a new invocation.
+        self.fixture.manager['hound-ci-2.service']['InvocationID'] = 'e' * 32
+        snapshot = (act.STATE / 'activation.json').read_bytes()
+        with self.assertRaisesRegex(RuntimeError, 'Tracked intentional NEW controller identity drift'):
+            self.fixture.activate(resume=True)
+        self.assertEqual((act.STATE / 'activation.json').read_bytes(), snapshot)
+        self.assertEqual(sum(is_start(argv) for argv in self.fixture.commands), 2)
+
+    def test_open_intent_is_never_resumed(self):
+        real = act.os.symlink
+        def crash(source, destination):
+            if str(destination).endswith('/hound-ci-2.service'):
+                raise OSError('simulated crash inside the gc-root step')
+            return real(source, destination)
+        with patch.object(act.os, 'symlink', side_effect=crash), self.assertRaises(OSError):
+            self.fixture.activate()
+        snapshot = (act.STATE / 'activation.json').read_bytes()
+        with self.assertRaisesRegex(RuntimeError, 'INTENT without completion \\(gc-root-create\\)'):
+            self.fixture.activate(resume=True)
+        self.assertEqual((act.STATE / 'activation.json').read_bytes(), snapshot)
+        self.assertEqual(self.fixture.commands, [])
+
+    def test_unrecorded_start_result_is_never_resumed(self):
+        starttime = self.fixture.operator.starttime
+        def flaky(pid):
+            if pid == 501:
+                raise RuntimeError('fixture: /proc read failed after the start')
+            return starttime(pid)
+        self.fixture.operator.starttime = flaky
+        with self.assertRaisesRegex(RuntimeError, '/proc read failed'):
+            self.fixture.activate()
+        self.fixture.operator.starttime = starttime
+        receipt = self.fixture.receipt()
+        self.assertEqual((receipt['phase'], receipt['slot_starts']['1']['stage']), ('start-anchor-complete', 'start-intent'))
+        with self.assertRaisesRegex(RuntimeError, 'result was not recorded'):
+            self.fixture.activate(resume=True)
+        self.assertEqual(sum(is_start(argv) for argv in self.fixture.commands), 1)
+        # A result without the 'started' stage is not a recorded result either.
+        path = act.STATE / 'activation.json'
+        value = json.loads(path.read_text())
+        value['slot_starts']['1']['result'] = {'pid': 501, 'starttime': '900501', 'invocation_id': new_invocation(1),
+                                               'control_group': '/hound.slice/hound-ci.slice/hound-ci-1.service'}
+        path.write_text(json.dumps(value)); path.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'result was not recorded'):
+            self.fixture.activate(resume=True)
+        value['slot_starts']['1']['stage'] = 'started'
+        path.write_text(json.dumps(value)); path.chmod(0o600)
+        self.fixture.activate(resume=True)  # the same record, complete: slots 2-4 only
+        self.assertEqual(sum(is_start(argv) for argv in self.fixture.commands), 4)
+
+    def test_journal_that_is_not_a_plan_prefix_or_another_certificate_holds(self):
+        self.hold_at('unit-link-replace', lambda activation: len(activation.replaced) == 3)
+        path = act.STATE / 'activation.json'
+        original = json.loads(path.read_text())
+        def rewrite(change):
+            value = deepcopy(original)
+            change(value)
+            path.write_text(json.dumps(value))
+            path.chmod(0o600)
+        cases = (
+            ('not a prefix', lambda v: v['events'].pop(1), 'not a prefix'),
+            ('reordered', lambda v: v['events'].insert(0, v['events'].pop(2)), 'not a prefix'),
+            ('unknown operation', lambda v: v['events'][-1].update(operation='manual-link'), 'not a prefix'),
+            ('phase is not the last completion', lambda v: v.update(phase='unit-link-replace-intent'), 'Recorded phase'),
+            ('other certificate', lambda v: v.update(certificate_sha256='0' * 64), 'another certificate'),
+            ('other image', lambda v: v.update(candidate_sha256='0' * 64), 'another certificate'),
+            ('extra event field', lambda v: v['events'][0].update(note='by hand'), 'event malformed'),
+            ('unknown schema', lambda v: v.update(schema=3), 'schema unknown'),
+        )
+        for label, change, message in cases:
+            with self.subTest(case=label):
+                rewrite(change)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.fixture.activate(resume=True)
+                self.assertEqual(self.fixture.commands, [])
+
+    def test_resume_requires_a_recorded_activation_and_a_held_lease(self):
+        with self.assertRaisesRegex(RuntimeError, 'No recorded activation to resume'):
+            self.fixture.activate(resume=True)
+        self.hold_at('unit-link-replace', lambda activation: len(activation.replaced) == 3)
+        self.fixture.window['status'] = 'released'
+        self.fixture.write_window()
+        with self.assertRaisesRegex(RuntimeError, 'status refused'):
+            self.fixture.activate(resume=True)
+        self.assertEqual(self.fixture.commands, [])
+
+    def test_resume_preflight_failure_writes_nothing(self):
+        self.hold_at('unit-link-replace', lambda activation: len(activation.replaced) == 3)
+        snapshot = (act.STATE / 'activation.json').read_bytes()
+        self.fixture.validator.reject_phase = act.RESUME_PHASE
+        with self.assertRaisesRegex(RuntimeError, 'Original evidence drift'):
+            self.fixture.activate(resume=True)
+        self.assertEqual((act.STATE / 'activation.json').read_bytes(), snapshot)
+        self.fixture.validator.reject_phase = None
+        self.fixture.activate(resume=True)  # still resumable afterwards
+        self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+
+
+class TraversalContractTests(unittest.TestCase):
+    """JOB_RELATIONS is tied to what effect-proof.py's closure() traverses."""
+    def independent_derivation(self, kind):
+        # Different construction from derive_job_relations: ONE unit of the job
+        # type carries every relation at once, each to its own probe unit.
+        names = {key: f'probe-{key.lower()}.service' for key in act.RELATION_KEYS if key != 'PropagatesStopTo'}
+        units = {name: effect_unit(name, 'inactive') for name in names.values()}
+        typed = effect_unit('typed.service', 'inactive', **{key: [name] for key, name in names.items()})
+        via = {'START': None, 'STOP': 'Conflicts', 'VERIFY': 'Requisite'}[kind]
+        units['typed.service'] = typed
+        anchor = 'typed.service'
+        if via:
+            units['anchor.service'] = effect_unit('anchor.service', 'inactive', **{via: ['typed.service']})
+            anchor = 'anchor.service'
+        fetched = set()
+        def fetch(name):
+            fetched.add(name)
+            return deepcopy(units[name])
+        effect.closure(anchor, fetch)
+        found = {key for key, name in names.items() if name in fetched}
+        if via:
+            # The probes the anchor's own edge reaches are not the typed unit's.
+            found -= {via}
+        return found
+
+    def test_closure_forms_exactly_job_relations(self):
+        for kind in ('START', 'STOP', 'VERIFY'):
+            with self.subTest(kind=kind):
+                expected = set(act.JOB_RELATIONS[kind]) - {'PropagatesStopTo'}
+                self.assertEqual(self.independent_derivation(kind), expected)
+        # PropagatesStopTo forms no job, but STOP refuses it (RESTART risk):
+        # still a job input, so it is bound for STOP barriers.
+        unit = effect_unit('typed.service', 'inactive', PropagatesStopTo=['x.service'])
+        units = {'anchor.service': effect_unit('anchor.service', 'inactive', Conflicts=['typed.service']),
+                 'typed.service': unit, 'x.service': effect_unit('x.service')}
+        with self.assertRaisesRegex(RuntimeError, 'graceful STOP'):
+            effect.closure('anchor.service', lambda name: deepcopy(units[name]))
+        self.assertIn('PropagatesStopTo', act.JOB_RELATIONS['STOP'])
+        self.assertEqual(act.derive_job_relations(effect), {kind: tuple(k for k in act.RELATION_KEYS if k in act.JOB_RELATIONS[kind])
+                                                            for kind in act.JOB_RELATIONS})
+        act.check_traversal_contract(effect)
+
+    def test_every_job_relations_mutation_is_refused(self):
+        mutations = []
+        for kind, names in act.JOB_RELATIONS.items():
+            for name in names:
+                mutations.append((kind, tuple(n for n in names if n != name)))  # drop one
+            for name in act.RELATION_KEYS:
+                if name not in names:
+                    mutations.append((kind, names + (name,)))  # add one
+            if names:
+                mutations.append((kind, names + names[:1]))  # duplicate one
+        self.assertGreater(len(mutations), 100)
+        for kind, names in mutations:
+            with self.subTest(kind=kind, names=names), patch.dict(act.JOB_RELATIONS, {kind: names}):
+                with self.assertRaisesRegex(RuntimeError, 'job traversal contract drift'):
+                    act.check_traversal_contract(effect)
+
+    def test_behavioural_closure_drift_is_refused_even_with_unchanged_tuples(self):
+        def without(relation):
+            def closure(anchor, fetch, *args):
+                return effect.closure(anchor, lambda name: dict(fetch(name), **{relation: []}), *args)
+            return SimpleNamespace(**{key: getattr(effect, key) for key in dir(effect) if not key.startswith('__') and key != 'closure'},
+                                   closure=closure)
+        for relation in ('Requisite', 'Conflicts', 'ConflictedBy', 'Upholds', 'ConsistsOf', 'PropagatesStopTo'):
+            with self.subTest(relation=relation), self.assertRaisesRegex(RuntimeError, 'differs from closure'):
+                act.check_traversal_contract(without(relation))
+        def extra(anchor, fetch, *args):
+            # A closure that ALSO follows Before (ordering) must be refused too.
+            return effect.closure(anchor, lambda name: dict(fetch(name), Wants=sorted(set(fetch(name)['Wants']) | set(fetch(name)['Before']))), *args)
+        namespace = SimpleNamespace(**{key: getattr(effect, key) for key in dir(effect) if not key.startswith('__') and key != 'closure'}, closure=extra)
+        with self.assertRaisesRegex(RuntimeError, 'differs from closure'):
+            act.check_traversal_contract(namespace)
+
+
+class DevicePeerTests(unittest.TestCase):
+    def test_closure_device_peers_bind_only_same_sysfs_devices(self):
+        sysfs = {'dev-kvm.device': '/sys/devices/virtual/misc/kvm', 'sys-kvm.device': '/sys/devices/virtual/misc/kvm',
+                 'sys-veth1.device': '/sys/devices/virtual/net/veth1', 'dev-empty.device': '', 'sys-empty.device': ''}
+        aliases = {'dev-kvm.device': 'dev-kvm.device', 'dev-empty.device': 'dev-empty.device', 'a.service': 'a.service'}
+        self.assertEqual(act.closure_device_peers(sysfs, aliases),
+                         {'dev-kvm.device': '/sys/devices/virtual/misc/kvm', 'sys-kvm.device': '/sys/devices/virtual/misc/kvm',
+                          'dev-empty.device': ''})
+        index = {name: {'path': '/unit/' + name, 'following': ''} for name in sysfs | aliases}
+        self.assertEqual(set(act.relevant_index(index, aliases, act.closure_device_peers(sysfs, aliases))),
+                         {'dev-kvm.device', 'sys-kvm.device', 'dev-empty.device', 'a.service'})
+
+    def test_a_device_vanishing_mid_read_is_left_out_only_once_unloaded(self):
+        import subprocess
+        index = {'sys-a.device': {'path': '/unit/a', 'following': ''},
+                 'sys-veth.device': {'path': '/unit/veth', 'following': ''}}
+        def read(argv, signature):
+            if argv[2] == '/unit/veth':
+                raise subprocess.CalledProcessError(1, argv)
+            return '/sys/devices/a'
+        with patch.object(act, 'bus_value', side_effect=read), \
+                patch.object(act, 'loaded_index', return_value={'sys-a.device': index['sys-a.device']}):
+            self.assertEqual(act.device_sysfs_snapshot(index), {'sys-a.device': '/sys/devices/a'})
+        with patch.object(act, 'bus_value', side_effect=read), patch.object(act, 'loaded_index', return_value=index):
+            with self.assertRaisesRegex(RuntimeError, 'unreadable while still loaded'):
+                act.device_sysfs_snapshot(index)
+        # A closure device gone from the snapshot HOLDs in effect_metadata.
+        with patch.object(act, 'unit_object', return_value='/unit/veth'), \
+                patch.object(act, 'bus_value', return_value={}):
+            with self.assertRaises(RuntimeError):
+                act.effect_metadata('sys-veth.device', effect, index, {'sys-a.device': '/sys/devices/a'})
 
 
 if __name__ == '__main__':

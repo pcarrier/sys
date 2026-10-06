@@ -510,6 +510,39 @@ legacy migration helper, not an enabled service or guest payload:
    untouched by every nixpkgs patch/postPatch, and why the one core patch
    (postponed D-Bus queue dispatch) and the v261→261.2 core changes do not alter
    START transaction semantics.
+12. **Projection and its contract.** Active barriers keep their state, job,
+   load, conditions and actions, their job-forming relations in full and other
+   relations only towards closure units (`barrier-job-relations-v1`). Which
+   relations form jobs (`JOB_RELATIONS`) is checked before every use by
+   *running* the pinned `effect-proof.py`'s `closure()` on synthetic graphs, one
+   edge per job type and relation; any difference HOLDs (`check_traversal_contract`).
+13. **Device peers.** Follow sets of closure devices need every device with the
+   same `SysFSPath`. Each proof reads the complete device index twice but binds
+   only closure devices and the devices sharing a non-empty `SysFSPath` with
+   one (`closure_device_peers`): a peer appearing or leaving, or a closure
+   device leaving or moving, HOLDs; other devices (Docker veths) are not
+   bound. A device that vanishes between `ListUnits` and its property read is
+   left out only once the manager no longer lists it at that object.
+14. **Resume.** `activate-cache-v2.py --resume` (same pins, a new held lease)
+   continues a recorded `activation.json` only if every event completed, the
+   events are exactly a prefix of the reviewed plan (root namespace, then per
+   slot GC root and link, the held reload, the one holds-remove-reload step,
+   four starts), the phase is the last completion, every completed start has
+   its recorded result, and the manifest, certificate, images and validator are
+   the same. It rechecks the partial state exactly as the next step of one run
+   would (`resume-validated`), appends `resumes` (UTC, prior phase, lease), and
+   performs only the remaining steps. An open intent, an unrecorded start
+   result, or any state the journal does not describe HOLDs; nothing is ever
+   undone or repeated.
+15. **Per-slot start by hand.** `feat/hound-ci/anchor-proof.py` (read-only) is
+   the reviewed form of the 10-06 manual completion's proof: with the cleared
+   activation and effect sources (direct store paths, SHA-pinned), the lease's
+   structure SHA and the four ORIGINAL invocations, it requires every slot on
+   its new unit unheld, slots < N running with new invocations, slots ≥ N
+   stopped with their original ones, and ONE `validate_dependencies()` pass
+   certifying `hound-ci-N` as the sole START effect with exactly the lease's
+   structure. Only after `ANCHOR_PROOF_OK` may
+   `systemctl --job-mode=fail start -- hound-ci-N.service` run.
 
 ### Adoption and DELETE coverage (arm-overlap-v1)
 
@@ -554,7 +587,9 @@ legacy migration helper, not an enabled service or guest payload:
   validator recomputes the same recursive partition: every plan window must be
   listed or split, every leaf's converged total must be < 1000 and equal its
   run count, nothing outside the partition may appear, and split calls enter the
-  exact request accounting.
+  exact request accounting. The collector also keeps every run ID a split
+  window's passes listed: each must be listed again by exactly one leaf under
+  that window (a closed window loses no runs), else HOLD.
 - Completed runs last updated before earliest-START − 5 s are listed but not
   job-scanned: all their jobs completed before any adopted VM started, which the
   validator rejects anyway. Every other run (any non-`completed` status
@@ -589,8 +624,11 @@ legacy migration helper, not an enabled service or guest payload:
   termination signals blocked until its ownership is recorded; SIGTERM, SIGINT,
   SIGHUP and SIGQUIT unwind through the capture's cleanup (signals stay blocked
   across fork+exec, so no unrecorded collector child exists, and during
-  kill/reap/check/removal, so a second signal cannot interrupt it). Errors and
-  timeouts take the same path; parse errors never carry file contents. SIGKILL
+  kill/reap/check/removal, so a second signal cannot interrupt it). The
+  handler raises at most once and is disarmed by the cleanup's first
+  statement; a signal it receives after that is redelivered to the original
+  handler once cleanup is done, and the signal mask restored is the one read
+  before the capture began. Errors and timeouts take the same path; parse errors never carry file contents. SIGKILL
   or power loss can leave the directory on tmpfs: the next capture or rehearsal
   then HOLDs with one line, `rm -r -- /run/hound-ci-actions-gh`, and never
   removes a directory it did not create.
@@ -605,11 +643,13 @@ legacy migration helper, not an enabled service or guest payload:
   no manifest and writes no rollout state: it installs the pinned gh copy,
   launches the unchanged bootstrap as UID 1000/GID 2000001005, feeds it a
   `pinned-collector-rehearsal` request (horizon ending a minute ago, earliest
-  START an hour ago), and the child lists every window of the 31-day horizon
+  START 8 h before it, the legacy VM lifetime, so as many windows as a real
+  capture's worst case), and the child lists every window of the 31-day horizon
   (with splitting) and reads attempts and complete job pages for qualifying
   runs (no direct job GETs). Root checks the requests against 4096 calls and
   the time against the 30-minute capture timeout, requires the copy removed,
-  and prints windows/leaves/splits/runs/requests/elapsed.
+  and prints windows/leaves/splits/runs/requests/elapsed and the executing
+  source path and SHA-256.
 
 ### Bounds and operating rules
 
@@ -637,10 +677,15 @@ legacy migration helper, not an enabled service or guest payload:
   DELETE, the record unlink, the legacy 10 s sleep and only then the next record
   write and JIT POST follow, and every current VM is mid-job and ends with that
   job. Immediately before each slot's bind, the registration is re-read: R (with
-  the bind less than 10 s later) or absent means no new POST preceded the gate.
-  A new name before the bind, a slow bind, or a new name after the gate is
-  recorded as `idle_risk` in the manifest and warned (`HOUND_CI_DRAIN_IDLE_RISK`),
-  never refused.
+  the bind less than 10 s later) means no new POST preceded the gate. Absent
+  means none preceded *that read*; the legacy sleep may end between the read
+  and the bind, and a record write plus POST there shows as a new name after
+  the gate. A new name before the bind, a slow bind, or a new name after the
+  gate is recorded as `idle_risk` in the manifest, warned
+  (`HOUND_CI_DRAIN_IDLE_RISK`) and summarized on the ARMED line
+  (`idle_risk=none` or `idle_risk=SLOT:reason,…;…`), never refused. The four
+  controller pins (pidfd, namespace fd, argv, invocation, boot) are taken and
+  checked before the state directory is created.
 - **End path of an idle runner.** A JIT VM that never receives a job runs until
   the legacy 8 h VM lifetime: "VM lifetime exceeded" with no STOP line, the
   worker exits 1, and the waiter HOLDs on the unclosed VM. The same holds for a
@@ -684,3 +729,70 @@ namespace FD inheritance, ordering and fail-closed controls. A separate owned
 bind semantics, POST refusal75, original gh version delegation and unchanged
 host gh bytes, **without touching any real CI namespace or registering a job**.
 Independent review and normal source PR publication precede critical arming.
+
+## Rollout record — October 6, 2026 (manual completion)
+
+All times UTC. The drain ARMED at 23:34:35 on October 5, all four slots drained
+by 23:59:49, and the final certificate was CERTIFIED at 00:06:57.
+
+**Activation HOLD.** With the lease written at 04:02:27 (ack
+`?at=1994` of session wdwxreogzwnzez2a), `activate-cache-v2.py` (draft PR #15's
+bytes, store copy `c0bdwp66…-activate-cache-v2.py`, SHA `2678613a…`) HOLDed at
+04:07:11: "Loaded complete Following/SysFS peer index changed during proof".
+The index then bound every `.device`, and the Docker veth `vethabedac0` had
+left at 04:07:07 (item 13 above now binds only closure devices and their
+peers). By then it had made, each with a completed event: the root namespace
+`gcroots/hound-ci/cache-v2-20261005` with the four new roots, and the unit
+links of slots 1–3. `activation.json` ends at phase `gc-root-create-complete`
+with 8 events.
+
+**Manual completion** (parent decision 04:13; log
+`/var/lib/hound-ci-rollout-records-20261006/manual-completion.log`, root 0600):
+
+0. 04:18:02 read-only state check matched the journal: links 1–3 new, link 4
+   old (`bp5vhd`); four holds loaded; all four failed/failed, MainPID 0, with
+   their original invocations; no hound-ci jobs; old and new roots intact.
+1. 04:18:59 slot 4's link, as the tool's `unit-link-replace` does: a symlink
+   staged at `/etc/systemd/system.attached/hound-ci-4.service.cache-v2-new`,
+   then `os.replace`d over `hound-ci-4.service`, pointing at
+   `/nix/store/rkmx5h7g…-unit-hound-ci-4.service/hound-ci-4.service`. Verified
+   04:20:26: all four links new, no staging artifact, old units still rooted,
+   `NeedDaemonReload=no`.
+2. 04:20:32–04:20:34, one step: for N in 1–4
+   `unlink /run/systemd/system/hound-ci-N.service.d/90-cache-rollout-drain.conf`
+   (content `[Service]\nRestart=no\n`) and `rmdir` of the then-empty `.d`
+   directory, then ONE `systemctl daemon-reload` (exit 0).
+3. 04:22:10 verified: each FragmentPath is the attached link to the new store
+   unit; ExecStart equals the store unit's
+   (`/nix/store/grszl3cv…-hound-ci/bin/hound-ci worker --slot N --repo
+   xmit-dev/ultimator --guest /nix/store/sawmqyv0…-guest.sh --image
+   base-cache-v2.qcow2`); Restart=always; no drop-ins; no jobs.
+4. Per slot, in order: the anchor proof (`effect-anchor-proof.py`, SHA
+   `8cbe6512…`; `feat/hound-ci/anchor-proof.py` is its reviewed form) printed
+   `ANCHOR_PROOF_OK` with structure `f79cbf4e…` on its first attempt, then
+   `sudo systemctl --job-mode=fail start -- hound-ci-N.service` (exit 0):
+
+   | Slot | Started | MainPID / starttime | InvocationID | QEMU uid |
+   |---|---|---|---|---|
+   | 1 | 04:26:35 | 3885930 / 209371640 | `7541d747…` | 978 |
+   | 2 | 04:34:16 | 3983407 / 209417818 | `269cf352…` | 977 |
+   | 3 | 04:40:01 | 4044990 / 209452306 | `02a496c4…` | 976 |
+   | 4 | 04:42:48 | 4073797 / 209469002 | `8ad21d8e…` | 975 |
+
+   Each QEMU: all capabilities 0, NoNewPrivs 1, seccomp mode 2 (20 filters),
+   overlay `/var/lib/hound-ci/slot-N/job.qcow2` backed by
+   `/var/lib/hound-ci/base-cache-v2.qcow2` (re-hashed 04:32–04:33: `daf2ab77…`,
+   inode 1544 unchanged). Slots 1 and 2's first VMs finished before
+   inspection (their proof is VM #2); slots 3 and 4's is the first VM. Real
+   jobs passed (an E2E run on hound-ci-2, 04:36–04:48). The legacy runner and
+   the host profile were untouched; nothing was stopped or killed.
+
+**Lease release.** 05:11:36, per `release_rule` (four new-PID runtime proofs):
+`control-window.json` status held → released (SHA `b61118ab…`); the held copy
+is kept beside the log.
+
+**The journal does not record steps 1–4.** `activation.json` still ends at
+`gc-root-create-complete` with 8 events. Never `--resume` or rerun it: the
+live state no longer matches it (slot 4's link, the holds and the loaded units
+differ), so a resume HOLDs at its first recheck. The manual-completion log is
+the record of those steps.
