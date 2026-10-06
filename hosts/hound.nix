@@ -12,6 +12,7 @@ lib.bare {
     ../feat/github-runner.nix
     ../feat/hound-devbox.nix
     ../feat/sandbox-ssh.nix
+    ../feat/ultimator-mesh.nix
     ../feat/waydroid.nix
     ../feat/libk.nix
     ../feat/mail.nix
