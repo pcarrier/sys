@@ -11,6 +11,7 @@ lib.bare {
     ../feat/yas.nix
     ../feat/flatpak.nix
     ../feat/github-runner.nix
+    ../feat/ultimator-cluster-cd.nix
     ../feat/hound-ci.nix
     {
       services.hound-ci = {
