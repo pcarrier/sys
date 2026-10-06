@@ -393,3 +393,294 @@ shared `/src/sys` checkout stayed unchanged. This candidate is qualified for
 review, **not selected/deployed**. Keep the old image/attached units/GC roots
 until Pierre approves a separate narrow rollout. No sys/app main merge,
 indentbox operation or live pool restart/image switch was performed.
+
+## Approved cache-v2 rollout and legacy drain
+
+Pierre approved a narrow Hound rollout on October5 at11:56UTC: let all busy jobs
+finish, then replace **only** the four CI controller/guest units, explicitly
+selecting `base-cache-v2.qcow2`. No whole-host/profile switch, legacy runner,
+indentbox, main merge, pool-size/resource/storage/kernel/firewall change.
+`hosts/hound.nix` now records that explicit image choice for future rebuilds;
+the reusable module's default remains `base.qcow2`.
+
+### Why the old controller needs a one-shot gate
+
+The deployed legacy supervisor loops after each single-job VM. Its SIGTERM
+handler terminates QEMU; SIGSTOP also freezes its console-reader thread. Neither
+is a safe busy-job drain. `feat/hound-ci/drain-old.py` is an **operator-only**
+legacy migration helper, not an enabled service or guest payload:
+
+1. Pin each exact old service MainPID/starttime/pidfd and its mount-namespace FD.
+   Require four different namespace inodes, none equal to the host namespace;
+   require the exact known old supervisor/guest/repo/slot argument shape.
+2. Install only four temporary runtime `Restart=no` drop-ins and reload unit
+   definitions, without stopping/signalling anything. Verify the loaded holds
+   and pinned identities before mounting any gate.
+3. In each pinned **private** mount namespace, make propagation recursively
+   private, then bind the independently reviewed immutable `drain-gh-gate.py`
+   read-only over the old public gh wrapper. Never write a Nix-store file or
+   mount in the host/other controller namespaces.
+4. Reject ONLY gh API POST requests to
+   `repos/xmit-dev/ultimator/actions/runners/generate-jitconfig`, including the tested
+   canonical body/input-inferred POST forms. The guarantee is deliberately
+   limited to the immutable legacy supervisor's fixed argv contract, not every
+   possible gh CLI placeholder/clustered-option/enterprise invocation. No raw arguments, stdin, environment, credentials,
+   JIT or guest console data are copied/logged. Exact legacy DELETE cleanup
+   delegates the original immutable non-shadowed gh ELF with preserved argv0,
+   stdin and telemetry semantics. A root-only public receipt records just the
+   pinned caller, exact runner ID/name, source/nonce, intent and return outcome
+   (including the old controller's explicit HTTP404 cleanup semantics). All
+   other calls exec the original ELF directly.
+5. Current QEMU and its reader continue without pause. Any request already
+   executing before the gate is adopted and drained; it is never cancelled.
+   After each accepted job completes/VM exits/registration cleans up, the old
+   next-JIT call receives the fixed drain refusal and the old supervisor exits.
+   `Restart=no` prevents another old process or old-image job claim.
+   The armer pins each slot's original systemd `InvocationID` and the kernel
+   boot ID. It takes the same-boot CLOCK_MONOTONIC boundary **before** the
+   first registration read and records that first read verbatim
+   (`first_registration_read`, bound to the armer's source SHA). Only a root
+   STOP strictly before the boundary **with the first read absent** is
+   historical; a record present at the first read (an escaped old DELETE),
+   any STOP after the boundary, or a wall-clock step never removes the need
+   for a captured DELETE receipt, **unless** the same pinned process later
+   STARTed another VM (see "Adoption and DELETE coverage" below).
+6. `wait-drained.py` subscribes to trusted root controller/PID1 lifecycle,
+   pidfds and subtree `cgroup.events` without timers. It replays this boot to
+   bind genuine root-generated START/QEMU-verification/STOP in order and resets
+   prior completion on each new VM. The exact pinned legacy source writes raw
+   serial **only** to a private console file, never the host journal. Its
+   guest-derived preflight/completion booleans remain **advisory**. The waiter
+   produces a hardware-drained, **non-certificate** phase only. Manager
+   terminal records count only with PID1 + `UNIT` + typed `MESSAGE_ID` **and**
+   the exact pinned original `INVOCATION_ID` on the pinned `_BOOT_ID`;
+   controller records need the original `_SYSTEMD_INVOCATION_ID`. Records of a
+   later invocation (e.g. activation's tracked replacement) can neither satisfy
+   nor revoke the original proof; a wrong boot or an unattributable record
+   HOLDs. Absence, stale
+   MainPID/cgroup evidence, an unclosed latest VM, uncertain pre-gate POST or
+   missing local route-block receipt all fail closed.
+7. A separate trusted operator obtains bounded ordinary Actions job metadata
+   in finite, lifecycle-triggered requests with complete pagination (closed
+   run-creation windows and a pinned gh configuration, see "Actions
+   collection" below). Every
+   adopted runner must bind by exact repository/runner ID/name to a real job,
+   run and attempt with positive `completed` status, valid completion time and
+   known terminal conclusion. Failed/cancelled jobs remain failed/cancelled,
+   not 'all green'. No match, ambiguous identity, nonterminal job, truncated
+   pages or a startup failure with no independently proven job stays **HOLD**.
+   Completed job A must never certify a later accepted VM/job B. This step
+   requires no runner-admin bypass or credentials in the continuous waiter.
+8. `finish-drain.py` validates the source/nonce/manifest-bound receipts and
+   freshly rechecks all four original exits, holds, identity-bound descendant
+   emptiness and registration cleanup before issuing a final certificate.
+   `activate-cache-v2.py` must independently validate that complete certificate
+   and freshly revalidate the four slots again before replacement/release/start.
+   A phase string or four summary booleans is never sufficient.
+9. Only after that certificate and exact-source review, replace the four scoped
+   controller links and add a separate new GC-root namespace. Preserve old
+   unit content/links/enable links/GC roots/image and unchanged host profile.
+   Check exact loaded executable/full argv/fragment/drop-ins for each slot,
+   require existing dependencies already active and no conflicting jobs, then
+   remove only the four owned holds — all four unlinks plus ONE
+   `daemon-reload` as a single durable step (`holds-remove-reload`), because
+   an unlinked-but-loaded drop-in sets `NeedDaemonReload=yes`, which the effect
+   proof rejects — and start only their replacements. Do not
+   repair/activate storage, firewall, image, slice or other services implicitly.
+   Verify fresh QEMU cap0/NNP/seccomp, cache-v2 backing, guest offline cache/native
+   preflight, private new overlays/JITs, registrations, cache hits and real results.
+10. Sequential starts use the validator's `ACTIVATION_TRANSITION_API =
+   "tracked-controller-identity-v1"`. Before each `systemctl --job-mode=fail
+   start -- hound-ci-N.service`, activation fsyncs a per-slot start intent in
+   `activation.json` (`slot_starts`): request, store unit source, full argv,
+   candidate image path/SHA and the strict pre-start state (MainPID 0, the
+   ORIGINAL InvocationID, empty/removed original cgroup, validation SHA). After
+   the start it records the result: returncode 0, job `{start, fail, done}`,
+   the NEW InvocationID, MainPID, starttime and cgroup. The validator moves a
+   slot from strict-stopped to tracked-new only for such a complete record that
+   equals activation's in-memory view and the live MainPID/starttime/
+   InvocationID/kernel cgroup; the original certificate, old exit, old ordered
+   lifecycle, DELETE receipts and Actions proof stay immutable and are
+   revalidated at every phase. Unstarted slots must still carry their original
+   InvocationID. Unknown, partial or foreign transitions HOLD: nothing is rolled
+   back, stopped or killed. Holds may be released only in the start phases.
+11. The host's PID1 (systemd 261.2, `baxgs…`) was qualified against upstream
+   tag v261 for the effect proof: `feat/hound-ci/systemd-261.2-qualification.json`
+   records that all eight effect-proof sources are byte-identical to v261 and
+   untouched by every nixpkgs patch/postPatch, and why the one core patch
+   (postponed D-Bus queue dispatch) and the v261→261.2 core changes do not alter
+   START transaction semantics.
+
+### Adoption and DELETE coverage (arm-overlap-v1)
+
+- The finisher adopts a slot's root VM (Actions terminal proof + DELETE
+  coverage) iff its root STOP monotonic is at/after **that slot's** gate
+  observation-start boundary, or a pre/post gate registration names it, or it
+  is the slot's last root VM. VMs that started after the 11:56 approval but
+  stopped before arming ran and ended before any drain action touched their
+  controller; they stay fully replayed, ordered, bounded and identity-checked
+  history, but are not adopted. (Earlier revisions adopted every VM stopped
+  after 11:56; at ~23 VMs/hour that multiplied match/HOLD risk and API calls.)
+- **Same-process successor proof.** Every VM in a slot's history comes from
+  ONE pinned (boot, InvocationID, PID, starttime) controller. The exact legacy
+  `worker()` reaches its next root START only after the previous VM's
+  `finally: cleanup_record()` returned normally (exact-id DELETE returned 0 or
+  legacy-accepted HTTP 404, record unlinked); a DELETE that raised exits the
+  process before any later START. So an adopted VM followed by a later START in
+  the same history is DELETE-covered. The last VM of each slot still needs a
+  positive gate receipt or the strict historical exemption; a receipt that
+  exists but never returned (`delete-intent`) still HOLDs.
+- HTTP 404 counts as a returned DELETE exactly as the legacy supervisor does
+  (an already-removed runner). The gate maps a signal-killed gh to 128+N and
+  never records it as success; it restores default SIGPIPE/SIGXFSZ before
+  exec'ing the original gh.
+
+### Actions collection (closed windows, pinned gh)
+
+- Runs are listed only through `created=A..B` windows: 6-hour, disjoint and
+  gapless, from 31 days (GitHub's 30-day re-run limit keeps the original
+  `created_at`) before the earliest adopted VM START to `drained_utc` + 5 s.
+  Every window is a closed past interval; the root capture refuses to start
+  (creating nothing) until a minute after it closes. Each window is listed
+  until two consecutive complete passes agree exactly (at most three): newly
+  visible runs may appear (shifted duplicates are skipped by ID), but a run
+  disappearing or a shrinking total HOLDs. Every listed run's `created_at` must
+  lie in its window.
+- **Window splitting.** A window whose `total_count` reaches 1000 (GitHub's
+  filter cap, never a complete count) or that does not converge within three
+  passes is split into two exact halves, listed depth-first; the paging proof
+  records the split with the calls it spent (`workflow_runs_split`). Halves
+  stop at 60 s (a smaller window HOLDs) and at most 1024 leaf windows. The
+  validator recomputes the same recursive partition: every plan window must be
+  listed or split, every leaf's converged total must be < 1000 and equal its
+  run count, nothing outside the partition may appear, and split calls enter the
+  exact request accounting.
+- Completed runs last updated before earliest-START − 5 s are listed but not
+  job-scanned: all their jobs completed before any adopted VM started, which the
+  validator rejects anyway. Every other run (any non-`completed` status
+  included) has all attempts' job pages read. The validator recomputes windows,
+  window membership, scan decisions and exact request accounting.
+- Measured 2026-10-05 19:31 UTC: 223 runs created in ~23.5 h and ~0.55 s per
+  gh GET. Expected cost: ~125 windows × 2 passes plus the attempts of runs
+  updated near the drain, a few hundred to ~1000 GETs, within the unchanged
+  4096-call / 45 s-per-call / 30-minute bounds.
+- **Trust boundary (P1-4).** The root-launched collector never reads the
+  UID-1000-writable `~/.config/gh` (a host-scoped `http_unix_socket` or other
+  override there could forge metadata). Root creates `/run/hound-ci-actions-gh`
+  (root:2000001005, 0750) holding a fixed `config.yml` and a `hosts.yml` with
+  only github.com's login and `oauth_token`, both root-owned 0440. Root reads
+  that one token from pcarrier's own `hosts.yml` via a no-follow walk from `/`,
+  requiring a single-link regular file owned by UID 1000 (so the copy discloses
+  nothing new); it is never printed, logged, hashed into a receipt or exported.
+  The collector runs as UID 1000 with the private GID 2000001005, which no
+  account, group or subordinate-GID range holds (checked at capture), so other
+  accounts (gid 100 is shared with `dauriac`) cannot read the copy. **This is
+  not a boundary against a compromised UID 1000**: pcarrier is in the `docker`
+  group (root-equivalent) and already owns the token, so a hostile UID-1000
+  process could obtain it or interfere anyway. The pinned copy defends against
+  other accounts and against casual or accidental config overrides in
+  `~/.config/gh`, nothing more. HOME, GH_CONFIG_DIR
+  and all XDG paths point at the pinned directory; the update notifier and
+  prompts are off. The directory is removed after the capture and must not
+  pre-exist. Token integrity does not affect authenticity (TLS to
+  api.github.com plus response repository identity); keyring-only storage
+  HOLDs. This is a deliberate exception to "no credential reads by root".
+- **Cleanup on every path.** The copy is created under umask 077 with
+  termination signals blocked until its ownership is recorded; SIGTERM, SIGINT,
+  SIGHUP and SIGQUIT unwind through the capture's cleanup (signals stay blocked
+  across fork+exec, so no unrecorded collector child exists, and during
+  kill/reap/check/removal, so a second signal cannot interrupt it). Errors and
+  timeouts take the same path; parse errors never carry file contents. SIGKILL
+  or power loss can leave the directory on tmpfs: the next capture or rehearsal
+  then HOLDs with one line, `rm -r -- /run/hound-ci-actions-gh`, and never
+  removes a directory it did not create.
+- **Retrying a failed capture.** `actions-capture/` is one-shot. After a
+  failed or interrupted capture, root `finish-drain.py
+  --archive-failed-capture` renames it to `actions-capture-failed-N` (N ≤ 8,
+  never edited or deleted, state directory fsynced) only if no
+  `actions-terminal.json`/`.tmp` exists and no pinned gh copy remains; then
+  `--capture` may run again. `--certify` reads only `actions-capture/`.
+- **Pre-arm rehearsal.** Root `finish-drain.py --rehearse` (pinned Python
+  `-I -B`, from the staged store source) runs the real pinned-config path with
+  no manifest and writes no rollout state: it installs the pinned gh copy,
+  launches the unchanged bootstrap as UID 1000/GID 2000001005, feeds it a
+  `pinned-collector-rehearsal` request (horizon ending a minute ago, earliest
+  START an hour ago), and the child lists every window of the 31-day horizon
+  (with splitting) and reads attempts and complete job pages for qualifying
+  runs (no direct job GETs). Root checks the requests against 4096 calls and
+  the time against the 30-minute capture timeout, requires the copy removed,
+  and prints windows/leaves/splits/runs/requests/elapsed.
+
+### Bounds and operating rules
+
+- Replay caps: 2048 VMs per slot and 4096 in all (the all-slot cap binds
+  first). Read-only counts at 19:14 UTC were 75/59/74/62 (270) for the current
+  invocations, ~23 per hour since approval. The waiter rewrites
+  `manifest.json` with full histories, so the gate, waiter, finisher and
+  activation all read manifests up to 16 MiB (a full-cap manifest is < 2 MiB);
+  the activation journal is bounded at 64 MiB.
+- `drain-old.py`, `wait-drained.py` and `activate-cache-v2.py` refuse to run
+  except under the pinned Nix Python with `-I -B`. Before arming, `drain-old`
+  checks the reviewed old wrapper (SHA-pinned): its exported PATH reaches the
+  gated gh directory before any other `gh`, and every loaded ExecStart is that
+  wrapper.
+- **Idle-runner precondition (pre-arm, read-only).** Before creating any
+  state, `drain-old` reads each slot's registration R (positive id required)
+  and makes ONE UID-1000 GET of
+  `repos/xmit-dev/ultimator/actions/runners?per_page=100` through setpriv with
+  pcarrier's ordinary gh config (a liveness-only signal: it authorizes nothing
+  and certifies nothing, so the pinned copy is not needed). All four R must be
+  listed with the same id and name, `online` and `busy`; R and each controller's
+  PID/InvocationID are re-read after the GET. Otherwise it prints
+  `HOUND_CI_DRAIN_NOT_READY <reason>` and exits 75 with nothing changed; the
+  operator re-invokes later. Soundness: a runner listed busy exists, so its
+  DELETE, the record unlink, the legacy 10 s sleep and only then the next record
+  write and JIT POST follow, and every current VM is mid-job and ends with that
+  job. Immediately before each slot's bind, the registration is re-read: R (with
+  the bind less than 10 s later) or absent means no new POST preceded the gate.
+  A new name before the bind, a slow bind, or a new name after the gate is
+  recorded as `idle_risk` in the manifest and warned (`HOUND_CI_DRAIN_IDLE_RISK`),
+  never refused.
+- **End path of an idle runner.** A JIT VM that never receives a job runs until
+  the legacy 8 h VM lifetime: "VM lifetime exceeded" with no STOP line, the
+  worker exits 1, and the waiter HOLDs on the unclosed VM. The same holds for a
+  nonzero QEMU exit or a failed QEMU attestation. Reconciling such a slot needs
+  separate authorization.
+- **History pre-arm caps.** Before arming, `drain-old` counts this boot's root
+  VM STARTs per pinned (InvocationID, PID) from the journal (bounded 64 MiB,
+  64 KiB rows) and refuses unless each slot has ≤ 1024 and all four ≤ 2048, half
+  the waiter's caps (test-pinned to the waiter's constants).
+- A tracked NEW controller may atomically replace its registration file
+  mid-read; activation reads that slot's record by inode content, untracked
+  slots stay strict.
+- Lifecycle clocks: journal and boundary use CLOCK_MONOTONIC while
+  `/proc/PID/stat` starttime uses boot time. After a suspend, records may be
+  filtered as predating the controller, which fails closed (HOLD). Hound
+  showed no suspend this boot (BOOTTIME − MONOTONIC = 0 at 19:31 UTC).
+- **NEVER run `nixos-rebuild switch` (or any profile activation) on hound
+  while the drain or activation is in progress.** It would reload/restart the
+  four units outside the reviewed transition, replace their invocations and
+  strand the drain in HOLD.
+
+The helper deliberately does **not** automatically unmount/restore/start on a
+partial failure. Receipt-persistence failure before a delegated DELETE prevents
+that API call; failure after its return leaves outcome UNKNOWN to the final
+validator even if the API succeeded. It may change the old controller's exit
+status and must never be reported as byte/result-preserving success. Missing or
+partial cleanup proof requires explicit reconciliation, not a retry/rollback.
+Its root0700 state and0600 fsynced phase manifest record per-slot drop-in
+write-intent/written/loaded and gate intent/bound/read-only/probe stages (including partial
+mutation). An early pre-hold failure must not be reported as a loaded hold. Transport EOF requires one bounded phase/PID
+reconciliation before any continuation, never duplicate arming. A rollback
+must be explicit and must not restart/reclaim old slots during handoff. Existing
+job/controller failures remain honest; a post-job next-JIT refusal is intentional
+drain, not a claim that the job itself failed or passed.
+
+Before arming, host-free tests cover endpoint/method inference, exact cleanup
+and other-repository delegation, byte-preserving argv/env behaviour, constant
+no-data-leak refusal, four-private-namespace constraints, pinned PID exit/reuse,
+namespace FD inheritance, ordering and fail-closed controls. A separate owned
+`unshare --mount` smoke test onOctober5 at12:22:18UTC verified actual read-only
+bind semantics, POST refusal75, original gh version delegation and unchanged
+host gh bytes, **without touching any real CI namespace or registering a job**.
+Independent review and normal source PR publication precede critical arming.

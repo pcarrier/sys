@@ -2,8 +2,14 @@
 # Source-only verification: no accounts, nft tables, VM images or services change.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
-"${PYTHON:-python3}" feat/hound-ci/test_supervisor.py
-"${PYTHON:-python3}" feat/hound-ci/test_cache.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_supervisor.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_cache.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_drain.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_wait_drained.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_finish_drained.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_activate.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_effect_proof.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_prepare_rollback.py
 bash -n feat/hound-ci/guest.sh
 bash -n feat/hound-ci/provision.sh
 bash -n feat/hound-ci/cache-only.sh
