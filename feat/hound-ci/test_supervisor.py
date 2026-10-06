@@ -184,7 +184,8 @@ class SupervisorTests(unittest.TestCase):
 
     def test_jit_request_body_carries_exactly_the_given_labels(self):
         for labels in (['self-hosted', 'Linux', 'X64', 'hound-ci-main'],
-                       ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main'], ['hound-ci-main']):
+                       ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main'],
+                       ['hound-ci-main', 'X64', 'Linux', 'self-hosted']):
             with self.subTest(labels=labels):
                 request = supervisor.jit_request('xmit-dev/ultimator', 'hound-ci-4-abc', labels)
                 fields = [request[i + 1] for i, item in enumerate(request) if item in ('-f', '-F')]
@@ -214,6 +215,23 @@ class SupervisorTests(unittest.TestCase):
                 self.assertEqual((code, seen), (2, []))  # argparse usage error, no worker run
         with self.assertRaisesRegex(ValueError, 'At least one'):
             supervisor.runner_labels([])
+
+    def test_labels_need_the_base_three_and_a_pool_label(self):
+        for bad, reason in ((['hound-ci-main'], 'self-hosted, Linux and X64'),
+                            (['Linux', 'X64', 'hound-ci'], 'self-hosted, Linux and X64'),
+                            (['self-hosted', 'X64', 'hound-ci'], 'self-hosted, Linux and X64'),
+                            (['self-hosted', 'Linux', 'hound-ci-main'], 'self-hosted, Linux and X64'),
+                            (['self-hosted', 'Linux', 'X64'], 'hound-ci or hound-ci-main')):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, reason):
+                    supervisor.runner_labels(bad)
+                with self.assertRaisesRegex(ValueError, reason):
+                    supervisor.jit_request('xmit-dev/ultimator', 'hound-ci-4-abc', bad)
+                with patch('sys.stderr'):
+                    self.assertEqual(self.parse_worker('--labels', *bad), (2, []))
+        for good in (['self-hosted', 'Linux', 'X64', 'hound-ci'], ['self-hosted', 'Linux', 'X64', 'hound-ci-main'],
+                     ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']):
+            self.assertEqual(supervisor.runner_labels(good), good)
 
     def test_security_contract(self):
         code = Path(__file__).with_name('supervisor.py').read_text()

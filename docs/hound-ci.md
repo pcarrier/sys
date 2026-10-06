@@ -814,7 +814,8 @@ run (until then its main jobs would find no runner).
 
 **Code.** `supervisor.py worker --labels LABEL...` (last argument) validates
 the labels (non-empty, no duplicates, allowlist `self-hosted Linux X64
-hound-ci hound-ci-main`) before any work; without it the JIT request is
+hound-ci hound-ci-main`, must hold `self-hosted`, `Linux`, `X64` and at least
+one of `hound-ci`/`hound-ci-main`) before any work; without it the JIT request is
 byte-identical to before. `services.hound-ci.reservedMainSlots` (0–3, below
 `workers`) gives the last N slots the main-only labels; 0 leaves `ExecStart`
 without `--labels`. `check.sh` evaluates hound's units with 1, 0 and 2
@@ -823,10 +824,10 @@ build.
 
 **Units.** Only `ExecStart` differs from the loaded cache-v2 units
 (`pahfqs…`/`0rvyj9…`/`gq43yb…`/`rkmx5h…`): the new wrapper
-`3maaqjcv…-hound-ci` (supervisor `z2a3ibcr…`), the same guest `sawmqyv0…` and
+`gxbncrk0…-hound-ci` (supervisor `2s5sylgd…`), the same guest `sawmqyv0…` and
 image `base-cache-v2.qcow2` (`daf2ab77…`, unchanged), plus `--labels`. New
-units: `36yz10sp…-unit-hound-ci-1.service`, `nmmxmsji…-2`, `gj94p3i1…-3`,
-`wxgl04y7…-4`. The image, firewall and storage units also change in the tree
+units: `qaa4grx7…-unit-hound-ci-1.service`, `4wyv5r95…-2`, `lcxqsv1x…-3`,
+`77h7vxpx…-4`. The image, firewall and storage units also change in the tree
 but are not part of this rollout.
 
 **Tooling.** The October 5–6 helpers are retargeted to this generation:
@@ -843,6 +844,35 @@ too. It pins hound's current profile (`0yjgryij…`, switched 12:39 UTC
 October 6, which added `wireguard-wg-ultimator`): if the profile moves again
 before the capture, re-pin it in a reviewed commit. `test_generation.py`
 keeps the helpers' constants consistent.
+
+**Resume and aborted steps.** `--resume` after `holds-remove-reload`
+rechecks under `resume-validated-released`, a hold-released phase of
+`finish-drain.py` (`RELEASE_PHASES`); with the holds still loaded it stays
+`resume-validated`. Each phase is refused by the real validator under the
+other hold state. A step whose post-intent recheck HOLDs, before its
+operation is dispatched, is recorded `aborted_utc`/`aborted_reason` (phase
+`<step>-aborted-before-operation`) and a resume repeats it; an aborted
+`start-anchor` leaves that slot's record at `start-intent`, which the
+validator accepts only while the slot is strictly stopped under its original
+invocation. A failure inside the operation is still an open intent (manual
+reconcile). The journal's `program_sources` (activation and effect-proof
+source and SHA) must match on resume.
+
+**Scheduling, not isolation (P2-4).** The reserved slot is a scheduling
+preference: `hound-ci-main` runners are ordinary JIT runners of the same
+repository, and any workflow of `xmit-dev/ultimator` that asks for
+`hound-ci-main` (including a PR that edits `ci.yml`) can be scheduled on
+slot 4. Every job still gets a fresh disposable VM; nothing about secrets,
+caches or the host boundary depends on the label.
+
+**Next rollout's drain (P2-3).** Once #316 is live, slot 4 is busy only while
+a main run is. `drain-old.py` arms only when all four runners are online and
+busy, and the drain certifies each slot from a completed job (Actions
+evidence). An idle slot 4 never becomes busy outside main runs, and a VM that
+ends at its eight-hour lifetime without a job leaves no job evidence. The
+following rollout therefore needs a reviewed idle-slot path (arm and certify
+a slot whose last VM ended without a job) before it can drain slot 4; don't
+force it by queueing work.
 
 **Plan** (each step needs Pierre's OK; review of #15 and this change first):
 

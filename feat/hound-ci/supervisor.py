@@ -381,6 +381,10 @@ def runner_labels(values):
     unknown = [value for value in values if value not in RUNNER_LABELS]
     if unknown:
         raise ValueError('Runner label outside the allowlist')
+    if not {'self-hosted', 'Linux', 'X64'} <= set(values):
+        raise ValueError('Runner labels must include self-hosted, Linux and X64')
+    if not {'hound-ci', 'hound-ci-main'} & set(values):
+        raise ValueError('Runner labels must include hound-ci or hound-ci-main')
     return values
 
 

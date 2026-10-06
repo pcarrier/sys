@@ -1846,6 +1846,72 @@ class ActualSourceIntegrationTests(unittest.TestCase):
             fixture.activate()
             self.assert_tracked_activation(fixture, rechecks)
 
+    def hold_real(self, fixture, phase, when):
+        """One activation run that HOLDs at recheck `phase` when when(activation)."""
+        real = real_activation.Activation.recheck
+        def recheck(activation, current):
+            if current == phase and when(activation):
+                raise RuntimeError('fixture HOLD at ' + phase)
+            return real(activation, current)
+        with patch.object(real_activation.Activation, 'recheck', autospec=True, side_effect=recheck):
+            with self.assertRaisesRegex(RuntimeError, 'fixture HOLD'):
+                fixture.activate()
+
+    def resume_phases(self, fixture):
+        """Resume, returning the phases the REAL validator saw, at call time."""
+        seen, real = [], finish.revalidate_final
+        def record(drain, manifest):
+            seen.append(drain.activation_phase)
+            return real(drain, manifest)
+        with patch.object(finish, 'revalidate_final', side_effect=record):
+            fixture.activate(resume=True)
+        return seen
+
+    def starts(self, fixture):
+        return [argv[4] for argv in fixture.commands if argv[:3] == ['systemctl', '--job-mode=fail', 'start']]
+
+    def test_real_validator_resume_after_holds_released(self):
+        # (label, when, starts before the resume)
+        for phase, when, before in (('start-anchor', lambda a: not a.started, 0),
+                                    ('start-anchor', lambda a: len(a.started) == 2, 2),
+                                    ('start-anchor-post-intent', lambda a: len(a.started) == 1, 1)):
+            with self.subTest(phase=phase, before=before), self.full_activation_fixture() as (fixture, _):
+                self.hold_real(fixture, phase, when)
+                self.assertEqual(len(self.starts(fixture)), before)
+                phases = self.resume_phases(fixture)
+                self.assertEqual(phases[0], real_activation.RESUME_RELEASED_PHASE)
+                self.assertNotIn(real_activation.RESUME_PHASE, phases)
+                self.assertIn(real_activation.RESUME_RELEASED_PHASE, finish.RELEASE_PHASES)
+                self.assertEqual(self.starts(fixture), [f'hound-ci-{slot}.service' for slot in range(1, 5)])
+                receipt = fixture.receipt()
+                self.assertEqual(receipt['phase'], 'new-four-started-awaiting-runtime-proof')
+                self.assertEqual({record['stage'] for record in receipt['slot_starts'].values()}, {'started'})
+
+    def test_real_validator_refuses_released_holds_under_plain_resume_phase(self):
+        for when in (lambda a: not a.started, lambda a: len(a.started) == 2):
+            with self.full_activation_fixture() as (fixture, _):
+                self.hold_real(fixture, 'start-anchor', when)
+                commands = list(fixture.commands)
+                snapshot = (real_activation.STATE / 'activation.json').read_bytes()
+                with patch.object(real_activation, 'RESUME_RELEASED_PHASE', real_activation.RESUME_PHASE), \
+                     self.assertRaisesRegex(RuntimeError, 'Only reviewed start phases may release any loaded hold'):
+                    fixture.activate(resume=True)
+                self.assertEqual(fixture.commands, commands)
+                self.assertEqual((real_activation.STATE / 'activation.json').read_bytes(), snapshot)
+
+    def test_real_validator_resume_with_holds_loaded_stays_held(self):
+        with self.full_activation_fixture() as (fixture, _):
+            self.hold_real(fixture, 'unit-link-replace', lambda a: len(a.replaced) == 3)
+            # The released phase with the holds still loaded is refused too.
+            with patch.object(real_activation, 'RESUME_PHASE', real_activation.RESUME_RELEASED_PHASE), \
+                 self.assertRaisesRegex(RuntimeError, 'Start phases require all four holds'):
+                fixture.activate(resume=True)
+            self.assertEqual(fixture.commands, [])
+            phases = self.resume_phases(fixture)
+            self.assertEqual(phases[0], real_activation.RESUME_PHASE)
+            self.assertNotIn(real_activation.RESUME_RELEASED_PHASE, phases)
+            self.assertEqual(len(self.starts(fixture)), 4)
+
     def test_actual_activation_2020_or_future_completed_at_never_reaches_manager(self):
         for timestamp in ('2020-01-01T00:00:00Z', '2026-10-06T12:31:05.000001Z'):
             with self.full_activation_fixture() as (fixture, _):
@@ -2211,6 +2277,32 @@ class PinnedGhConfigTests(unittest.TestCase):
                 child.kill.assert_called_once_with()
             self.assertEqual({number: finish.signal.getsignal(number) for number in finish.CAPTURE_SIGNALS}, before)
 
+    def test_real_signal_while_handlers_are_installed_restores_them_all(self):
+        # P2-5: the handlers are installed inside the try with the signals
+        # blocked; a SIGTERM arriving mid-installation is delivered once they
+        # are all in place, raises there, and the finally restores every one.
+        before = {number: finish.signal.getsignal(number) for number in finish.CAPTURE_SIGNALS}
+        mask = finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, [])
+        order, real_signal, installed = [], finish.signal.signal, []
+        def install(number, handler):
+            previous = real_signal(number, handler)
+            installed.append(number)
+            if len(installed) == 2:
+                os.kill(os.getpid(), finish.signal.SIGTERM)
+            return previous
+        child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock())
+        with ExitStack() as stack:
+            target = stack.enter_context(fake_gh_config(order))
+            self.producer_patches(stack, child)
+            stack.enter_context(patch.object(finish.signal, 'signal', side_effect=install))
+            with self.assertRaises(finish.CaptureSignal):
+                finish.run_producer(manifest(), b'{}\n')
+        self.assertEqual(installed[:4], list(finish.CAPTURE_SIGNALS))  # all installed before delivery
+        self.assertEqual(order, []); self.assertFalse(target.exists())  # gh config never installed
+        child.kill.assert_not_called()
+        self.assertEqual({number: finish.signal.getsignal(number) for number in finish.CAPTURE_SIGNALS}, before)
+        self.assertEqual(finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, []), mask)
+
     def test_real_signal_during_Popen_is_deferred_so_the_child_is_never_orphaned(self):
         order = []
         child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock(return_value=-9))
@@ -2295,7 +2387,7 @@ class PinnedGhConfigTests(unittest.TestCase):
             result = real(how, signals)
             if how == finish.signal.SIG_BLOCK and set(signals) == set(finish.CAPTURE_SIGNALS):
                 calls.append('block')
-                if len(calls) == 1:
+                if len(calls) == 2:  # the 1st block is the handler installation's
                     finish.signal.getsignal(finish.signal.SIGTERM)(finish.signal.SIGTERM, None)
             return result
         order = []

@@ -149,14 +149,17 @@ INVOCATION = re.compile('[0-9a-f]{32}')
 ACTIVATION_TRANSITION_API = 'tracked-controller-identity-v1'
 ACTIVATION_JOURNAL = 'activation.json'
 JOURNAL_LIMIT = 64 * 1024 * 1024
-RELEASE_PHASES = {'start-anchor', 'start-anchor-post-intent', 'four-new-started-awaiting-runtime-proof'}
+# resume-validated-released: activation's --resume preflight once its
+# holds-remove-reload step completed (holds already off, some starts maybe done).
+RELEASE_PHASES = {'start-anchor', 'start-anchor-post-intent', 'four-new-started-awaiting-runtime-proof',
+                  'resume-validated-released'}
 CANDIDATE = '/var/lib/hound-ci/base-cache-v2.qcow2'
 CANDIDATE_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
 NEW_UNITS = {
-    1: '/nix/store/36yz10sp8amdzfjl2cxqxwmwbhbln9v9-unit-hound-ci-1.service',
-    2: '/nix/store/nmmxmsjilgx5iz2g4gz2zr9872dm9chd-unit-hound-ci-2.service',
-    3: '/nix/store/gj94p3i1qv8qy7a94g6spy8q4pgkqp2d-unit-hound-ci-3.service',
-    4: '/nix/store/wxgl04y74zr8b3w6bykl8gv7284223cn-unit-hound-ci-4.service',
+    1: '/nix/store/qaa4grx7b2gbhxbl0mgczk8k3iqmr3gn-unit-hound-ci-1.service',
+    2: '/nix/store/4wyv5r9548pzsyf1cw530zsrv52vpqbn-unit-hound-ci-2.service',
+    3: '/nix/store/lcxqsv1xiszm9lbpgix7gj0sfqcvs36r-unit-hound-ci-3.service',
+    4: '/nix/store/77h7vxpxb04hvyndhx9azqwiax1k0hzm-unit-hound-ci-4.service',
 }
 # hosts/hound.nix reservedMainSlots = 1: slot 4 serves only main's runs.
 SHARED_LABELS = ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']
@@ -1620,8 +1623,17 @@ def run_producer(manifest, data):
     # signals blocked after this capture.
     entry_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
     gate = CaptureSignalGate()
-    handlers = {number: signal.signal(number, gate) for number in CAPTURE_SIGNALS}
+    handlers = {}
     try:
+        # Installed INSIDE the try, with the signals blocked, so the finally
+        # restores exactly the handlers that were replaced, whenever a signal
+        # arrives; a pending one is delivered (and raised) once unblocked.
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
+        try:
+            for number in CAPTURE_SIGNALS:
+                handlers[number] = signal.signal(number, gate)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
         install_gh_config(ownership)
         argv = producer_argv(manifest, ready_write, ack_read)
         # Termination signals are blocked across fork+exec and the assignment,

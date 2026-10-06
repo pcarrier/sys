@@ -46,8 +46,12 @@ A durable intent with no completion is an EXPLICIT HOLD for manual reconcile:
 the operation may or may not have happened. Never rerun this program to
 complete/undo an interrupted activation. --resume continues ONLY a recorded
 activation whose every event completed and which is a prefix of the reviewed
-plan (activation_plan), under a new held lease, after the same full recheck;
-it never undoes, repeats or skips a step. A start whose result was not
+plan (activation_plan), under a new held lease, after the same full recheck
+(phase resume-validated while the holds are loaded, resume-validated-released
+once holds-remove-reload completed), with the same activation/effect-proof
+sources (program_sources); it never undoes, repeats or skips a step. A step
+whose post-intent recheck HOLDed is recorded aborted-before-operation (nothing
+was dispatched) and a resume repeats it. A start whose result was not
 recorded, an open intent, or state the journal does not describe (e.g. steps
 done by hand) HOLDs.
 """
@@ -80,10 +84,10 @@ OLD_IMAGE = Path('/var/lib/hound-ci/base-cache-v2.qcow2')
 CANDIDATE_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
 OLD_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
 UNITS = {
-    1: '/nix/store/36yz10sp8amdzfjl2cxqxwmwbhbln9v9-unit-hound-ci-1.service',
-    2: '/nix/store/nmmxmsjilgx5iz2g4gz2zr9872dm9chd-unit-hound-ci-2.service',
-    3: '/nix/store/gj94p3i1qv8qy7a94g6spy8q4pgkqp2d-unit-hound-ci-3.service',
-    4: '/nix/store/wxgl04y74zr8b3w6bykl8gv7284223cn-unit-hound-ci-4.service',
+    1: '/nix/store/qaa4grx7b2gbhxbl0mgczk8k3iqmr3gn-unit-hound-ci-1.service',
+    2: '/nix/store/4wyv5r9548pzsyf1cw530zsrv52vpqbn-unit-hound-ci-2.service',
+    3: '/nix/store/lcxqsv1xiszm9lbpgix7gj0sfqcvs36r-unit-hound-ci-3.service',
+    4: '/nix/store/77h7vxpxb04hvyndhx9azqwiax1k0hzm-unit-hound-ci-4.service',
 }
 SHARED_LABELS = ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']
 LABELS = {1: SHARED_LABELS, 2: SHARED_LABELS, 3: SHARED_LABELS, 4: ['self-hosted', 'Linux', 'X64', 'hound-ci-main']}
@@ -336,31 +340,55 @@ def activation_plan():
 
 
 RESUME_PHASE = 'resume-validated'
+# A resume after holds-remove-reload: the holds are already off, so the shared
+# validator must see a hold-released phase (finish-drain.RELEASE_PHASES).
+# Plain RESUME_PHASE stays for resumes whose holds are still loaded.
+RESUME_RELEASED_PHASE = 'resume-validated-released'
+RESUME_PHASES = {RESUME_PHASE, RESUME_RELEASED_PHASE}
+ABORTED = '-aborted-before-operation'
+
+
+class AbortedBeforeOperation(Exception):
+    """The post-intent recheck HOLDed BEFORE the operation was dispatched."""
 
 
 def recorded_progress(value):
     """The completed steps of a recorded activation, or HOLD.
 
     Every event must have completed (an open intent may or may not have taken
-    effect), the events must be exactly a prefix of activation_plan(), the
-    phase must be the last completion (or a resume preflight), and some step
-    must remain. The journal says nothing of steps done outside this program.
+    effect) or be recorded as aborted before its operation was dispatched
+    (the post-intent recheck HOLDed first: that step did not happen, and a
+    resume repeats it). The completed events must be exactly a prefix of
+    activation_plan(), each aborted event the step after the completed ones
+    before it, the phase the last event's (or a resume preflight's), and some
+    step must remain. The journal says nothing of steps done outside this
+    program.
     """
     require(isinstance(value, dict) and value.get('schema') == 2 and isinstance(value.get('events'), list),
             'Recorded activation journal schema unknown: manual reconcile')
-    plan, done = activation_plan(), []
+    plan, done, last = activation_plan(), [], None
     for event in value['events']:
-        require(isinstance(event, dict) and set(event) == {'operation', 'details', 'intent_utc', 'completion_utc'} and
+        keys = {'operation', 'details', 'intent_utc', 'completion_utc'}
+        require(isinstance(event, dict) and set(event) in (keys, keys | {'aborted_utc', 'aborted_reason'}) and
                 isinstance(event['details'], dict) and isinstance(event['intent_utc'], str),
                 'Recorded activation event malformed: manual reconcile')
+        step = (event['operation'], event['details'].get('unit'))
+        require(len(done) < len(plan) and step == plan[len(done)],
+                'Recorded events are not a prefix of the reviewed plan: manual reconcile')
+        if 'aborted_utc' in event:
+            require(event['completion_utc'] is None and isinstance(event['aborted_utc'], str) and
+                    isinstance(event['aborted_reason'], str),
+                    'Recorded aborted step malformed: manual reconcile')
+            last = event['operation'] + ABORTED
+            continue
         require(isinstance(event['completion_utc'], str),
                 'Recorded INTENT without completion (' + str(event['operation']) +
                 '): it may or may not have happened; manual reconcile, never resume')
-        done.append((event['operation'], event['details'].get('unit')))
-    require(done == plan[:len(done)], 'Recorded events are not a prefix of the reviewed plan: manual reconcile')
+        done.append(step)
+        last = event['operation'] + '-complete'
     require(len(done) < len(plan), 'Recorded activation dispatched all four starts: nothing to resume')
-    phases = {RESUME_PHASE, done[-1][0] + '-complete'} if done else {RESUME_PHASE, 'preflight', 'validated-all-four-stopped'}
-    require(value.get('phase') in phases, 'Recorded phase is not its last completed step: manual reconcile')
+    phases = RESUME_PHASES | ({last} if last else {'preflight', 'validated-all-four-stopped'})
+    require(value.get('phase') in phases, 'Recorded phase is not its last recorded step: manual reconcile')
     return done
 
 
@@ -393,7 +421,15 @@ class Journal:
         self.value['events'].append(event)
         self.value['phase'] = label + '-intent'
         self.save()
-        operation()  # Exceptions leave intent and all previously done changes.
+        try:
+            operation()  # Other exceptions leave intent and all previously done changes.
+        except AbortedBeforeOperation as aborted:
+            # Nothing was dispatched: record that durably, so --resume repeats
+            # this step instead of demanding a manual reconcile.
+            event.update(aborted_utc=timestamp(), aborted_reason=str(aborted.__cause__)[:1000])
+            self.value['phase'] = label + ABORTED
+            self.save()
+            raise aborted.__cause__
         for directory in directories:
             fsync_dir(directory)
         event['completion_utc'] = timestamp()
@@ -1135,7 +1171,7 @@ class DrainView:
 
 
 class Activation:
-    def __init__(self, validator, drain, manifest, backup, images, effects, window):
+    def __init__(self, validator, drain, manifest, backup, images, effects, window, sources=None):
         self.validator, self.drain, self.manifest = validator, drain, manifest
         self.effects, self.window = effects, window
         self.started = {}
@@ -1177,12 +1213,15 @@ class Activation:
                                 'terminal_certificate': strict_json(read_file(STATE / 'actions-terminal.json', mode=0o600, limit=JSON_LIMIT)),
                                 'control_window': window.value, 'control_window_sha256': window.expected_sha,
                                 'events': []})
+        # The reviewed activation/effect-proof bytes this run executes: a
+        # resume must run the same ones (adopt() compares them).
+        self.journal.value['program_sources'] = dict(sources or {})
 
     def adopt(self, recorded):
         """Take over a recorded activation's completed steps (recorded_progress)."""
         done = recorded_progress(recorded)
         for key in ('candidate_sha256', 'old_image_sha256', 'certificate_sha256', 'validator_source',
-                    'validator_sha256', 'manifest'):
+                    'validator_sha256', 'manifest', 'program_sources'):
             require(recorded.get(key) == self.journal.value[key],
                     'Recorded activation belongs to another certificate/image/validator: manual reconcile')
         starts = recorded.get('slot_starts', {})
@@ -1300,16 +1339,23 @@ class Activation:
         if prepare is not None:
             prepare(before, details['validation_sha256'])  # Saved WITH the intent.
         def checked_operation():
-            after = self.recheck(label + '-post-intent')
-            require(canonical(after) == canonical(before),
-                    'Post-durable-INTENT actual graph/state changed: explicit HOLD')
+            try:
+                after = self.recheck(label + '-post-intent')
+                require(canonical(after) == canonical(before),
+                        'Post-durable-INTENT actual graph/state changed: explicit HOLD')
+            except Exception as error:
+                # Only a HOLD of the recheck: the operation was NOT dispatched.
+                raise AbortedBeforeOperation(label) from error
             operation()
         self.journal.change(label, details, checked_operation, directories)
 
     def execute(self):
         # A resume rechecks the recorded partial state exactly as the next step
         # of a single run would, and changes nothing unless it holds.
-        phase = RESUME_PHASE if self.completed else 'validated-all-four-stopped'
+        if not self.completed:
+            phase = 'validated-all-four-stopped'
+        else:
+            phase = RESUME_PHASE if self.loaded_holds else RESUME_RELEASED_PHASE
         self.recheck(phase)
         self.journal.value['phase'] = phase
         self.journal.save()
@@ -1465,7 +1511,10 @@ def activate(validator_source, validator_sha, *, activation_sha, effect_source, 
                     'Reviewed primary-systemd proof source differs from explicit lease')
             for path, digest in ((CANDIDATE, CANDIDATE_SHA), (OLD_IMAGE, OLD_SHA)):
                 images.append(ImagePin(path, digest))
-            activation = Activation(validator, DrainView(operator), manifest, backup, images, effects, window)
+            sources = {'activation_source': str(Path(__file__)), 'activation_sha256': activation_sha,
+                       'effect_source': str(effect_source),
+                       'effect_sha256': effect_sha}
+            activation = Activation(validator, DrainView(operator), manifest, backup, images, effects, window, sources)
             if recorded is not None:
                 activation.adopt(recorded)
             activation.execute()
