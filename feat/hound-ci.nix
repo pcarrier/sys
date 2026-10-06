@@ -8,6 +8,31 @@
 let
   cfg = config.services.hound-ci;
   slots = lib.range 1 cfg.workers;
+  # The last reservedMainSlots slots serve only main's push/manual runs
+  # (runs-on hound-ci-main); the others serve both. With 0 no --labels is
+  # passed and every slot registers the original four labels.
+  slotLabels =
+    n:
+    if n > cfg.workers - cfg.reservedMainSlots then
+      [
+        "self-hosted"
+        "Linux"
+        "X64"
+        "hound-ci-main"
+      ]
+    else
+      [
+        "self-hosted"
+        "Linux"
+        "X64"
+        "hound-ci"
+        "hound-ci-main"
+      ];
+  labelArgs =
+    n:
+    lib.optionalString (
+      cfg.reservedMainSlots > 0
+    ) " --labels ${lib.concatStringsSep " " (slotLabels n)}";
   users = [ "hound-ci-image" ] ++ map (n: "hound-ci-${toString n}") slots;
   supervisor = pkgs.writeShellApplication {
     name = "hound-ci";
@@ -109,6 +134,11 @@ in
       default = "tank/hound-ci";
       description = "Dedicated CI-only ZFS dataset, hard quota/refquota 512 GiB; existing mismatched properties fail without mutation";
     };
+    reservedMainSlots = lib.mkOption {
+      type = lib.types.ints.between 0 3;
+      default = 0;
+      description = "Last N slots register only hound-ci-main (main's push/manual runs); 0 keeps the original labels";
+    };
     imageName = lib.mkOption {
       type = lib.types.strMatching "base(-[a-z0-9][a-z0-9-]{0,31})?\\.qcow2";
       default = "base.qcow2";
@@ -121,6 +151,12 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.reservedMainSlots < cfg.workers;
+        message = "services.hound-ci.reservedMainSlots must leave at least one hound-ci slot";
+      }
+    ];
     users.users = lib.genAttrs users (name: {
       isSystemUser = true;
       group = name;
@@ -209,7 +245,7 @@ in
           };
           serviceConfig = common // {
             Slice = "hound-ci.slice";
-            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --guest ${./hound-ci/guest.sh} --image ${cfg.imageName}";
+            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --guest ${./hound-ci/guest.sh} --image ${cfg.imageName}${labelArgs n}";
             LoadCredential = [ "gh-hosts:${cfg.ghCredentialFile}" ];
             RuntimeDirectory = "hound-ci-${toString n}";
             RuntimeDirectoryMode = "0700";

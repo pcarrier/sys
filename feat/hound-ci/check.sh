@@ -17,6 +17,14 @@ bash -n feat/hound-ci/cache-only.sh
 git diff --check
 git diff --cached --check
 nix eval --json .#nixosConfigurations.hound.config.services.hound-ci
+# Slot labels: hound's reservation, the default 0 (no --labels) and 2 slots.
+nix eval --json --impure --expr "
+  let
+    hound = (builtins.getFlake \"git+file://$PWD\").nixosConfigurations.hound;
+    reserve = n: hound.extendModules { modules = [ { services.hound-ci.reservedMainSlots = hound.pkgs.lib.mkForce n; } ]; };
+    exec = c: map (n: c.config.systemd.services.\"hound-ci-\${toString n}\".serviceConfig.ExecStart) [ 1 2 3 4 ];
+  in { hound = exec hound; zero = exec (reserve 0); two = exec (reserve 2); }" |
+  "${PYTHON:-python3}" -I -B feat/hound-ci/check_slot_labels.py
 nix build --no-link --print-out-paths \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-storage.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-firewall.service".unit' \

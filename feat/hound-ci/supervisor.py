@@ -365,6 +365,32 @@ def cleanup_record(path, repo):
     path.unlink()
 
 
+# JIT runner labels: an exact allowlist. hound-ci-main marks slots that main's
+# push/manual runs target (xmit-dev/ultimator ci.yml); without --labels a slot
+# registers exactly the original four labels, in the original order.
+RUNNER_LABELS = ('self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main')
+DEFAULT_LABELS = ('self-hosted', 'Linux', 'X64', 'hound-ci')
+
+
+def runner_labels(values):
+    values = list(values)
+    if not values:
+        raise ValueError('At least one runner label is required')
+    if len(set(values)) != len(values):
+        raise ValueError('Duplicate runner label')
+    unknown = [value for value in values if value not in RUNNER_LABELS]
+    if unknown:
+        raise ValueError('Runner label outside the allowlist')
+    return values
+
+
+def jit_request(repo, name, labels):
+    """gh arguments of the JIT POST; the body carries exactly these labels, in order."""
+    fields = [item for label in runner_labels(labels) for item in ('-f', f'labels[]={label}')]
+    return ['-X', 'POST', f'repos/{repo}/actions/runners/generate-jitconfig',
+            '-f', f'name={name}', '-F', 'runner_group_id=1', *fields, '-f', 'work_folder=_work']
+
+
 def worker(args):
     account = pwd.getpwnam(f'hound-ci-{args.slot}')
     record = STATE / f'slot-{args.slot}-registration.json'
@@ -382,10 +408,7 @@ def worker(args):
     # Preserve the exact unique-name intent even if the POST response is lost.
     save_record(record, {'repo': args.repo, 'id': None, 'name': name})
     try:
-        registration = gh(['-X', 'POST', f'repos/{args.repo}/actions/runners/generate-jitconfig',
-                           '-f', f'name={name}', '-F', 'runner_group_id=1',
-                           '-f', 'labels[]=self-hosted', '-f', 'labels[]=Linux',
-                           '-f', 'labels[]=X64', '-f', 'labels[]=hound-ci', '-f', 'work_folder=_work'])
+        registration = gh(jit_request(args.repo, name, args.labels))
         runner_id = registration['runner']['id']
         save_record(record, {'repo': args.repo, 'id': runner_id, 'name': name})
         registered = True
@@ -475,9 +498,16 @@ def main():
     bake.add_argument('--image', default='base.qcow2'); bake.add_argument('--source-sha256')
     bake.add_argument('--source-image')
     slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True); slot.add_argument('--image', default='base.qcow2')
+    slot.add_argument('--labels', nargs='+', default=list(DEFAULT_LABELS), metavar='LABEL',
+                      help='JIT runner labels (allowlist: ' + ', '.join(RUNNER_LABELS) + '); last argument')
     acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
     volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)
     args = parser.parse_args()
+    if args.mode == 'worker':
+        try:
+            args.labels = runner_labels(args.labels)  # before any registration or disk work
+        except ValueError as error:
+            parser.error(str(error))
     try:
         if args.mode == 'worker':
             # Completion-driven lifecycle, not status polling. Successful jobs

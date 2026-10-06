@@ -174,6 +174,47 @@ class SupervisorTests(unittest.TestCase):
         self.assertLess(code.index('verify_image(disk)'),code.index('disk.rename(final)'))
         self.assertLess(code.index("run(['qemu-img', 'check'"),code.index('disk.rename(final)'))
 
+    def test_default_jit_request_is_the_original_four_label_post(self):
+        # Byte-identical to the request before --labels existed.
+        self.assertEqual(supervisor.jit_request('xmit-dev/ultimator', 'hound-ci-1-abc', supervisor.DEFAULT_LABELS),
+                         ['-X', 'POST', 'repos/xmit-dev/ultimator/actions/runners/generate-jitconfig',
+                          '-f', 'name=hound-ci-1-abc', '-F', 'runner_group_id=1',
+                          '-f', 'labels[]=self-hosted', '-f', 'labels[]=Linux',
+                          '-f', 'labels[]=X64', '-f', 'labels[]=hound-ci', '-f', 'work_folder=_work'])
+
+    def test_jit_request_body_carries_exactly_the_given_labels(self):
+        for labels in (['self-hosted', 'Linux', 'X64', 'hound-ci-main'],
+                       ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main'], ['hound-ci-main']):
+            with self.subTest(labels=labels):
+                request = supervisor.jit_request('xmit-dev/ultimator', 'hound-ci-4-abc', labels)
+                fields = [request[i + 1] for i, item in enumerate(request) if item in ('-f', '-F')]
+                self.assertEqual([f.removeprefix('labels[]=') for f in fields if f.startswith('labels[]=')], labels)
+                self.assertEqual([f for f in fields if not f.startswith('labels[]=')],
+                                 ['name=hound-ci-4-abc', 'runner_group_id=1', 'work_folder=_work'])
+                self.assertEqual(request[:3], ['-X', 'POST', 'repos/xmit-dev/ultimator/actions/runners/generate-jitconfig'])
+
+    def parse_worker(self, *extra):
+        argv = ['hound-ci', 'worker', '--slot', '4', '--repo', 'xmit-dev/ultimator', '--guest', '/nix/store/x-guest.sh',
+                '--image', 'base-cache-v2.qcow2', *extra]
+        seen = []
+        with patch.object(supervisor.sys, 'argv', argv), patch.object(supervisor, 'worker', side_effect=lambda args: seen.append(args.labels)), \
+                patch.object(supervisor, 'STOP_REQUESTED', False), patch.object(supervisor.time, 'sleep', side_effect=SystemExit(0)):
+            with self.assertRaises(SystemExit) as stopped:
+                supervisor.main()
+        return stopped.exception.code, seen
+
+    def test_labels_argument_is_validated_before_any_worker_run(self):
+        self.assertEqual(self.parse_worker(), (0, [['self-hosted', 'Linux', 'X64', 'hound-ci']]))
+        self.assertEqual(self.parse_worker('--labels', 'self-hosted', 'Linux', 'X64', 'hound-ci-main'),
+                         (0, [['self-hosted', 'Linux', 'X64', 'hound-ci-main']]))
+        for bad in (['--labels'], ['--labels', 'hound-ci', 'hound-ci'], ['--labels', 'self-hosted', 'gpu'],
+                    ['--labels', 'Self-Hosted'], ['--labels', 'hound-ci,hound-ci-main'], ['--labels', '']):
+            with self.subTest(bad=bad), patch('sys.stderr'):
+                code, seen = self.parse_worker(*bad)
+                self.assertEqual((code, seen), (2, []))  # argparse usage error, no worker run
+        with self.assertRaisesRegex(ValueError, 'At least one'):
+            supervisor.runner_labels([])
+
     def test_security_contract(self):
         code = Path(__file__).with_name('supervisor.py').read_text()
         self.assertIn('generate-jitconfig', code)
