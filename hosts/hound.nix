@@ -14,6 +14,7 @@ lib.bare {
     ../feat/sandbox-ssh.nix
     ../feat/ultimator-mesh.nix
     ../feat/waydroid.nix
+    ../feat/ultimator-cluster-cd.nix
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix
