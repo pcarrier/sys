@@ -76,7 +76,7 @@ import time
 from types import ModuleType
 import uuid
 
-STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
+STATE = Path('/var/lib/hound-ci/rollout-main-slot-20261006')
 REPO = 'xmit-dev/ultimator'
 GH_ELF = Path('/nix/store/bsjdf8dh5k8sylwzgp58ip47sbpbzw5l-gh-2.101.0/bin/.gh-wrapped')
 HARDWARE_PHASE = 'all-four-hardware-drained-awaiting-actions-proof'
@@ -99,9 +99,9 @@ SOURCE_LIMIT = 1024 * 1024  # Same bound as COLLECTOR_BOOTSTRAP's source read.
 MAX_VMS = 4096
 MAX_SLOT_VMS = 2048
 MAX_ATTEMPTS = 128
-WITNESS_SINCE = '2026-10-05T11:56:00+00:00'
-OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
-OLD_SOURCE_SHA256 = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
+WITNESS_SINCE = '2026-10-06T11:45:00+00:00'  # main-slot-20261006 approval
+OLD_SOURCE = '/nix/store/snp22ndcxkxigcyhlxzm5rp8fpw5j19f-supervisor.py'  # the loaded cache-v2 controllers
+OLD_SOURCE_SHA256 = 'ea34b0dd3a01529a8ebc9aeab4426f7068ee69927092454da28e19632a88863c'
 QEMU_ELF = '/nix/store/53pb1l8qlby0jzb7n8c1qiwq5nw89krx-qemu-host-cpu-only-11.1.1/bin/.qemu-system-x86_64-wrapped'
 MAX_PAGES = 100
 # Run enumeration (closed creation windows, see enumeration_plan()). Measured
@@ -153,11 +153,14 @@ RELEASE_PHASES = {'start-anchor', 'start-anchor-post-intent', 'four-new-started-
 CANDIDATE = '/var/lib/hound-ci/base-cache-v2.qcow2'
 CANDIDATE_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
 NEW_UNITS = {
-    1: '/nix/store/pahfqs4j2ynghvh356qjxv5mwx48mk0n-unit-hound-ci-1.service',
-    2: '/nix/store/0rvyj9c7i52yy7yw7iabcah6v8g4pkfs-unit-hound-ci-2.service',
-    3: '/nix/store/gq43ybz4c5hwvww1w7jxplkbk62xhm64-unit-hound-ci-3.service',
-    4: '/nix/store/rkmx5h7g74pk8qg9li1hhz91adirmdby-unit-hound-ci-4.service',
+    1: '/nix/store/36yz10sp8amdzfjl2cxqxwmwbhbln9v9-unit-hound-ci-1.service',
+    2: '/nix/store/nmmxmsjilgx5iz2g4gz2zr9872dm9chd-unit-hound-ci-2.service',
+    3: '/nix/store/gj94p3i1qv8qy7a94g6spy8q4pgkqp2d-unit-hound-ci-3.service',
+    4: '/nix/store/wxgl04y74zr8b3w6bykl8gv7284223cn-unit-hound-ci-4.service',
 }
+# hosts/hound.nix reservedMainSlots = 1: slot 4 serves only main's runs.
+SHARED_LABELS = ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']
+NEW_LABELS = {1: SHARED_LABELS, 2: SHARED_LABELS, 3: SHARED_LABELS, 4: ['self-hosted', 'Linux', 'X64', 'hound-ci-main']}
 
 
 def require(condition, message):
@@ -1829,10 +1832,11 @@ def validate_start_record(entry, record, manifest):
     argv = record['argv']
     require(type(record['slot']) is int and record['slot'] == entry['slot'] and record['unit'] == unit and
             record['request'] == request and record['source'] == source and
-            isinstance(argv, list) and len(argv) == 10 and all(isinstance(arg, str) for arg in argv) and
+            isinstance(argv, list) and len(argv) == 11 + len(NEW_LABELS[entry['slot']]) and
+            all(isinstance(arg, str) for arg in argv) and
             Path(argv[0]).is_relative_to('/nix/store') and Path(argv[7]).is_relative_to('/nix/store') and
             argv[1:7] == ['worker', '--slot', str(entry['slot']), '--repo', REPO, '--guest'] and
-            argv[8:] == ['--image', 'base-cache-v2.qcow2'] and
+            argv[8:] == ['--image', 'base-cache-v2.qcow2', '--labels', *NEW_LABELS[entry['slot']]] and
             record['image'] == {'path': CANDIDATE, 'sha256': CANDIDATE_SHA},
             'Activation start request/source/argv/image proof is not the exact reviewed four-unit transition')
     pre = record['pre_start']

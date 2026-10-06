@@ -11,6 +11,8 @@ export PYTHONDONTWRITEBYTECODE=1
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_anchor_proof.py
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_effect_proof.py
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_prepare_rollback.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_capture_rollback.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_generation.py
 bash -n feat/hound-ci/guest.sh
 bash -n feat/hound-ci/provision.sh
 bash -n feat/hound-ci/cache-only.sh
@@ -34,3 +36,16 @@ nix build --no-link --print-out-paths \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-3.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-4.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci.slice".unit'
+# The rollout's pinned new units are exactly what this tree builds.
+nix build --no-link --print-out-paths \
+  '.#nixosConfigurations.hound.config.systemd.units."hound-ci-1.service".unit' \
+  '.#nixosConfigurations.hound.config.systemd.units."hound-ci-2.service".unit' \
+  '.#nixosConfigurations.hound.config.systemd.units."hound-ci-3.service".unit' \
+  '.#nixosConfigurations.hound.config.systemd.units."hound-ci-4.service".unit' |
+  "${PYTHON:-python3}" -I -B -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("act", "feat/hound-ci/activate-cache-v2.py")
+act = importlib.util.module_from_spec(spec); spec.loader.exec_module(act)
+built = sys.stdin.read().split()
+assert sorted(built) == sorted(act.UNITS.values()), ("pinned UNITS differ from the build", built)
+print("PINNED_UNITS_OK")'

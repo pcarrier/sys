@@ -5,8 +5,13 @@
 
 ## Intended operation
 
-- Four repository-bound slots for `xmit-dev/ultimator`, labels
-  `[self-hosted, Linux, X64, hound-ci]`.
+- Four repository-bound slots for `xmit-dev/ultimator`. With
+  `reservedMainSlots = 0` every slot registers the original
+  `[self-hosted, Linux, X64, hound-ci]` (no `--labels` argument). Hound sets
+  `reservedMainSlots = 1`: slot 4 registers only
+  `[self-hosted, Linux, X64, hound-ci-main]`, slots 1–3
+  `[self-hosted, Linux, X64, hound-ci, hound-ci-main]` (see "Reserved main
+  slot" below).
 - Each job gets a fresh Ubuntu **24.04 amd64 KVM VM**, six vCPUs, **16 GiB** RAM,
   and a **120 GiB sparse qcow2 disk**. Its dedicated `tank/hound-ci` dataset has
   hard quota/refquota **512 GiB**; admission requires 1 TiB shared-pool free and
@@ -796,3 +801,61 @@ is kept beside the log.
 live state no longer matches it (slot 4's link, the holds and the loaded units
 differ), so a resume HOLDs at its first recheck. The manual-completion log is
 the record of those steps.
+
+## Reserved main slot — generation main-slot-20261006 (planned, not executed)
+
+**Why.** GitHub hands queued jobs to JIT runners in no particular order, and
+pull-request jobs win, so jobs of pushes to `main` (the only ones that write
+the shared caches) wait behind every PR. xmit-dev/ultimator#316 makes push and
+manual runs on `main` ask for `[self-hosted, Linux, X64, hound-ci-main]` and
+everything else for `[self-hosted, Linux, X64, hound-ci]`. Slot 4 then serves
+only `main`; slots 1–3 serve both. #316 merges only after the four new units
+run (until then its main jobs would find no runner).
+
+**Code.** `supervisor.py worker --labels LABEL...` (last argument) validates
+the labels (non-empty, no duplicates, allowlist `self-hosted Linux X64
+hound-ci hound-ci-main`) before any work; without it the JIT request is
+byte-identical to before. `services.hound-ci.reservedMainSlots` (0–3, below
+`workers`) gives the last N slots the main-only labels; 0 leaves `ExecStart`
+without `--labels`. `check.sh` evaluates hound's units with 1, 0 and 2
+(`check_slot_labels.py`) and checks the rollout's pinned units against the
+build.
+
+**Units.** Only `ExecStart` differs from the loaded cache-v2 units
+(`pahfqs…`/`0rvyj9…`/`gq43yb…`/`rkmx5h…`): the new wrapper
+`3maaqjcv…-hound-ci` (supervisor `z2a3ibcr…`), the same guest `sawmqyv0…` and
+image `base-cache-v2.qcow2` (`daf2ab77…`, unchanged), plus `--labels`. New
+units: `36yz10sp…-unit-hound-ci-1.service`, `nmmxmsji…-2`, `gj94p3i1…-3`,
+`wxgl04y7…-4`. The image, firewall and storage units also change in the tree
+but are not part of this rollout.
+
+**Tooling.** The October 5–6 helpers are retargeted to this generation:
+state `/var/lib/hound-ci/rollout-main-slot-20261006` (never the 20261005
+state, whose `activation.json` must not resume), witness from 11:45 UTC
+(Pierre's go-ahead), old controllers = the loaded cache-v2 ones (supervisor
+`snp22ndc…`, wrapper `grszl3cv…`, guest `sawmqyv0…`, `--image
+base-cache-v2.qcow2`), activation's new argv = old argv + `--labels`. New
+`capture-rollback.py` (root, write-once) writes the schema-2 ledger
+`/var/lib/hound-ci/rollout-main-slot-backup-20261006` that activation's
+`Backup` reads, including the exact inventory of the retained
+`gcroots/hound-ci/cache-v2-20261005` namespace, which activation now checks
+too. It pins hound's current profile (`0yjgryij…`, switched 12:39 UTC
+October 6, which added `wireguard-wg-ultimator`): if the profile moves again
+before the capture, re-pin it in a reviewed commit. `test_generation.py`
+keeps the helpers' constants consistent.
+
+**Plan** (each step needs Pierre's OK; review of #15 and this change first):
+
+1. `capture-rollback.py` → `ROLLBACK_CAPTURED`.
+2. `drain-old.py` arm (all four online and busy, else `NOT_READY`, exit 75),
+   `wait-drained.py`, `finish-drain.py` capture/certify.
+3. A new held lease (effect structure recomputed), then
+   `activate-cache-v2.py` (`--resume` after an interruption); by hand, the
+   per-slot `anchor-proof.py` then `systemctl --job-mode=fail start`.
+4. Merge #316.
+
+Until #316 merges, slot 4 holds an idle `hound-ci-main` runner. Its VM reaches
+the eight-hour lifetime, the worker raises, `cleanup_record` deletes the
+runner registration, the controller exits 1 and `Restart=always` starts it
+again after 10 s: one restart per eight hours, far below
+`StartLimitBurst=4` per hour. Only `NRestarts` and the journal show it.

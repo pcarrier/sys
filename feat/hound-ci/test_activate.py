@@ -49,10 +49,11 @@ def hash_bytes(data):
 
 
 def command(slot, new=False):
+    # Old: the loaded cache-v2 controller; new: the same plus --labels.
     result = ['/nix/store/' + ('new' if new else 'old') + '-hound-ci/bin/hound-ci',
               'worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator',
-              '--guest', '/nix/store/' + ('new' if new else 'old') + '-guest.sh']
-    return result + (['--image', 'base-cache-v2.qcow2'] if new else [])
+              '--guest', '/nix/store/cache-v2-guest.sh', '--image', 'base-cache-v2.qcow2']
+    return result + (['--labels', *act.LABELS[slot]] if new else [])
 
 
 def unit_data(slot, new=False):
@@ -162,7 +163,8 @@ class Fixture:
                          'controllers': [], 'drain_witness': {}}
         self.backup = {'schema': 2, 'host_profile': str(profile), 'host_profile_resolved': str(profile),
                        'old_image': {'path': str(act.OLD_IMAGE), 'sha256': act.OLD_SHA},
-                       'old_unit_links': [], str(act.GCROOTS): [], str(act.ENABLE): []}
+                       'old_unit_links': [], str(act.GCROOTS): [], str(act.ENABLE): [],
+                       'retained_root_directories': {}}
         self.manager = {f'hound-ci-{slot}.service': loaded(slot) for slot in act.UNITS}
         self.dependencies = {name: {'Id': name, 'LoadState': 'loaded', 'ActiveState': 'active',
                                     'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}

@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""One-shot LEGACY controller drain arming, never job/VM termination.
+"""One-shot controller drain arming, never job/VM termination.
+
+Generation main-slot-20261006: drains the four cache-v2 controllers loaded
+since the 10-06 rollout (supervisor snp22ndc, --image base-cache-v2.qcow2) so
+activation can install the hound-ci-main label units. "Legacy" below means
+those currently loaded controllers; their worker() lifecycle is the same as
+the first rollout's (verify_image before admission is the only addition).
 
 Root-only operator helper, not a guest or automatic service. Reviewed exact
 source is installed in Nix store before use. Restart=no precedes route gates;
@@ -21,18 +27,20 @@ import pwd
 import re
 from datetime import datetime, timezone
 
-OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
-OLD_GUEST = '/nix/store/0zmll6kia11538x699kra2nb6kcnyfr1-guest.sh'
-OLD_SOURCE_SHA = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
+OLD_SOURCE = '/nix/store/snp22ndcxkxigcyhlxzm5rp8fpw5j19f-supervisor.py'
+OLD_GUEST = '/nix/store/sawmqyv0izn8ck3pbq2q0gbg770h2d4i-guest.sh'
+OLD_SOURCE_SHA = 'ea34b0dd3a01529a8ebc9aeab4426f7068ee69927092454da28e19632a88863c'
+OLD_IMAGE_ARGS = ['--image', 'base-cache-v2.qcow2']
+WITNESS_SINCE = '2026-10-06T11:45:00+00:00'  # Pierre's 'Go ahead' for the main slot
 # The loaded units' ExecStart: a bash wrapper exporting PATH, then
 # `exec python3 OLD_SOURCE "$@"`. The legacy run(['gh', ...]) resolves through
 # that PATH, so the gate must be the FIRST gh on it (checked statically below).
-OLD_WRAPPER = '/nix/store/g32m381cn05m1wx4d46g1hfzibrrx1bg-hound-ci/bin/hound-ci'
-OLD_WRAPPER_SHA = 'f1245a8da62716b5b98a912a91f34d6c750bb0d885d4a77fd5a6b3405b1af339'
+OLD_WRAPPER = '/nix/store/grszl3cvcvy5wxxwgjwr1zydpi2ivk0h-hound-ci/bin/hound-ci'
+OLD_WRAPPER_SHA = '908bb2383a8e5ebb428ae87f9be8910b319619da9e64778ed369b939f1f47a16'
 QEMU_ELF = '/nix/store/53pb1l8qlby0jzb7n8c1qiwq5nw89krx-qemu-host-cpu-only-11.1.1/bin/.qemu-system-x86_64-wrapped'
 GH = Path('/nix/store/bsjdf8dh5k8sylwzgp58ip47sbpbzw5l-gh-2.101.0/bin/gh')
 GH_ELF = GH.with_name('.gh-wrapped')
-STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
+STATE = Path('/var/lib/hound-ci/rollout-main-slot-20261006')
 DROPIN = '90-cache-rollout-drain.conf'
 
 
@@ -151,9 +159,9 @@ def pin(slot):
                  'qemu_uid': pwd.getpwnam(f'hound-ci-{slot}').pw_uid, 'qemu_gid': pwd.getpwnam(f'hound-ci-{slot}').pw_gid,
                  'pidfd': pidfd, 'nsfd': nsfd, 'control_group': values['ControlGroup']}
         identity(entry)
-        expected = ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator', '--guest', OLD_GUEST]
+        expected = ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator', '--guest', OLD_GUEST, *OLD_IMAGE_ARGS]
         args = [arg.decode() for arg in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0') if arg]
-        if len(args) != 9 or args[1] != OLD_SOURCE or args[2:] != expected:
+        if len(args) != 2 + len(expected) or args[1] != OLD_SOURCE or args[2:] != expected:
             raise RuntimeError('Only the exact known legacy supervisor may be drained')
         identity(entry)  # Bind checked argv to the pinned identity, not a prior PID.
         return entry
@@ -571,7 +579,7 @@ def arm(gate, expected_sha, waiter_source, waiter_sha, validator_source, validat
                 'drain_nonce': str(uuid.uuid4()), 'operator_source': str(Path(__file__)), 'operator_sha256': digest(__file__),
                 'waiter_source': str(waiter_source), 'waiter_sha256': waiter_sha, 'validator_source': str(validator_source), 'validator_sha256': validator_sha,
                 'old_source': OLD_SOURCE, 'old_source_sha256': digest(OLD_SOURCE),
-                'created_utc': timestamp(), 'witness_since': '2026-10-05T11:56:00+00:00', 'gate': str(gate), 'gate_sha256': expected_sha,
+                'created_utc': timestamp(), 'witness_since': WITNESS_SINCE, 'gate': str(gate), 'gate_sha256': expected_sha,
                 'old_gh_sha256': old_hash, 'original_elf_sha256': elf_hash, 'controllers': [], 'armed': [], 'dropins': [], 'gates': {},
                 'readiness': ready}
     try:

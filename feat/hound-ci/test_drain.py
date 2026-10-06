@@ -94,13 +94,17 @@ class DrainTests(unittest.TestCase):
 
     def test_pin_captures_original_invocation_and_canonical_boot(self):
         values={'MainPID':'100','Restart':'always','InvocationID':INV,'ControlGroup':'/hound.slice/hound-ci.slice/hound-ci-1.service'}
-        argv=b'\0'.join([b'python3',drain.OLD_SOURCE.encode(),b'worker',b'--slot',b'1',b'--repo',b'xmit-dev/ultimator',b'--guest',drain.OLD_GUEST.encode()])+b'\0'
+        argv=b'\0'.join([b'python3',drain.OLD_SOURCE.encode(),b'worker',b'--slot',b'1',b'--repo',b'xmit-dev/ultimator',b'--guest',drain.OLD_GUEST.encode(),b'--image',b'base-cache-v2.qcow2'])+b'\0'
         def text(path):
             if path.name=='boot_id':return BOOT+'\n'
             raise AssertionError(path)
         with patch.object(drain,'loaded_wrapper'),patch.object(drain,'properties',return_value=values),patch.object(drain,'starttime',return_value='1024'),patch.object(drain.os,'pidfd_open',return_value=90),patch.object(drain.os,'open',return_value=91),patch.object(drain.os,'fstat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.os,'stat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=901,pw_gid=801)),patch.object(Path,'read_text',text),patch.object(Path,'read_bytes',return_value=argv):
             entry=drain.pin(1)
         self.assertEqual((entry['invocation_id'],entry['boot_id']),(INV,BOOT))
+        # Only the loaded cache-v2 argv: the first rollout's (no --image) or a labelled one is refused.
+        for other in (argv.replace(b'\0--image\0base-cache-v2.qcow2',b''),argv+b'--labels\0hound-ci\0',argv.replace(b'base-cache-v2',b'base')):
+            with self.subTest(argv=other),patch.object(drain,'loaded_wrapper'),patch.object(drain,'properties',return_value=values),patch.object(drain,'starttime',return_value='1024'),patch.object(drain.os,'pidfd_open',return_value=90),patch.object(drain.os,'open',return_value=91),patch.object(drain.os,'close'),patch.object(drain.os,'fstat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.os,'stat',return_value=SimpleNamespace(st_ino=9)),patch.object(drain.select,'select',return_value=([],[],[])),patch.object(drain.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=901,pw_gid=801)),patch.object(Path,'read_text',text),patch.object(Path,'read_bytes',return_value=other):
+                with self.assertRaisesRegex(RuntimeError,'legacy supervisor'):drain.pin(1)
         for bad in ({**values,'InvocationID':''},{**values,'InvocationID':'x'*32},{k:v for k,v in values.items() if k!='InvocationID'}):
             with patch.object(drain,'loaded_wrapper'),patch.object(drain,'properties',return_value=bad),patch.object(drain.os,'pidfd_open') as opened:
                 with self.assertRaisesRegex(RuntimeError,'invocation identity missing'):drain.pin(1)
@@ -108,6 +112,15 @@ class DrainTests(unittest.TestCase):
         for boot in ('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA','aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa','not-a-uuid'):
             with patch.object(Path,'read_text',return_value=boot+'\n'),self.assertRaisesRegex(RuntimeError,'Canonical kernel boot identity'):
                 drain.current_boot_id()
+
+    def test_generation_pins_the_loaded_cache_v2_controllers(self):
+        self.assertEqual((drain.OLD_SOURCE, drain.OLD_SOURCE_SHA, drain.OLD_GUEST, drain.OLD_WRAPPER, drain.OLD_WRAPPER_SHA, drain.OLD_IMAGE_ARGS),
+                         ('/nix/store/snp22ndcxkxigcyhlxzm5rp8fpw5j19f-supervisor.py',
+                          'ea34b0dd3a01529a8ebc9aeab4426f7068ee69927092454da28e19632a88863c',
+                          '/nix/store/sawmqyv0izn8ck3pbq2q0gbg770h2d4i-guest.sh',
+                          '/nix/store/grszl3cvcvy5wxxwgjwr1zydpi2ivk0h-hound-ci/bin/hound-ci',
+                          '908bb2383a8e5ebb428ae87f9be8910b319619da9e64778ed369b939f1f47a16', ['--image', 'base-cache-v2.qcow2']))
+        self.assertEqual((str(drain.STATE), drain.WITNESS_SINCE), ('/var/lib/hound-ci/rollout-main-slot-20261006', '2026-10-06T11:45:00+00:00'))
 
     def test_old_wrapper_PATH_resolves_gh_to_the_gated_directory(self):
         import hashlib
@@ -130,7 +143,7 @@ class DrainTests(unittest.TestCase):
         with patch.object(drain,'run',return_value=SimpleNamespace(stdout=prefix)):
             drain.loaded_wrapper(2)
             with self.assertRaisesRegex(RuntimeError,'old wrapper'):drain.loaded_wrapper(1)
-        with patch.object(drain,'run',return_value=SimpleNamespace(stdout=prefix.replace('g32m','x32m'))),self.assertRaisesRegex(RuntimeError,'old wrapper'):
+        with patch.object(drain,'run',return_value=SimpleNamespace(stdout=prefix.replace('grszl3cv','xrszl3cv'))),self.assertRaisesRegex(RuntimeError,'old wrapper'):
             drain.loaded_wrapper(2)
 
     def test_gate_reads_manifest_beyond_64KiB_up_to_bound(self):

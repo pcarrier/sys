@@ -25,12 +25,18 @@ wait_spec.loader.exec_module(real_waiter)
 act_spec = importlib.util.spec_from_file_location('real_activation', Path(__file__).with_name('activate-cache-v2.py'))
 real_activation = importlib.util.module_from_spec(act_spec)
 act_spec.loader.exec_module(real_activation)
+# Fixture clock: the first rollout's approval-relative layout (approval 11:56,
+# arming ~12:20), shifted to 10-06. The real constant (11:45, Pierre's 'Go
+# ahead' for the main slot) is pinned by test_generation_witness_constant.
+FIXTURE_WITNESS = '2026-10-06T11:56:00+00:00'
+REAL_WITNESS = finish.WITNESS_SINCE
+finish.WITNESS_SINCE = real_waiter.WITNESS_SINCE = FIXTURE_WITNESS
 
 
 class FrozenDateTime(datetime):
     @classmethod
     def now(cls, tz=None):
-        return cls.fromisoformat('2026-10-05T12:31:00+00:00')
+        return cls.fromisoformat('2026-10-06T12:31:00+00:00')
 
 
 _clock_patch = patch.object(finish, 'datetime', FrozenDateTime)
@@ -57,9 +63,9 @@ def invocation(slot):
 
 def manifest():
     result = {'phase': finish.HARDWARE_PHASE, 'boot_id': BOOT, 'drain_nonce': '1b123456-1234-4123-8123-123456789abc',
-              'created_utc': '2026-10-05T12:20:00+00:00', 'drained_utc': '2026-10-05T12:30:00+00:00',
+              'created_utc': '2026-10-06T12:20:00+00:00', 'drained_utc': '2026-10-06T12:30:00+00:00',
               'witness_since': finish.WITNESS_SINCE,
-              'armed': [{'slot': slot, 'utc': '2026-10-05T12:20:31+00:00'} for slot in range(1, 5)],
+              'armed': [{'slot': slot, 'utc': '2026-10-06T12:20:31+00:00'} for slot in range(1, 5)],
               'original_elf_sha256': 'e' * 64, 'controllers': [], 'gates': {}, 'drain_witness': {}}
     for number, (path, sha) in enumerate(finish.SOURCE_FIELDS):
         result[path] = '/nix/store/' + str(number) + '-' + path + '.py'
@@ -72,15 +78,15 @@ def manifest():
                  'control_group': f'/hound.slice/hound-ci.slice/hound-ci-{slot}.service'}
         result['controllers'].append(entry)
         vm = {'name': f'hound-ci-{slot}-{slot:012x}', 'start_monotonic': '20000000', 'stop_monotonic': '30000000',
-              'start_realtime': str(finish.micros('2026-10-05T12:10:00+00:00')),
-              'stop_realtime': str(finish.micros('2026-10-05T12:29:00+00:00')),
+              'start_realtime': str(finish.micros('2026-10-06T12:10:00+00:00')),
+              'stop_realtime': str(finish.micros('2026-10-06T12:29:00+00:00')),
               'qemu_pid': 400 + slot, 'security_verified': True}
         registration = {'repo': finish.REPO, 'id': 200 + slot, 'name': vm['name']}
         result['gates'][str(slot)] = {'stage': 'armed', 'registration': registration,
             'registration_after_gate': copy.deepcopy(registration),
-            'observed_utc': '2026-10-05T12:20:30+00:00',
+            'observed_utc': '2026-10-06T12:20:30+00:00',
             'observation_started_monotonic_us': '25000000',
-            'observation_started_utc': '2026-10-05T12:20:29+00:00', 'observation_boot_id': BOOT,
+            'observation_started_utc': '2026-10-06T12:20:29+00:00', 'observation_boot_id': BOOT,
             'first_registration_read': {'path': f'/var/lib/hound-ci/slot-{slot}-registration.json', 'present': True,
                                         'boot_id': BOOT, 'after_monotonic_us': '25000000',
                                         'operator_sha256': result['operator_sha256']},
@@ -112,7 +118,7 @@ def cleanup(m, slot=1, runner_id=None, name=None):
     return {'slot': slot, 'old_pid': entry['pid'], 'starttime': entry['starttime'], 'repo': finish.REPO,
             'id': runner_id or 200 + slot, 'name': name or m['drain_witness'][str(slot)]['vm_history'][-1]['name'],
             'drain_nonce': m['drain_nonce'], 'gate_sha256': m['gate_sha256'], 'stage': 'delete-returned',
-            'success': True, 'returncode': 0, 'utc': '2026-10-05T12:29:01+00:00'}
+            'success': True, 'returncode': 0, 'utc': '2026-10-06T12:29:01+00:00'}
 
 
 def cleanups(m, first=None):
@@ -125,7 +131,7 @@ def historical_manifest():
     m = manifest()
     for slot in range(1, 5):
         vm = m['drain_witness'][str(slot)]['vm_history'][-1]
-        vm['stop_realtime'] = str(finish.micros('2026-10-05T12:19:00Z'))
+        vm['stop_realtime'] = str(finish.micros('2026-10-06T12:19:00Z'))
         vm['stop_monotonic'] = '24000000'
         m['drain_witness'][str(slot)]['latest_vm_monotonic'] = vm['stop_monotonic']
         m['gates'][str(slot)].update(registration=None, registration_after_gate=None, host_qemu_before_gate=None)
@@ -137,11 +143,11 @@ def post_gate_manifest():
     m = manifest(); w = m['drain_witness']['1']
     # A root-authenticated pre-gate inflight POST may become a VM after the
     # gate: never cancel it or assume missing pre/post registration is cleanup.
-    w['vm_history'][0]['stop_realtime'] = str(finish.micros('2026-10-05T12:21:00Z'))
+    w['vm_history'][0]['stop_realtime'] = str(finish.micros('2026-10-06T12:21:00Z'))
     vm = copy.deepcopy(w['vm_history'][0])
     vm.update(name='hound-ci-1-abcdef012345', start_monotonic='31000000', stop_monotonic='35000000',
-              start_realtime=str(finish.micros('2026-10-05T12:22:00Z')),
-              stop_realtime=str(finish.micros('2026-10-05T12:29:00Z')), qemu_pid=901)
+              start_realtime=str(finish.micros('2026-10-06T12:22:00Z')),
+              stop_realtime=str(finish.micros('2026-10-06T12:29:00Z')), qemu_pid=901)
     w['vm_history'].append(vm)
     w['latest_vm'].update(name=vm['name']); w['latest_vm_monotonic'] = vm['stop_monotonic']
     m['gates']['1']['registration_after_gate'] = None
@@ -155,10 +161,10 @@ def job(slot, job_id=None, run_id=500, attempt=1, conclusion='success'):
             'run_url': f'https://api.github.com/repos/{finish.REPO}/actions/runs/{run_id}',
             'runner_name': f'hound-ci-{slot}-{slot:012x}', 'runner_id': 200 + slot,
             'status': 'completed', 'conclusion': conclusion,
-            'started_at': '2026-10-05T09:00:00Z', 'completed_at': '2026-10-05T12:28:00Z'}
+            'started_at': '2026-10-06T09:00:00Z', 'completed_at': '2026-10-06T12:28:00Z'}
 
 
-def run_row(run_id=500, attempt=1, created='2026-10-05T12:00:00Z', updated='2026-10-05T12:30:00Z', status='completed'):
+def run_row(run_id=500, attempt=1, created='2026-10-06T12:00:00Z', updated='2026-10-06T12:30:00Z', status='completed'):
     return {'id': run_id, 'run_attempt': attempt, 'repository': {'full_name': finish.REPO},
             'url': f'https://api.github.com/repos/{finish.REPO}/actions/runs/{run_id}',
             'status': status, 'created_at': created, 'updated_at': updated}
@@ -253,7 +259,7 @@ def invocation_fixture(m, report):
     data = finish.canonical(m) + b'\n'
     intent = finish.new_capture_intent(m, data)
     intent.update(invocation_id='9b123456-1234-4123-8123-123456789abc',
-                  started_utc='2026-10-05T12:30:30Z', started_monotonic_ns='50000000000')
+                  started_utc='2026-10-06T12:30:30Z', started_monotonic_ns='50000000000')
     output = finish.canonical(report) + b'\n'
     boundary = {'pid': 9999, 'starttime': '4444', 'uids': [1000] * 4, 'gids': [finish.COLLECTOR_GID] * 4,
                 'groups': [], 'caps': [0] * 5, 'no_new_privs': 1, 'executable': finish.python_executable()}
@@ -261,7 +267,7 @@ def invocation_fixture(m, report):
               'ready_fd': '11', 'ack_fd': '12', 'argv_sha256': finish.digest(finish.canonical(finish.producer_argv(m, 11, 12)))}
     receipt = {'schema': 1, 'kind': 'root-fixed-collector-invocation', 'intent': intent, **actual,
                'output_sha256': finish.digest(output), 'output_bytes': len(output),
-               'finished_utc': '2026-10-05T12:31:01Z', 'finished_monotonic_ns': '81000000000',
+               'finished_utc': '2026-10-06T12:31:01Z', 'finished_monotonic_ns': '81000000000',
                'request_count': report['request_count'], 'response_identity_sha256': finish.digest(finish.canonical(report['jobs']))}
     return receipt
 
@@ -270,7 +276,7 @@ def certificate(m=None):
     m = m or manifest()
     report = collection(m)
     return {'schema': 1, 'kind': 'root-actions-terminal-certificate',
-            'certified_utc': '2026-10-05T12:32:00+00:00',
+            'certified_utc': '2026-10-06T12:32:00+00:00',
             'collection_sha256': finish.digest(finish.canonical(report)), 'collection': report,
             'cleanup_receipts': cleanups(m), 'invocation': invocation_fixture(m, report)}
 
@@ -330,8 +336,8 @@ class LifecycleIdentityTests(unittest.TestCase):
         m = manifest(); w = m['drain_witness']['1']
         prior = copy.deepcopy(w['vm_history'][0])
         prior.update(name='hound-ci-1-abcdef012345', start_monotonic='11000000', stop_monotonic='19000000',
-                     start_realtime=str(finish.micros('2026-10-05T11:55:00+00:00')),
-                     stop_realtime=str(finish.micros('2026-10-05T12:09:00+00:00')), qemu_pid=399)
+                     start_realtime=str(finish.micros('2026-10-06T11:55:00+00:00')),
+                     stop_realtime=str(finish.micros('2026-10-06T12:09:00+00:00')), qemu_pid=399)
         w['vm_history'].insert(0, prior)
         # Arm boundary BEFORE A's STOP: A overlaps arming and must be adopted.
         m['gates']['1']['observation_started_monotonic_us'] = '18000000'; sync_first_read(m)
@@ -392,7 +398,7 @@ class LifecycleIdentityTests(unittest.TestCase):
         m['drain_witness']['1']['registration_witness'] = {
             'kind': 'exact-local-post-blocked', 'slot': 1, 'old_pid': e['pid'], 'starttime': e['starttime'],
             'repo': finish.REPO, 'name': g['registration']['name'], 'route_blocked': True,
-            'utc': '2026-10-05T12:20:31+00:00'}
+            'utc': '2026-10-06T12:20:31+00:00'}
         self.assertEqual(len(finish.accepted_vms(m)), 4)
         m['drain_witness']['1']['registration_witness']['drain_nonce'] = m['drain_nonce']
         with self.assertRaises(RuntimeError): finish.accepted_vms(m)
@@ -403,8 +409,8 @@ class LifecycleIdentityTests(unittest.TestCase):
         # post-approval (>= 11:56) VM which ended before arming is history.
         m = manifest(); w = m['drain_witness']['1']; prior = copy.deepcopy(w['vm_history'][0])
         prior.update(name='hound-ci-1-abcdef012345', start_monotonic='11000000', stop_monotonic='19000000',
-                     start_realtime=str(finish.micros('2026-10-05T12:00:00+00:00')),
-                     stop_realtime=str(finish.micros('2026-10-05T12:05:00+00:00')), qemu_pid=399)
+                     start_realtime=str(finish.micros('2026-10-06T12:00:00+00:00')),
+                     stop_realtime=str(finish.micros('2026-10-06T12:05:00+00:00')), qemu_pid=399)
         w['vm_history'].insert(0, prior)
         self.assertEqual([vm['name'] for vm in finish.accepted_vms(m) if vm['slot'] == 1], [w['vm_history'][1]['name']])
         for stop, adopted in (('24999999', False), ('25000000', True)):
@@ -430,10 +436,10 @@ class LifecycleIdentityTests(unittest.TestCase):
         for index, (start, stop) in enumerate((('25100000', '25200000'), ('25300000', '25400000'))):
             vm = copy.deepcopy(last)
             vm.update(name=f'hound-ci-1-00000000a{index:03x}', start_monotonic=start, stop_monotonic=stop,
-                      start_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:00+00:00')),
-                      stop_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:30+00:00')), qemu_pid=700 + index)
+                      start_realtime=str(finish.micros(f'2026-10-06T12:2{index + 1}:00+00:00')),
+                      stop_realtime=str(finish.micros(f'2026-10-06T12:2{index + 1}:30+00:00')), qemu_pid=700 + index)
             earlier.append(vm)
-        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-05T12:23:00+00:00')))
+        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-06T12:23:00+00:00')))
         w['vm_history'][:0] = earlier
         m['gates']['1']['registration'] = {'repo': finish.REPO, 'id': 299, 'name': earlier[0]['name']}
         m['gates']['1']['host_qemu_before_gate'] = None
@@ -468,10 +474,10 @@ class LifecycleIdentityTests(unittest.TestCase):
         for index, (start, stop) in enumerate((('25100000', '25200000'), ('25300000', '25400000'))):
             vm = copy.deepcopy(last)
             vm.update(name=f'hound-ci-1-00000000a{index:03x}', start_monotonic=start, stop_monotonic=stop,
-                      start_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:00+00:00')),
-                      stop_realtime=str(finish.micros(f'2026-10-05T12:2{index + 1}:30+00:00')), qemu_pid=last['qemu_pid'])
+                      start_realtime=str(finish.micros(f'2026-10-06T12:2{index + 1}:00+00:00')),
+                      stop_realtime=str(finish.micros(f'2026-10-06T12:2{index + 1}:30+00:00')), qemu_pid=last['qemu_pid'])
             earlier.append(vm)
-        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-05T12:23:00+00:00')))
+        last.update(start_monotonic='25500000', start_realtime=str(finish.micros('2026-10-06T12:23:00+00:00')))
         w['vm_history'][:0] = earlier
         m['gates']['1']['host_qemu_before_gate'] = None
         sync_first_read(m)
@@ -490,8 +496,8 @@ class LifecycleIdentityTests(unittest.TestCase):
         # Slot 2's later VM cannot vouch for slot 1's last VM.
         w2 = m['drain_witness']['2']; later = copy.deepcopy(w2['vm_history'][0])
         later.update(name='hound-ci-2-00000000b000', start_monotonic='31000000', stop_monotonic='32000000',
-                     start_realtime=str(finish.micros('2026-10-05T12:29:10+00:00')),
-                     stop_realtime=str(finish.micros('2026-10-05T12:29:20+00:00')), qemu_pid=880)
+                     start_realtime=str(finish.micros('2026-10-06T12:29:10+00:00')),
+                     stop_realtime=str(finish.micros('2026-10-06T12:29:20+00:00')), qemu_pid=880)
         w2['vm_history'].append(later); w2['latest_vm'].update(name=later['name']); w2['latest_vm_monotonic'] = later['stop_monotonic']
         m['gates']['2']['registration_after_gate'] = None
         records = [cleanup(m, slot) for slot in (2, 3, 4)]
@@ -509,7 +515,7 @@ class LifecycleIdentityTests(unittest.TestCase):
         for key, value in [('slot', True), ('old_pid', 999), ('starttime', '999'), ('id', 999),
                            ('repo', 'other/repo'), ('drain_nonce', 'other'), ('gate_sha256', 'f'*64),
                            ('name', 'hound-ci-1-abcdef012345'), ('stage', 'delete-intent'), ('success', False),
-                           ('success', 1), ('returncode', True), ('utc', '2026-10-05T11:55:00Z')]:
+                           ('success', 1), ('returncode', True), ('utc', '2026-10-06T11:55:00Z')]:
             receipt = cleanup(m); receipt[key] = value
             with self.subTest(key=key), self.assertRaises(RuntimeError): finish.validate_cleanup_receipts(m, [receipt])
         receipt = cleanup(m); receipt.update(stage='delete-intent', success=False); receipt.pop('returncode')
@@ -542,7 +548,7 @@ class LifecycleIdentityTests(unittest.TestCase):
         m = post_gate_manifest()
         m['gates']['1']['registration_after_gate'] = {
             'repo': finish.REPO, 'id': 901, 'name': m['drain_witness']['1']['vm_history'][-1]['name']}
-        m['armed'][0]['utc'] = '2026-10-05T12:22:01Z'
+        m['armed'][0]['utc'] = '2026-10-06T12:22:01Z'
         records = cleanups(m)
         records[0] = cleanup(m, name=m['drain_witness']['1']['vm_history'][0]['name'])
         records.append(cleanup(m, runner_id=901))
@@ -558,15 +564,15 @@ class LifecycleIdentityTests(unittest.TestCase):
         self.assertEqual(finish.validate_cleanup_receipts(m, []), {
             vm['name']: None for vm in finish.accepted_vms(m)})
         finish.validate_collection(collection(m), m, [])
-        for stop in ('2026-10-05T12:20:30Z', '2026-10-05T12:20:31Z', '2026-10-05T12:20:32Z'):
+        for stop in ('2026-10-06T12:20:30Z', '2026-10-06T12:20:31Z', '2026-10-06T12:20:32Z'):
             current = historical_manifest()
             current['drain_witness']['1']['vm_history'][-1]['stop_realtime'] = str(finish.micros(stop))
             with self.subTest(stop=stop), self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
                 finish.validate_cleanup_receipts(current, [])
         for mutate in (lambda m: m['armed'][0].pop('utc'),
-                       lambda m: m['armed'][0].update(utc='2026-10-05T12:20:29Z'),
-                       lambda m: m['armed'][0].update(utc='2026-10-05T12:30:01Z'),
-                       lambda m: m['gates']['1'].update(observed_utc='2026-10-05T12:19:59Z')):
+                       lambda m: m['armed'][0].update(utc='2026-10-06T12:20:29Z'),
+                       lambda m: m['armed'][0].update(utc='2026-10-06T12:30:01Z'),
+                       lambda m: m['gates']['1'].update(observed_utc='2026-10-06T12:19:59Z')):
             current = historical_manifest(); mutate(current)
             with self.assertRaises(RuntimeError): finish.validate_cleanup_receipts(current, [])
 
@@ -583,11 +589,11 @@ class LifecycleIdentityTests(unittest.TestCase):
         finish.validate_cleanup_receipts(m, cleanups(m))
 
     def test_post_gate_and_armed_slot_inflight_adopted_VM_need_own_DELETE(self):
-        for begin in ('2026-10-05T12:20:30Z', '2026-10-05T12:20:31Z', '2026-10-05T12:21:00Z'):
+        for begin in ('2026-10-06T12:20:30Z', '2026-10-06T12:20:31Z', '2026-10-06T12:21:00Z'):
             m = historical_manifest(); w = m['drain_witness']['1']
             vm = copy.deepcopy(w['vm_history'][0])
             vm.update(name='hound-ci-1-abcdef012345', start_monotonic='31000000', stop_monotonic='35000000',
-                      start_realtime=str(finish.micros(begin)), stop_realtime=str(finish.micros('2026-10-05T12:29:00Z')),
+                      start_realtime=str(finish.micros(begin)), stop_realtime=str(finish.micros('2026-10-06T12:29:00Z')),
                       qemu_pid=901)
             w['vm_history'].append(vm)
             w['latest_vm'].update(name=vm['name'])
@@ -610,8 +616,8 @@ class LifecycleIdentityTests(unittest.TestCase):
         # B's DELETE return proof. END/wall-clock-only exemption was unsound.
         vm.update(start_monotonic='25000001', stop_monotonic='26000000')
         w['latest_vm_monotonic'] = vm['stop_monotonic']
-        vm['start_realtime'] = str(finish.micros('2026-10-05T12:20:29.100000Z'))
-        vm['stop_realtime'] = str(finish.micros('2026-10-05T12:20:29.500000Z'))
+        vm['start_realtime'] = str(finish.micros('2026-10-06T12:20:29.100000Z'))
+        vm['stop_realtime'] = str(finish.micros('2026-10-06T12:20:29.500000Z'))
         with self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
             finish.validate_cleanup_receipts(m, [])
         finish.validate_cleanup_receipts(m, [cleanup(m)])
@@ -635,8 +641,8 @@ class LifecycleIdentityTests(unittest.TestCase):
             lambda g: g.pop('observation_started_monotonic_us'), lambda g: g.pop('observation_started_utc'),
             lambda g: g.update(observation_started_monotonic_us=25000000),
             lambda g: g.update(observation_started_monotonic_us='0'),
-            lambda g: g.update(observation_started_utc='2026-10-05T12:20:31Z'),
-            lambda g: g.update(observation_started_utc='2026-10-05T12:19:59Z'),
+            lambda g: g.update(observation_started_utc='2026-10-06T12:20:31Z'),
+            lambda g: g.update(observation_started_utc='2026-10-06T12:19:59Z'),
             lambda g: g.update(observation_started_monotonic_us='24000000'),
         ):
             m = historical_manifest(); mutate(m['gates']['1']); sync_first_read(m)
@@ -694,8 +700,8 @@ class LifecycleIdentityTests(unittest.TestCase):
             m['drain_witness']['1']['latest_vm_monotonic'] = stop_monotonic
             # Negative wall-clock step: realtime STOP looks an hour older than
             # the boundary/snapshot/arm receipts; monotonic order still wins.
-            vm['start_realtime'] = str(finish.micros('2026-10-05T11:10:00Z'))
-            vm['stop_realtime'] = str(finish.micros('2026-10-05T11:19:00Z'))
+            vm['start_realtime'] = str(finish.micros('2026-10-06T11:10:00Z'))
+            vm['stop_realtime'] = str(finish.micros('2026-10-06T11:19:00Z'))
             self.assertFalse(m['gates']['1']['first_registration_read']['present'])
             with self.subTest(stop=stop_monotonic), self.assertRaisesRegex(RuntimeError, 'coverage UNKNOWN/HOLD'):
                 finish.validate_cleanup_receipts(m, [])
@@ -730,7 +736,7 @@ class ResponseIdentityTests(unittest.TestCase):
         for key, value in [('status', 'in_progress'), ('status', None), ('conclusion', None),
                            ('conclusion', ''), ('conclusion', 'queued'), ('conclusion', 'new-outcome'),
                            ('conclusion', 'startup_failure'),
-                           ('completed_at', None), ('completed_at', '2026-10-05T12:00:00'),
+                           ('completed_at', None), ('completed_at', '2026-10-06T12:00:00'),
                            ('completed_at', 'invalid'), ('runner_id', 0), ('id', True),
                            ('run_attempt', None)]:
             row = job(1); row[key] = value
@@ -757,33 +763,33 @@ class ResponseIdentityTests(unittest.TestCase):
     def test_completion_metadata_allowance_exact_five_second_bounds(self):
         m = manifest()
         self.assertEqual(finish.ACTIONS_CLOCK_SKEW_SECONDS, 5)
-        for timestamp in ('2026-10-05T12:09:55Z', '2026-10-05T12:09:55.000001Z',
-                          '2026-10-05T12:10:00Z', '2026-10-05T12:31:04.999999Z',
-                          '2026-10-05T12:31:05Z', '2026-10-05T12:31:05+00:00'):
+        for timestamp in ('2026-10-06T12:09:55Z', '2026-10-06T12:09:55.000001Z',
+                          '2026-10-06T12:10:00Z', '2026-10-06T12:31:04.999999Z',
+                          '2026-10-06T12:31:05Z', '2026-10-06T12:31:05+00:00'):
             api = FakeAPI(); api.jobs[1][0]['completed_at'] = timestamp
             api.direct[1001] = copy.deepcopy(api.jobs[1][0])
             with self.subTest(timestamp=timestamp):
                 report = finish.collect(m, api)
                 finish.validate_collection(report, m, cleanups(m))
-        for timestamp in ('2026-10-05T12:09:54.999999Z', '2026-10-05T12:31:05.000001Z',
+        for timestamp in ('2026-10-06T12:09:54.999999Z', '2026-10-06T12:31:05.000001Z',
                           '2025-10-05T12:10:00Z', '2027-10-05T12:31:00Z',
-                          '2026-10-05T12:10:00+01:00', '2026-10-05T12:31:00-01:00'):
+                          '2026-10-06T12:10:00+01:00', '2026-10-06T12:31:00-01:00'):
             api = FakeAPI(); api.jobs[1][0]['completed_at'] = timestamp
             api.direct[1001] = copy.deepcopy(api.jobs[1][0])
             with self.subTest(timestamp=timestamp), self.assertRaises(RuntimeError): finish.collect(m, api)
 
     def test_whole_second_truncation_compares_exact_authenticated_microseconds(self):
         m = manifest(); vm = m['drain_witness']['1']['vm_history'][0]
-        vm['start_realtime'] = str(finish.micros('2026-10-05T12:10:00.999999Z'))
-        report = collection(m); report['jobs'][0]['job']['completed_at'] = '2026-10-05T12:09:56Z'
+        vm['start_realtime'] = str(finish.micros('2026-10-06T12:10:00.999999Z'))
+        report = collection(m); report['jobs'][0]['job']['completed_at'] = '2026-10-06T12:09:56Z'
         finish.validate_collection(report, m, cleanups(m))
-        report['jobs'][0]['job']['completed_at'] = '2026-10-05T12:09:55Z'
+        report['jobs'][0]['job']['completed_at'] = '2026-10-06T12:09:55Z'
         with self.assertRaises(RuntimeError): finish.validate_collection(report, m, cleanups(m))
         # Upper collection bound is equally exact, not rounded to a new second.
-        report = collection(m); report['collected_utc'] = '2026-10-05T12:31:00.000001Z'
-        report['jobs'][0]['job']['completed_at'] = '2026-10-05T12:31:05.000001Z'
+        report = collection(m); report['collected_utc'] = '2026-10-06T12:31:00.000001Z'
+        report['jobs'][0]['job']['completed_at'] = '2026-10-06T12:31:05.000001Z'
         finish.validate_collection(report, m, cleanups(m))
-        report['jobs'][0]['job']['completed_at'] = '2026-10-05T12:31:05.000002Z'
+        report['jobs'][0]['job']['completed_at'] = '2026-10-06T12:31:05.000002Z'
         with self.assertRaises(RuntimeError): finish.validate_collection(report, m, cleanups(m))
 
     def test_queued_and_started_at_old_future_missing_remain_free(self):
@@ -1017,7 +1023,7 @@ class RootCaptureSecurityTests(unittest.TestCase):
             lambda r: r.update(output_bytes=1), lambda r: r.update(request_count=1),
             lambda r: r.update(response_identity_sha256='f' * 64),
             lambda r: r.update(finished_monotonic_ns='1850000000001'),
-            lambda r: r.update(finished_utc='2026-10-05T12:30:00Z'),
+            lambda r: r.update(finished_utc='2026-10-06T12:30:00Z'),
         ):
             bad = copy.deepcopy(receipt); mutate(bad)
             with self.subTest(receipt=bad), self.assertRaises(RuntimeError):
@@ -1365,17 +1371,17 @@ class FreshRevalidationTests(unittest.TestCase):
         for slot in sorted(set(started) | set(intents)):
             unit, request, source = finish.expected_start_record(m['controllers'][slot - 1])
             argv = [f'/nix/store/new-hound-ci/bin/hound-ci', 'worker', '--slot', str(slot), '--repo', finish.REPO,
-                    '--guest', '/nix/store/new-guest.sh', '--image', 'base-cache-v2.qcow2']
+                    '--guest', '/nix/store/new-guest.sh', '--image', 'base-cache-v2.qcow2', '--labels', *finish.NEW_LABELS[slot]]
             record = {'slot': slot, 'unit': unit, 'request': request, 'source': source, 'argv': argv,
                       'image': {'path': finish.CANDIDATE, 'sha256': finish.CANDIDATE_SHA},
                       'pre_start': {'main_pid': '0', 'invocation_id': invocation(slot), 'restart': 'always',
                                     'original_cgroup': 'removed', 'validation_sha256': 'a' * 64},
-                      'intent_utc': '2026-10-05T12:30:30+00:00', 'stage': 'start-intent', 'result': None}
+                      'intent_utc': '2026-10-06T12:30:30+00:00', 'stage': 'start-intent', 'result': None}
             if slot in started:
                 record['stage'] = 'started'
                 record['result'] = {'returncode': 0, 'job': {'type': 'start', 'mode': 'fail', 'result': 'done'},
                                     'invocation_id': f'{slot + 10:x}' * 32, 'pid': 500 + slot, 'starttime': str(9000 + slot),
-                                    'control_group': f'/hound.slice/hound-ci.slice/{unit}', 'utc': '2026-10-05T12:30:31+00:00'}
+                                    'control_group': f'/hound.slice/hound-ci.slice/{unit}', 'utc': '2026-10-06T12:30:31+00:00'}
                 new[slot] = {'pid': 500 + slot, 'starttime': str(9000 + slot), 'control_group': record['result']['control_group'],
                              'argv': argv, 'unit': unit}
             starts[str(slot)] = record
@@ -1477,7 +1483,7 @@ class FreshRevalidationTests(unittest.TestCase):
         waiter.replay.assert_not_called()
 
     def test_source_import_never_uses_unpinned_sibling_bytecode(self):
-        source = b'STATE = __import__("pathlib").Path("/var/lib/hound-ci/rollout-cache-v2-20261005")\n'
+        source = b'STATE = __import__("pathlib").Path("/var/lib/hound-ci/rollout-main-slot-20261006")\n'
         with patch.object(finish, 'validate_operator_source', return_value=source) as checked:
             loaded = finish.load_source('/nix/store/mock-source.py', 'a' * 64, 'mock')
             self.assertEqual(loaded.STATE, finish.STATE)
@@ -1661,7 +1667,7 @@ class ActualSourceIntegrationTests(unittest.TestCase):
                 receipts = [] if historical else cleanups(m)
                 if post_gate:
                     receipts[0] = cleanup(m, name=m['drain_witness']['1']['vm_history'][0]['name'])
-                    receipts[0]['utc'] = '2026-10-05T12:21:01Z'
+                    receipts[0]['utc'] = '2026-10-06T12:21:01Z'
                     receipts.append(cleanup(m, runner_id=901))
                 receipts.sort(key=lambda row: f'cleanup-{row["slot"]}-{row["id"]}.json')
                 cert = certificate(m); cert['cleanup_receipts'] = receipts
@@ -1841,7 +1847,7 @@ class ActualSourceIntegrationTests(unittest.TestCase):
             self.assert_tracked_activation(fixture, rechecks)
 
     def test_actual_activation_2020_or_future_completed_at_never_reaches_manager(self):
-        for timestamp in ('2020-01-01T00:00:00Z', '2026-10-05T12:31:05.000001Z'):
+        for timestamp in ('2020-01-01T00:00:00Z', '2026-10-06T12:31:05.000001Z'):
             with self.full_activation_fixture() as (fixture, _):
                 path = real_activation.STATE / 'actions-terminal.json'
                 cert = finish.decode(path.read_bytes())
@@ -1863,9 +1869,9 @@ class ActualSourceIntegrationTests(unittest.TestCase):
 class RunEnumerationTests(unittest.TestCase):
     def test_deterministic_closed_windows_cover_rerun_horizon_to_drain(self):
         m = manifest(); plan = finish.enumeration_plan(m, finish.accepted_vms(m))
-        earliest = finish.micros('2026-10-05T12:10:00+00:00') // 1000000
+        earliest = finish.micros('2026-10-06T12:10:00+00:00') // 1000000
         self.assertEqual(plan['windows'][0][0], (earliest - 31 * 86400) // 21600 * 21600)
-        self.assertEqual(plan['until'], finish.micros('2026-10-05T12:30:05+00:00') // 1000000)
+        self.assertEqual(plan['until'], finish.micros('2026-10-06T12:30:05+00:00') // 1000000)
         self.assertEqual(plan['windows'][-1][1], plan['until'])
         for (a, b), (c, _) in zip(plan['windows'], plan['windows'][1:]):
             self.assertEqual((b + 1, b - a + 1), (c, 21600))  # Disjoint, gapless, 6 h.
@@ -1880,11 +1886,11 @@ class RunEnumerationTests(unittest.TestCase):
     def test_window_route_is_only_filtered_GET_scope(self):
         api = object.__new__(finish.GitHub); api.calls = 0; api.pages = []
         with patch.object(finish, 'ordinary_get', return_value=b'{}') as get:
-            api.get(finish.window_route(1791201600, 1791223199) + '&per_page=100&page=2')
-            self.assertIn('created=2026-10-05T12:00:00Z..2026-10-05T17:59:59Z', get.call_args.args[0][-1])
+            api.get(finish.window_route(1791288000, 1791309599) + '&per_page=100&page=2')
+            self.assertIn('created=2026-10-06T12:00:00Z..2026-10-06T17:59:59Z', get.call_args.args[0][-1])
             for route in (f'repos/{finish.REPO}/actions/runs?per_page=100&page=1',
                           f'repos/{finish.REPO}/actions/runs?created=>=2026-10-05&per_page=100&page=1',
-                          f'repos/{finish.REPO}/actions/runs?created=2026-10-05T12:00:00Z..2026-10-05T17:59:59Z&status=queued&per_page=100&page=1'):
+                          f'repos/{finish.REPO}/actions/runs?created=2026-10-06T12:00:00Z..2026-10-06T17:59:59Z&status=queued&per_page=100&page=1'):
                 with self.subTest(route=route), self.assertRaisesRegex(RuntimeError, 'escaped'):
                     api.get(route)
 
@@ -1895,16 +1901,16 @@ class RunEnumerationTests(unittest.TestCase):
         api = FakeAPI(); original = api.window
         api.window = lambda route: original(route) or [run_row(created=route.split('created=')[1].split('..')[0])]
         with self.assertRaisesRegex(RuntimeError, 'two disjoint windows'): finish.collect(m, api)
-        for mutate in (lambda r: r.update(status=None), lambda r: r.update(updated_at='2026-10-05T11:00:00Z'),
+        for mutate in (lambda r: r.update(status=None), lambda r: r.update(updated_at='2026-10-06T11:00:00Z'),
                        lambda r: r.update(run_attempt=finish.MAX_ATTEMPTS + 1), lambda r: r['repository'].update(full_name='o/r')):
             api = FakeAPI(); mutate(api.runs[0])
             with self.subTest(run=api.runs[0]), self.assertRaises(RuntimeError): finish.collect(m, api)
 
     def test_old_completed_runs_listed_not_scanned_open_runs_always_scanned(self):
         m = manifest(); api = FakeAPI()
-        api.runs.append(run_row(run_id=400, created='2026-10-01T00:00:00Z', updated='2026-10-05T12:09:54Z'))
+        api.runs.append(run_row(run_id=400, created='2026-10-01T00:00:00Z', updated='2026-10-06T12:09:54Z'))
         api.runs.append(run_row(run_id=401, created='2026-09-20T00:00:00Z', updated='2026-09-20T01:00:00Z', status='in_progress'))
-        api.runs.append(run_row(run_id=402, created='2026-10-01T00:00:00Z', updated='2026-10-05T12:09:55Z'))
+        api.runs.append(run_row(run_id=402, created='2026-10-01T00:00:00Z', updated='2026-10-06T12:09:55Z'))
         for run_id in (401, 402):
             api.attempts[run_id] = None
         def get(route, original=api.get):
@@ -1938,10 +1944,10 @@ class RunEnumerationTests(unittest.TestCase):
         class Early(FrozenDateTime):
             @classmethod
             def now(cls, tz=None):
-                return cls.fromisoformat('2026-10-05T12:30:04+00:00')
+                return cls.fromisoformat('2026-10-06T12:30:04+00:00')
         with patch.object(finish, 'datetime', Early), self.assertRaisesRegex(RuntimeError, 'not yet closed'):
             finish.collect(manifest(), FakeAPI())
-        report = collection(manifest()); report['collected_utc'] = '2026-10-05T12:30:05+00:00'
+        report = collection(manifest()); report['collected_utc'] = '2026-10-06T12:30:05+00:00'
         with self.assertRaisesRegex(RuntimeError, 'closed run windows'):
             finish.validate_collection(report, manifest())
 
@@ -2399,7 +2405,7 @@ class PinnedGhConfigTests(unittest.TestCase):
 
 
 class RehearsalAndRetryTests(unittest.TestCase):
-    UNTIL = finish.micros('2026-10-05T12:30:00+00:00') // 1000000  # FrozenDateTime is 12:31
+    UNTIL = finish.micros('2026-10-06T12:30:00+00:00') // 1000000  # FrozenDateTime is 12:31
 
     def request(self, **changes):
         value = {'schema': 1, 'kind': finish.REHEARSAL_KIND, 'until': self.UNTIL, 'earliest_us': (self.UNTIL - 3600) * 1000000,
@@ -2424,7 +2430,7 @@ class RehearsalAndRetryTests(unittest.TestCase):
         result = finish.rehearse_collect(self.request(), api)
         self.assertEqual((result['splits'], result['leaves'], result['runs'], result['scanned_runs']),
                          (1, len(plan['windows']) + 1, 3, 1))
-        old = FakeAPI(); old.runs[0].update(updated_at='2026-10-05T11:00:00Z', created_at='2026-10-05T10:00:00Z')
+        old = FakeAPI(); old.runs[0].update(updated_at='2026-10-06T11:00:00Z', created_at='2026-10-06T10:00:00Z')
         self.assertEqual(finish.rehearse_collect(self.request(), old)['scanned_runs'], 0)
 
     def test_rehearsal_request_and_result_are_bounded(self):
@@ -2549,7 +2555,7 @@ class BoundsTests(unittest.TestCase):
         self.assertEqual((finish.MAX_SLOT_VMS, finish.MAX_VMS), (real_waiter.MAX_VM_HISTORY, real_waiter.MAX_ALL_VM_HISTORY))
         self.assertLess(finish.MAX_VMS, 4 * finish.MAX_SLOT_VMS)  # The all-slot cap can bind.
         self.assertGreaterEqual(finish.JOURNAL_LIMIT, real_activation.JOURNAL_LIMIT)
-        live = {1: 75, 2: 59, 3: 74, 4: 62}  # Read-only counts, 2026-10-05 19:14 UTC.
+        live = {1: 75, 2: 59, 3: 74, 4: 62}  # Read-only counts, 2026-10-06 19:14 UTC.
         self.assertTrue(all(count * 20 < finish.MAX_SLOT_VMS for count in live.values()))
         self.assertGreater(finish.MAX_VMS, 15 * sum(live.values()))
         # A full-cap indented manifest stays well inside every reader's bound.
@@ -2565,8 +2571,8 @@ class BoundsTests(unittest.TestCase):
             vm = copy.deepcopy(template)
             vm.update(name=f'hound-ci-1-a{index:011x}', start_monotonic=str(1000 + 2 * index),
                       stop_monotonic=str(1001 + 2 * index), qemu_pid=10000 + index,
-                      start_realtime=str(finish.micros('2026-10-05T12:00:00+00:00') + 2 * index),
-                      stop_realtime=str(finish.micros('2026-10-05T12:00:00+00:00') + 2 * index + 1))
+                      start_realtime=str(finish.micros('2026-10-06T12:00:00+00:00') + 2 * index),
+                      stop_realtime=str(finish.micros('2026-10-06T12:00:00+00:00') + 2 * index + 1))
             history.append(vm)
         last = history[-1]
         last.update(name=template['name'], start_monotonic='26000000', stop_monotonic='30000000',
@@ -2574,8 +2580,8 @@ class BoundsTests(unittest.TestCase):
         w['vm_history'] = history
         self.assertEqual(len([vm for vm in finish.accepted_vms(m) if vm['slot'] == 1]), 1)
         extra = copy.deepcopy(history[0]); extra.update(name='hound-ci-1-ffffffffffff', start_monotonic='10', stop_monotonic='11',
-                                                        start_realtime=str(finish.micros('2026-10-05T11:59:00+00:00')),
-                                                        stop_realtime=str(finish.micros('2026-10-05T11:59:01+00:00')), qemu_pid=9)
+                                                        start_realtime=str(finish.micros('2026-10-06T11:59:00+00:00')),
+                                                        stop_realtime=str(finish.micros('2026-10-06T11:59:01+00:00')), qemu_pid=9)
         w['vm_history'].insert(0, extra)
         with self.assertRaisesRegex(RuntimeError, 'history missing'):
             finish.accepted_vms(m)
@@ -2664,6 +2670,14 @@ class PublicReadTests(unittest.TestCase):
         with self.assertRaises(RuntimeError): finish.validate_operator_source(Path('/tmp/source.py'), 'a' * 64)
         with patch.object(Path, 'resolve', return_value=Path('/nix/store/other.py')):
             with self.assertRaises(RuntimeError): finish.validate_operator_source(path, 'a' * 64)
+
+
+class GenerationWitnessTests(unittest.TestCase):
+    def test_generation_witness_constant(self):
+        # Pierre's 'Go ahead' (11:45 UTC) bounds main-slot-20261006's witness;
+        # the fixtures run on FIXTURE_WITNESS instead.
+        self.assertEqual(REAL_WITNESS, '2026-10-06T11:45:00+00:00')
+        self.assertLess(REAL_WITNESS, FIXTURE_WITNESS)
 
 
 if __name__ == '__main__': unittest.main()

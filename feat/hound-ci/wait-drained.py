@@ -21,8 +21,8 @@ import uuid
 from datetime import datetime
 
 
-STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
-WITNESS_SINCE = '2026-10-05T11:56:00+00:00'
+STATE = Path('/var/lib/hound-ci/rollout-main-slot-20261006')
+WITNESS_SINCE = '2026-10-06T11:45:00+00:00'  # main-slot-20261006 approval
 REPO = 'xmit-dev/ultimator'
 SLOTS = {1, 2, 3, 4}
 MAX_ROW = 65536
@@ -35,8 +35,8 @@ MAX_ALL_VM_HISTORY = 4096
 # (gate, waiter, finisher, activation) accepts the same 16 MiB bound.
 MANIFEST_LIMIT = 16 * 1024 * 1024
 HARDWARE_PHASE = 'all-four-hardware-drained-awaiting-actions-proof'
-OLD_SOURCE = '/nix/store/xsbh5gg8jm73mmznmk8smm8pb81kyq5a-supervisor.py'
-OLD_SOURCE_SHA256 = 'd5f1c95684aeef74d3c5d51b85a268aa36df60dc43af4d917504b64bf9eaf10d'
+OLD_SOURCE = '/nix/store/snp22ndcxkxigcyhlxzm5rp8fpw5j19f-supervisor.py'  # the loaded cache-v2 controllers
+OLD_SOURCE_SHA256 = 'ea34b0dd3a01529a8ebc9aeab4426f7068ee69927092454da28e19632a88863c'
 SOURCE_FIELDS = (('operator_source', 'operator_sha256'), ('waiter_source', 'waiter_sha256'),
                  ('validator_source', 'validator_sha256'), ('gate', 'gate_sha256'),
                  ('old_source', 'old_source_sha256'))
