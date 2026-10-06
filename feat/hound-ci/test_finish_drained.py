@@ -1448,6 +1448,26 @@ class FreshRevalidationTests(unittest.TestCase):
             with self.subTest(case=label), self.assertRaisesRegex(RuntimeError, message):
                 self.run_transition(m, drain, waiter)
 
+    def test_tracked_slot_cgroup_allows_root_v1_lines_like_hounds_net_cls(self):
+        # 10-06 17:58 UTC: hound mounts a cgroup-v1 net_cls hierarchy (Mullvad,
+        # waydroid LXC), so /proc/PID/cgroup has "1:net_cls:/" before "0::...".
+        m = manifest()
+        unit = '/hound.slice/hound-ci.slice/hound-ci-1.service'
+        for text in (f'1:net_cls:/\n0::{unit}\n', f'0::{unit}\n', f'2:net_cls,net_prio:/\n1:name=systemd:/\n0::{unit}\n'):
+            drain, waiter, _ = self.transition(m)
+            with self.subTest(text=text):
+                self.assertEqual(len(self.run_transition(m, drain, waiter, cgroup=text)), 4)
+        for text, message in ((f'1:net_cls:/mullvad-exclusions\n0::{unit}\n', 'non-root cgroup-v1'),
+                              (f'0::{unit}\n0::{unit}\n', 'Exactly one unified'),
+                              ('1:net_cls:/\n', 'Exactly one unified'),
+                              (f'0::{unit}', 'malformed'),
+                              (f'1:net_cls:/\n0::{unit}/child\n', 'exact unit cgroup'),
+                              (f'x\n0::{unit}\n', 'malformed'),
+                              (f'0:net_cls:/\n0::{unit}\n', 'malformed')):
+            drain, waiter, _ = self.transition(m)
+            with self.subTest(text=text), self.assertRaisesRegex(RuntimeError, message):
+                self.run_transition(m, drain, waiter, cgroup=text)
+
     def test_tracked_slot_requires_exact_kernel_cgroup_and_fresh_registration(self):
         m = manifest()
         drain, waiter, _ = self.transition(m)
