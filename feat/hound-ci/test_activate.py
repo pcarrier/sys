@@ -233,7 +233,7 @@ class Fixture:
             'terminal_certificate_sha256': hash_bytes(terminal.read_bytes()),
             'activation_source': act.__file__, 'activation_sha256': self.activation_sha,
             'effect_source': str(self.effect_source), 'effect_sha256': self.effect_sha, 'effect_schema': effect.SCHEMA,
-            'effect_structure_sha256': act.effect_structure(proofs), 'manager_identity': self.manager_identity,
+            'effect_structure_sha256': act.effect_structure(proofs, effect), 'manager_identity': self.manager_identity,
             'manager_source_review': {'ack': self.ack, 'source_patch_sha256': '0' * 64, 'primary_v261_sha256': effect.SOURCE_SHA256},
             'parent_ack': self.ack, 'resources': {'units': list(self.manager), 'state': str(act.STATE),
                 'backup': str(act.BACKUP), 'attached': str(act.ATTACHED), 'runtime': str(act.RUNTIME),
@@ -928,13 +928,15 @@ class StructuredTests(unittest.TestCase):
         first['SysFSPath'] = '/sys/devices/a'
         second = deepcopy(first)
         second['Requires'].reverse()
-        certificates = {'one.service': {'units': {'sys-a.device': first}},
-                        'two.service': {'units': {'sys-a.device': second}}}
-        before = act.effect_structure(certificates)
-        self.assertEqual(before, act.effect_structure({'one.service': certificates['one.service']}))
+        def cert(anchor, value):
+            return {'units': {'sys-a.device': value}, 'aliases': {'sys-a.device': 'sys-a.device'},
+                    'anchor': [anchor, 'START'], 'prospective_jobs': [['sys-a.device', 'START']]}
+        certificates = {'one.service': cert('one.service', first), 'two.service': cert('two.service', second)}
+        before = act.effect_structure(certificates, effect)
+        self.assertEqual(before, act.effect_structure({'one.service': certificates['one.service']}, effect))
         second['SysFSPath'] = '/sys/devices/DIFFERENT'
         with self.assertRaisesRegex(RuntimeError, 'Shared graph equivocation'):
-            act.effect_structure(certificates)
+            act.effect_structure(certificates, effect)
 
     def test_device_peer_set_uses_complete_sysfs_identity_not_Following_only(self):
         ident = 'sys-first.device'
@@ -965,6 +967,184 @@ class StructuredTests(unittest.TestCase):
                       b'[Service]\nExecStart=+/nix/store/x/bin/hound-ci worker\n'):
             with self.assertRaises(RuntimeError):
                 act.unit_command(value)
+
+
+class EffectProjectionTests(unittest.TestCase):
+    """Ordering-only churn around active barriers must not HOLD; job inputs must."""
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.fixture = Fixture(self.folder.name)
+        self.reads = 0
+
+    def tearDown(self):
+        self.fixture.close()
+        self.folder.cleanup()
+
+    def churned(self, extra=None):
+        # Like Docker on hound: every read of the active barrier hound-ci.slice
+        # lists different transient units in its reverse/ordering relations,
+        # plus a crash-looping service that is never in the closure. extra gets
+        # the per-unit fetch count, so cache and fresh reads always differ.
+        fetches = {}
+        def metadata(name, *args):
+            value = self.fixture.effect_metadata(name)
+            self.reads += 1
+            fetches[name] = fetches.get(name, 0) + 1
+            if name == 'hound-ci.slice':
+                transient = [f'docker-{self.reads}.scope', f'var-lib-docker-overlay{self.reads}.mount',
+                             'waydroid-devbox-session.service']
+                for key in ('RequiredBy', 'WantedBy', 'Before', 'After', 'SliceOf', 'PartOf', 'TriggeredBy', 'OnFailureOf'):
+                    value[key] = sorted(set(value[key]) | set(transient[:self.reads % 3 + 1]))
+            if extra:
+                extra(name, value, fetches[name])
+            return value
+        return patch.object(act, 'effect_metadata', side_effect=metadata)
+
+    def churned_index(self):
+        def index():
+            self.reads += 1
+            names = self.fixture.manager.keys() | self.fixture.dependencies.keys()
+            return {name: {} for name in names | {f'run-docker-netns-{self.reads}.mount'}}
+        return patch.object(act, 'loaded_index', side_effect=index)
+
+    def test_churning_ordering_only_neighbours_of_an_active_barrier_pass(self):
+        with self.churned(), self.churned_index():
+            self.fixture.activate()
+        self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+        self.assertEqual(sum(is_start(argv) for argv in self.fixture.commands), 4)
+        certificates = self.fixture.receipt()['fresh_validation']['effect_certificates']
+        slice_unit = certificates['hound-ci-1.service']['units']['hound-ci.slice']
+        self.assertEqual(slice_unit['projection'], act.PROJECTION)
+        self.assertFalse(any('docker' in name or 'waydroid' in name for key in act.RELATION_KEYS for name in slice_unit[key]))
+
+    def assert_holds_before_start(self, message):
+        with self.assertRaisesRegex(RuntimeError, message):
+            self.fixture.activate()
+        self.assertFalse(any(is_start(argv) for argv in self.fixture.commands))
+
+    def fresh_fixture(self):
+        self.fixture.close()
+        self.folder.cleanup()
+        self.folder = tempfile.TemporaryDirectory()
+        self.fixture = Fixture(self.folder.name)
+        self.reads = 0
+
+    def test_churning_neighbour_gaining_a_conflict_or_pull_edge_into_the_closure_holds(self):
+        # The barrier's forming relations stay bound in full: an edge there is
+        # caught mid-proof (second read of the barrier) or against the window.
+        for key in ('ConflictedBy', 'Wants', 'Requires', 'Conflicts', 'BindsTo'):
+            for first, message in ((2, 'Loaded graph/state changed during proof'),
+                                   (1, 'differs from explicit control-window')):
+                def gain(name, value, fetch, key=key, first=first):
+                    if name == 'hound-ci.slice' and fetch >= first:
+                        value[key] = sorted(set(value[key]) | {'intruder.service'})
+                with self.subTest(key=key, first=first):
+                    self.fresh_fixture()
+                    self.fixture.dependencies['intruder.service'] = {'Id': 'intruder.service', 'LoadState': 'loaded',
+                        'ActiveState': 'inactive', 'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}
+                    with self.churned(gain), self.churned_index():
+                        self.assert_holds_before_start(message)
+
+    def test_job_receiving_unit_state_change_between_reads_holds(self):
+        for key, changed in (('SubState', 'reloading-fixture'), ('Job', [9, '/job/9']),
+                             ('FragmentPath', '/etc/systemd/system/hound-ci-image.service')):
+            def flip(name, value, fetch, key=key, changed=changed):
+                if name == 'hound-ci-image.service' and fetch >= 2:
+                    value[key] = changed
+            with self.subTest(key=key):
+                self.fresh_fixture()
+                with self.churned(flip):
+                    self.assert_holds_before_start('changed during proof')
+
+    def test_queued_job_in_the_closure_still_holds_under_churn(self):
+        self.fixture.jobs = [[7, 'hound-ci-image.service', 'restart', 'waiting', '/job', '/unit']]
+        with self.churned():
+            self.assert_holds_before_start('existing job ANY type')
+
+    def test_anchor_ordering_neighbours_join_the_queue_check_and_anchor_relations_stay_full(self):
+        def order(name, value, reads):
+            if name in self.fixture.manager:
+                value['After'] = sorted(set(value['After']) | {'network-online.target'})
+        with self.churned(order):
+            with self.assertRaisesRegex(RuntimeError, 'differs from explicit control-window'):
+                self.fixture.activate()  # the window was bound without this anchor edge
+            self.assertTrue(any('network-online.target' in call.args[0] for call in act.no_queued_jobs.call_args_list))
+        self.assertFalse(any(is_start(argv) for argv in self.fixture.commands))
+
+    def test_closure_unit_leaving_the_index_or_a_device_appearing_holds(self):
+        for change in (lambda names: names - {'hound-ci-image.service'}, lambda names: names | {'sys-new.device'}):
+            calls = {'n': 0}
+            def index(change=change, calls=calls):
+                calls['n'] += 1
+                names = set(self.fixture.manager) | set(self.fixture.dependencies)
+                return {name: {} for name in (change(names) if calls['n'] % 2 == 0 else names)}
+            with self.subTest(change=change), patch.object(act, 'loaded_index', side_effect=index):
+                self.assert_holds_before_start('peer index changed during proof')
+
+    def test_unknown_relation_or_job_type_holds(self):
+        with patch.object(effect, 'RELATIONS', effect.RELATIONS + ('Spawns',)):
+            self.assert_holds_before_start('relation contract drift')
+        with patch.object(effect, 'STOP_REQUIRED', effect.STOP_REQUIRED + ('Spawns',)):
+            self.assert_holds_before_start('job traversal contract drift')
+        proof = {'units': {'a.service': effect_unit('a.service')}, 'aliases': {'a.service': 'a.service'},
+                 'anchor': ['x.service', 'START'], 'prospective_jobs': [['a.service', 'RESTART']]}
+        with self.assertRaisesRegex(RuntimeError, 'Unknown prospective job type'):
+            act.projection_context({'x.service': proof})
+        with self.assertRaisesRegex(RuntimeError, 'lacks its job graph'):
+            act.projection_context({'x.service': {'units': {}}})
+
+    def test_job_graph_change_between_queue_snapshots_holds_even_if_projection_is_unchanged(self):
+        # A redundant VERIFY on an active barrier changes neither its forming
+        # relations nor its barrier status: only the job-graph recheck sees it.
+        real, calls = effect.prove, {}
+        def prove(anchor, *args):
+            proof = real(anchor, *args)
+            calls[anchor] = calls.get(anchor, 0) + 1
+            if calls[anchor] == 3:
+                self.assertEqual(proof['units']['hound-ci.slice']['ActiveState'], 'active')
+                proof['prospective_jobs'].append(['hound-ci.slice', 'VERIFY'])
+            return proof
+        with patch.object(effect, 'prove', side_effect=prove):
+            self.assert_holds_before_start('Prospective job graph changed during proof')
+
+    def test_structure_binds_which_units_are_barriers(self):
+        # Same relation lists, but the unit stopped being a barrier (its START
+        # is no longer redundant): the bound structure must differ.
+        def cert(state):
+            units = {'a.service': effect_unit('a.service', 'inactive', Requires=['b.service']),
+                     'b.service': effect_unit('b.service', state, RequiredBy=['a.service'])}
+            return {'a.service': {'units': units, 'aliases': {n: n for n in units}, 'anchor': ['a.service', 'START'],
+                                  'prospective_jobs': [['a.service', 'START'], ['b.service', 'START']]}}
+        self.assertNotEqual(act.effect_structure(cert('active'), effect), act.effect_structure(cert('inactive'), effect))
+
+    def test_projection_keeps_job_inputs_and_drops_only_outside_ordering_names(self):
+        barrier = effect_unit('var.mount', 'active', Requires=['-.mount'], RequiredBy=['docker-1.mount', 'hound-ci-1.service'],
+                              Before=['docker-1.mount', 'hound-ci-1.service'], ConflictedBy=['umount.target'])
+        stop = effect_unit('umount.target', 'inactive', ConflictedBy=['docker-1.mount', 'var.mount'],
+                           RequiredBy=['outside-required.service'], After=['docker-1.mount'])
+        pending = effect_unit('new.service', 'inactive', Before=['docker-1.mount'])
+        anchor = effect_unit('hound-ci-1.service', 'inactive', After=['docker-1.mount'])
+        units = {u['Id']: u for u in (barrier, stop, pending, anchor, effect_unit('-.mount'))}
+        jobs = [['hound-ci-1.service', 'START'], ['var.mount', 'START'], ['umount.target', 'STOP'],
+                ['new.service', 'START'], ['-.mount', 'START']]
+        context = act.projection_context({'hound-ci-1.service': {'units': units, 'aliases': {n: n for n in units},
+                                          'anchor': ['hound-ci-1.service', 'START'], 'prospective_jobs': jobs}})
+        p = {name: act.project_unit(name, value, context, effect) for name, value in units.items()}
+        self.assertEqual(p['var.mount']['RequiredBy'], ['hound-ci-1.service'])           # outside reverse name dropped
+        self.assertEqual(p['var.mount']['Before'], ['hound-ci-1.service'])
+        self.assertEqual(p['var.mount']['ConflictedBy'], ['umount.target'])              # START-forming kept in full
+        self.assertEqual(p['var.mount']['Requires'], ['-.mount'])
+        self.assertEqual(p['umount.target']['RequiredBy'], ['outside-required.service'])  # STOP-forming kept in full
+        self.assertEqual(p['umount.target']['ConflictedBy'], ['var.mount'])
+        self.assertEqual(p['umount.target']['After'], [])
+        self.assertEqual(p['new.service']['Before'], ['docker-1.mount'])                  # non-redundant job: full
+        self.assertEqual(p['hound-ci-1.service']['After'], ['docker-1.mount'])            # anchor: full
+        self.assertEqual((p['var.mount']['projection'], p['new.service']['projection']), (act.PROJECTION, 'full'))
+        for key in ('ActiveState', 'SubState', 'Job', 'LoadError', 'FragmentPath', 'DropInPaths', 'Conditions'):
+            self.assertEqual(p['var.mount'][key], barrier[key])
+        self.assertEqual(act.project_unit('var.mount', p['var.mount'], context, effect), p['var.mount'])  # idempotent
+        inactive = dict(barrier, ActiveState='inactive')  # no longer redundant: everything bound again
+        self.assertEqual(act.project_unit('var.mount', inactive, context, effect)['RequiredBy'], ['docker-1.mount', 'hound-ci-1.service'])
 
 
 if __name__ == '__main__':

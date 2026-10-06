@@ -500,18 +500,93 @@ def effect_metadata(name, effects, index, device_sysfs=None):
     return value
 
 
-def effect_structure(certificates):
+# Relations along which v261 transaction_add_job_and_dependencies() creates
+# jobs, per job type (effect-proof closure(): START pulls/verifies/conflicts,
+# STOP propagates; VERIFY/NOP create none). Checked against the pinned effect
+# source's own traversal tuples before every use.
+JOB_RELATIONS = {
+    'START': ('Requires', 'BindsTo', 'Wants', 'Upholds', 'Requisite', 'Conflicts', 'ConflictedBy'),
+    'STOP': ('RequiredBy', 'RequisiteOf', 'BoundBy', 'ConsistsOf', 'PropagatesStopTo'),
+    'VERIFY': (),
+    'NOP': (),
+}
+PROJECTION = 'barrier-job-relations-v1'
+
+
+def check_traversal_contract(effects):
+    require(tuple(effects.RELATIONS) == RELATION_KEYS, 'Effect source relation contract drift')
+    require(tuple(effects.START_REQUIRED) + tuple(effects.START_IGNORED) == ('Requires', 'BindsTo', 'Wants', 'Upholds') and
+            tuple(effects.STOP_REQUIRED) == ('RequiredBy', 'RequisiteOf', 'BoundBy', 'ConsistsOf') and
+            set(effects.TYPES) == set(JOB_RELATIONS), 'Effect source job traversal contract drift')
+
+
+def projection_context(certificates):
+    """Job kinds per closure unit, closure aliases and anchors, from the job graphs."""
+    kinds, aliases, anchors = {}, {}, set()
+    for proof in certificates.values():
+        require(isinstance(proof, dict) and isinstance(proof.get('prospective_jobs'), list) and
+                isinstance(proof.get('aliases'), dict) and isinstance(proof.get('units'), dict) and
+                isinstance(proof.get('anchor'), list) and len(proof['anchor']) == 2,
+                'Effect certificate lacks its job graph: projection HOLD')
+        anchors.add(proof['anchor'][0])
+        for alias, ident in proof['aliases'].items():
+            require(aliases.get(alias, ident) == ident and ident in proof['units'], 'Alias equivocation across closures')
+            aliases[alias] = ident
+        for job in proof['prospective_jobs']:
+            require(isinstance(job, list) and len(job) == 2 and job[0] in proof['units'] and job[1] in JOB_RELATIONS,
+                    'Unknown prospective job type/unit: projection HOLD')
+            kinds.setdefault(job[0], set()).add(job[1])
+    return kinds, aliases, anchors
+
+
+def project_unit(name, value, context, effects):
+    """What of ONE closure unit can affect the anchors' START transactions.
+
+    Anchors and every unit with a NON-redundant prospective job keep ALL
+    relations. A barrier (all its prospective jobs first-pass redundant for its
+    current ActiveState, or none) keeps every non-relation field (state, job,
+    load, conditions, actions), its job-forming relations for its job types in
+    full, and every other relation only towards closure units. Reverse/
+    ordering-only names outside the closure (e.g. Docker mounts in
+    -.mount.RequiredBy/Before, umount.target.ConflictedBy) cannot get a job or
+    order a job of this transaction, and are not bound.
+    """
+    kinds, aliases, anchors = context
+    require(isinstance(value, dict) and all(isinstance(value.get(key), list) for key in RELATION_KEYS) and
+            isinstance(value.get('ActiveState'), str), 'Projection input lacks typed relations/state')
+    unit_kinds = kinds.get(name, set())
+    barrier = name not in anchors and all(effects.redundant(kind, value['ActiveState']) for kind in unit_kinds)
+    forming = {relation for kind in unit_kinds for relation in JOB_RELATIONS[kind]}
+    result = {key: item for key, item in value.items() if key not in RELATION_KEYS}
+    for key in RELATION_KEYS:
+        names = sorted(value[key])
+        result[key] = names if not barrier or key in forming else [item for item in names if aliases.get(item) in kinds]
+    result['projection'] = PROJECTION if barrier else 'full'
+    return result
+
+
+def project_certificates(certificates, effects):
+    context = projection_context(certificates)
+    return {anchor: dict(proof, units={name: project_unit(name, value, context, effects)
+                                       for name, value in proof['units'].items()}, projection=PROJECTION)
+            for anchor, proof in certificates.items()}
+
+
+def effect_structure(certificates, effects):
     # Bound the loaded prospective topology independently of the four intended
-    # fragment/drop-in/MainPID transitions. Full fresh state remains in EACH
-    # durable effect certificate, and all nonanchor execution effects are proved.
+    # fragment/drop-in/MainPID transitions, over the PROJECTED closure (see
+    # project_unit). Full fresh state remains in EACH durable effect
+    # certificate, and all nonanchor execution effects are proved.
+    context = projection_context(certificates)
     result = {}
     for proof in certificates.values():
         for name, value in proof['units'].items():
+            value = project_unit(name, value, context, effects)
             structural = {key: value[key] for key in
                           ('Id', 'Names', 'Following', 'FollowingSet', 'LoadState', 'FreezerState',
                            'StopWhenUnneeded', 'NeedDaemonReload', 'RefuseManualStart', 'Perpetual',
                            'FailureAction', 'SuccessAction', 'StartLimitAction', 'JobTimeoutAction',
-                           'Conditions', 'Asserts', *RELATION_KEYS)}
+                           'Conditions', 'Asserts', 'projection', *RELATION_KEYS)}
             for key in ('Names', 'FollowingSet', *RELATION_KEYS):
                 structural[key] = sorted(structural[key])
             if 'SysFSPath' in value:
@@ -530,8 +605,15 @@ RELATION_KEYS = ('Requires', 'Requisite', 'Wants', 'BindsTo', 'PartOf', 'Upholds
     'ReloadPropagatedFrom', 'PropagatesStopTo', 'StopPropagatedFrom', 'JoinsNamespaceOf', 'SliceOf')
 
 
+def relevant_index(index, aliases):
+    # Closure units (they must stay loaded at the same object/Following) and the
+    # COMPLETE device index (follow sets need every same-SysFSPath peer). Other
+    # transient units (Docker mounts/scopes, sessions) are not transaction inputs.
+    return {name: value for name, value in index.items() if name in aliases or name.endswith('.device')}
+
+
 def validate_dependencies(worker_values, effects, window, started=()):
-    require(tuple(effects.RELATIONS) == RELATION_KEYS, 'Effect source relation contract drift')
+    check_traversal_contract(effects)
     index = loaded_index()
     device_sysfs = device_sysfs_snapshot(index)
     cache = {}
@@ -554,29 +636,42 @@ def validate_dependencies(worker_values, effects, window, started=()):
     for name in started:
         graph = effects.closure(name, fetch, window.value['ignored_not_found'])
         certificates[name] = {'schema': 'tracked-running-not-dispatched', 'units': graph['units'],
-                              'anchor': [name, 'NONE'], 'final_effect': []}
+                              'aliases': graph['aliases'], 'anchor': [name, 'NONE'], 'final_effect': [],
+                              'prospective_jobs': [list(job) for job in sorted(graph['jobs'])]}
     # An active boot barrier may hide inactive nodes, but none are omitted from
     # the queue check: check ALL job types against the full pre-cut closure.
     rows = queued_jobs()
     for name in certificates:
         if name not in started:
             certificates[name] = effects.prove(name, fetch, rows, window.value['ignored_not_found'])
-    no_queued_jobs(set(cache) | {value['Id'] for value in cache.values()})
+    context = projection_context(certificates)
+    # The anchors' own ordering neighbours too: a queued job there could gate
+    # the anchor's runnability even outside the pull closure.
+    neighbours = {item for anchor in worker_values for key in ('After', 'Before') for item in fetch(anchor)[key]}
+    no_queued_jobs(set(cache) | {value['Id'] for value in cache.values()} | neighbours)
     for name, value in sorted(cache.items()):
-        require(effect_metadata(name, effects, index, device_sysfs) == value, 'Loaded graph/state changed during proof')
-    require(loaded_index() == index and device_sysfs_snapshot(index) == device_sysfs,
+        fresh = effect_metadata(name, effects, index, device_sysfs)
+        ident = value['Id']
+        require(fresh['Id'] == ident and project_unit(ident, fresh, context, effects) ==
+                project_unit(ident, value, context, effects), 'Loaded graph/state changed during proof')
+    require(relevant_index(loaded_index(), context[1]) == relevant_index(index, context[1]) and
+            device_sysfs_snapshot(index) == device_sysfs,
             'Loaded complete Following/SysFS peer index changed during proof')
     # A second queue snapshot catches even compatible reload/start/nop additions.
     rows = queued_jobs()
     for name in certificates:
         if name not in started:
             certificates[name] = effects.prove(name, fetch, rows, window.value['ignored_not_found'])
-    no_queued_jobs(set(cache) | {value['Id'] for value in cache.values()})
+    no_queued_jobs(set(cache) | {value['Id'] for value in cache.values()} | neighbours)
+    require(projection_context(certificates) == context, 'Prospective job graph changed during proof')
     window.check()
     # The full shared structure stays bound after previous anchors start. All
     # four root closures remain included, but already-running roots are NEVER
     # dispatched again or falsely certified as stopped/new START requests.
-    require(certificates and effect_structure(certificates) == window.value['effect_structure_sha256'],
+    # Durable certificates and the pre/post-INTENT comparison carry the
+    # PROJECTED units: everything that can create, merge, block or order a job.
+    certificates = project_certificates(certificates, effects)
+    require(certificates and effect_structure(certificates, effects) == window.value['effect_structure_sha256'],
             'Reviewed complete effect graph differs from explicit control-window proof bound')
     return certificates
 
