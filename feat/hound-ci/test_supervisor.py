@@ -17,6 +17,11 @@ supervisor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(supervisor)
 
 
+SYSTEM = '/nix/store/' + 'a' * 32 + '-nixos-system-hound-ci-26.11pre-git'
+HELPER = '/nix/store/x-hound-ci/bin/hound-ci'
+NSPAWN = '/nix/store/x-systemd/bin/systemd-nspawn'
+
+
 class SupervisorTests(unittest.TestCase):
     def test_firewall_collapses_connected_routes_and_checks_each_uid(self):
         commands = []
@@ -165,11 +170,12 @@ class SupervisorTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):supervisor.verify_image(path,'0'*64)
                 run.assert_not_called()
 
-    def test_current_generation_default_and_candidate_publish_guard(self):
+    def test_slots_run_containers_and_the_image_bake_guard_stays(self):
         nix=Path(__file__).parent.parent.joinpath('hound-ci.nix').read_text()
-        self.assertIn('default = "base.qcow2"',nix)
-        self.assertIn('LimitFSIZE = "32G"',nix)
-        self.assertIn('Slice = "hound-ci.slice"',nix)
+        # The module no longer bakes or boots VM images: slots start job containers.
+        self.assertTrue('base.qcow2' not in nix and 'hound-ci-image.service' not in nix and '/dev/kvm' not in nix)
+        self.assertTrue('worker --slot ${toString n} --repo ${cfg.repository} --system ${container}' in nix)
+        self.assertTrue('Slice = "hound-ci.slice"' in nix)
         code=Path(__file__).with_name('supervisor.py').read_text()
         self.assertLess(code.index('verify_image(disk)'),code.index('disk.rename(final)'))
         self.assertLess(code.index("run(['qemu-img', 'check'"),code.index('disk.rename(final)'))
@@ -195,8 +201,9 @@ class SupervisorTests(unittest.TestCase):
                 self.assertEqual(request[:3], ['-X', 'POST', 'repos/xmit-dev/ultimator/actions/runners/generate-jitconfig'])
 
     def parse_worker(self, *extra):
-        argv = ['hound-ci', 'worker', '--slot', '4', '--repo', 'xmit-dev/ultimator', '--guest', '/nix/store/x-guest.sh',
-                '--image', 'base-cache-v2.qcow2', *extra]
+        argv = ['hound-ci', 'worker', '--slot', '4', '--repo', 'xmit-dev/ultimator', '--system', SYSTEM,
+                '--helper', '/nix/store/x-hound-ci/bin/hound-ci', '--nspawn', '/nix/store/x-systemd/bin/systemd-nspawn',
+                '--dataset', 'tank/hound-ci', *extra]
         seen = []
         with patch.object(supervisor.sys, 'argv', argv), patch.object(supervisor, 'worker', side_effect=lambda args: seen.append(args.labels)), \
                 patch.object(supervisor, 'STOP_REQUESTED', False), patch.object(supervisor.time, 'sleep', side_effect=SystemExit(0)):
@@ -229,7 +236,11 @@ class SupervisorTests(unittest.TestCase):
                     supervisor.jit_request('xmit-dev/ultimator', 'hound-ci-4-abc', bad)
                 with patch('sys.stderr'):
                     self.assertEqual(self.parse_worker('--labels', *bad), (2, []))
-        for good in (['self-hosted', 'Linux', 'X64', 'hound-ci'], ['self-hosted', 'Linux', 'X64', 'hound-ci-main'],
+        for bad in (['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-canary'],
+                    ['self-hosted', 'Linux', 'X64', 'hound-ci-main', 'hound-ci-canary']):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'canary'):
+                supervisor.runner_labels(bad)
+        for good in (['self-hosted', 'Linux', 'X64', 'hound-ci-canary'], ['self-hosted', 'Linux', 'X64', 'hound-ci'], ['self-hosted', 'Linux', 'X64', 'hound-ci-main'],
                      ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']):
             self.assertEqual(supervisor.runner_labels(good), good)
 
@@ -237,15 +248,117 @@ class SupervisorTests(unittest.TestCase):
         code = Path(__file__).with_name('supervisor.py').read_text()
         self.assertIn('generate-jitconfig', code)
         self.assertNotIn('/registration-token', code)
-        self.assertIn("'-enable-kvm'", code)
-        self.assertIn("'-netdev', 'user,id=nic,ipv6=off'", code)
-        self.assertIn("'--bounding-set=-all'", code)
         self.assertNotIn('hostfwd=', code)
         self.assertNotIn('guestfwd=', code)
-        self.assertNotIn("'-virtfs'", code)
-        guest = Path(__file__).with_name('guest.sh').read_text()
-        self.assertIn('--jitconfig', guest)
-        self.assertNotIn('--no-sandbox', guest.replace('# No --no-sandbox:', '# Chrome:'))
+        argv = supervisor.job_unit_argv(2, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN)
+        nspawn = argv[argv.index(NSPAWN):]
+        # Private user and network namespaces; the store read-only; no other host path.
+        for flag in ('--private-users=pick', '--network-veth', '--bind-ro=/nix/store', '--register=no', '--keep-unit'):
+            self.assertIn(flag, nspawn)
+        self.assertEqual([a for a in nspawn if a.startswith(('--bind', '--overlay', '--tmpfs'))], ['--bind-ro=/nix/store'])
+        for forbidden in ('--capability', '--private-users=no', '--network-zone', '--private-network=no', '--system-call-filter',
+                          '--bind=', '/var/run/docker.sock', '/nix/var', '--volatile'):
+            self.assertFalse([a for a in nspawn if forbidden in a], forbidden)
+        start = Path(__file__).with_name('container-start.sh').read_text()
+        self.assertIn('--jitconfig', start)
+        self.assertNotIn('--no-sandbox', start.replace('(no\n# --no-sandbox)', ''))
+        container = Path(__file__).with_name('container.nix').read_text()
+        self.assertIn('nix.enable = false;', container)
+        self.assertIn('boot.isContainer = true;', container)
+
+    def test_job_unit_is_bound_capped_and_named_by_slot(self):
+        argv = supervisor.job_unit_argv(3, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN)
+        self.assertEqual(argv[:5], ['systemd-run', '--quiet', '--wait', '--collect', '--unit=hound-ci-job-3.service'])
+        props = dict(a.removeprefix('--property=').split('=', 1) for a in argv if a.startswith('--property='))
+        for key, value in {'Slice': 'hound-ci.slice', 'Delegate': 'yes', 'BindsTo': 'hound-ci-3.service',
+                           'MemoryMax': '18G', 'MemoryHigh': '17G', 'CPUQuota': '600%', 'RuntimeMaxSec': '8h',
+                           'StandardOutput': 'journal', 'Type': 'notify'}.items():
+            self.assertEqual(props[key], value, key)
+        common = '--slot 3 --dataset tank/hound-ci'
+        self.assertEqual(props['ExecStartPre'], f'{HELPER} job-prepare {common}')
+        self.assertEqual(props['ExecStartPost'], f'{HELPER} job-network {common}')
+        self.assertEqual(props['ExecStopPost'], f'{HELPER} job-cleanup {common}')
+        run = argv.index(HELPER)
+        self.assertEqual(argv[run:run + 7], [HELPER, 'job-run', '--slot', '3', '--dataset', 'tank/hound-ci', '--'])
+        self.assertIn('--directory=/var/lib/hound-ci/job-3/root', argv)
+        self.assertIn('--machine=hci-job-3', argv)
+        self.assertIn('--load-credential=jit:/run/hound-ci-3/jit', argv)
+        self.assertEqual(argv[-1], SYSTEM + '/init')
+        for bad in ((0, 'tank/hound-ci', SYSTEM), (6, 'tank/hound-ci', SYSTEM), (1, 'tank', SYSTEM),
+                    (1, 'tank/hound-ci', '/nix/store/x/init'), (1, 'tank/hound-ci', '/tmp/nixos-system-hound-ci-1')):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                supervisor.job_unit_argv(*bad, HELPER, NSPAWN)
+
+    def test_job_chains_confine_each_veth(self):
+        rules = supervisor.job_chains(range(1, 5), {'10.0.0.0/8', '192.168.0.0/16'})
+        for n in range(1, 5):
+            self.assertIn(f'iifname "ve-hci-job-{n}" ip saddr != 10.231.{n}.2 counter drop', rules)
+        veths = '"ve-hci-job-1", "ve-hci-job-2", "ve-hci-job-3", "ve-hci-job-4"'
+        self.assertIn(f'iifname {{ {veths} }} counter reject', rules)  # nothing of the host itself
+        self.assertIn(f'iifname {{ {veths} }} meta nfproto ipv6 counter reject', rules)
+        self.assertIn(f'iifname {{ {veths} }} ip daddr {{ 10.0.0.0/8, 192.168.0.0/16 }} counter reject', rules)
+        self.assertIn(f'oifname {{ {veths} }} ct state != {{ established, related }} counter drop', rules)
+        self.assertIn(f'ip saddr 10.231.0.0/16 oifname != {{ {veths} }} counter masquerade', rules)
+        self.assertNotIn('flush', rules)
+
+    def test_own_unit_cgroup_takes_the_unified_line_only(self):
+        base = '/hound.slice/hound-ci.slice/hound-ci-job-2.service'
+        self.assertEqual(supervisor.own_unit_cgroup(f'1:net_cls:/\n0::{base}/.control\n'), Path('/sys/fs/cgroup' + base))
+        self.assertEqual(supervisor.own_unit_cgroup(f'0::{base}\n'), Path('/sys/fs/cgroup' + base))
+        for bad in ('1:net_cls:/\n', f'0::{base}\n0::{base}\n', '0::/system.slice/hound-ci-2.service\n',
+                    '0::/hound.slice/hound-ci.slice/hound-ci-job-6.service\n'):
+            with self.subTest(bad=bad), self.assertRaises(RuntimeError):
+                supervisor.own_unit_cgroup(bad)
+
+    def test_gh_failure_names_the_call_never_its_output(self):
+        error = subprocess.CalledProcessError(1, ['gh'], stderr=b'{"token":"ghs_secret"} gh: Server Error (HTTP 502)')
+        text = supervisor.gh_failure(['-X', 'POST', 'repos/xmit-dev/ultimator/actions/runners/generate-jitconfig',
+                                      '-f', 'name=hound-ci-1-abc'], error)
+        self.assertEqual(text, 'gh api failed: POST repos/xmit-dev/ultimator/actions/runners/generate-jitconfig exit=1 http=502')
+        listed = supervisor.gh_failure(['repos/x/y/actions/runners?per_page=100', '--paginate'],
+                                       subprocess.CalledProcessError(4, ['gh'], stderr=b''))
+        self.assertEqual(listed, 'gh api failed: GET repos/x/y/actions/runners exit=4 http=none')
+
+    def test_worker_runs_one_job_unit_and_always_deletes_its_runner(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            system = root / 'system'
+            system.mkdir()
+            (system / 'init').write_text('')
+            runtime = root / 'run'
+            runtime.mkdir()
+            calls = []
+            def fake_gh(arguments):
+                calls.append(arguments[:3])
+                if 'generate-jitconfig' in ' '.join(arguments):
+                    return {'runner': {'id': 77}, 'encoded_jit_config': 'SECRET-JIT'}
+                return None
+            def fake_subprocess(argv, **kw):
+                if argv[0] == 'systemd-run':
+                    jit = runtime / 'jit'
+                    self.assertEqual((jit.read_text(), jit.stat().st_mode & 0o777), ('SECRET-JIT', 0o600))
+                    (runtime / 'console.tail').write_bytes(console)
+                    self.assertNotIn('SECRET-JIT', ' '.join(argv))
+                return SimpleNamespace(returncode=0)
+            names = supervisor.job_names(1, 'tank/hound-ci')
+            names.runtime = runtime
+            args = SimpleNamespace(slot=1, repo='xmit-dev/ultimator', system=str(system), helper=HELPER, nspawn=NSPAWN,
+                                   dataset='tank/hound-ci', labels=['self-hosted', 'Linux', 'X64', 'hound-ci'])
+            for console, fails in ((b'HOUND_CI_GUEST_PREFLIGHT_OK\nHOUND_CI_GUEST_JOB_FINISHED status=0\n', False),
+                                   (b'HOUND_CI_GUEST_PREFLIGHT_FAILED docker\n', True)):
+                calls.clear()
+                with self.subTest(fails=fails), patch.object(supervisor, 'STATE', root), \
+                        patch.object(supervisor, 'job_names', return_value=names), patch.object(supervisor, 'gh', side_effect=fake_gh), \
+                        patch.object(supervisor.subprocess, 'run', side_effect=fake_subprocess), patch.object(supervisor, 'admission'), \
+                        patch.object(supervisor, 'message'), patch.object(supervisor, 'job_unit_argv', return_value=['systemd-run']):
+                    if fails:
+                        with self.assertRaisesRegex(RuntimeError, 'preflight'):
+                            supervisor.worker(args)
+                    else:
+                        supervisor.worker(args)
+                    self.assertEqual(calls[-1], ['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/77'])
+                    self.assertFalse((runtime / 'jit').exists())
+                    self.assertFalse((root / 'slot-1-registration.json').exists())
 
 
 if __name__ == '__main__':

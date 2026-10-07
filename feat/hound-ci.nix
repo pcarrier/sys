@@ -1,4 +1,5 @@
-# Disposable, repository-bound Ubuntu CI guests. Not the trusted release runner.
+# Disposable, repository-bound CI jobs: one fresh systemd-nspawn NixOS container per
+# job (feat/hound-ci/container.nix). Not the trusted release runner.
 {
   config,
   lib,
@@ -34,6 +35,8 @@ let
       cfg.reservedMainSlots > 0
     ) " --labels ${lib.concatStringsSep " " (slotLabels n)}";
   users = [ "hound-ci-image" ] ++ map (n: "hound-ci-${toString n}") slots;
+  # The NixOS system every job boots; built from this flake's nixpkgs.
+  container = (pkgs.nixos ./hound-ci/container.nix).config.system.build.toplevel;
   supervisor = pkgs.writeShellApplication {
     name = "hound-ci";
     runtimeInputs = with pkgs; [
@@ -46,6 +49,7 @@ let
       iproute2
       nftables
       config.boot.zfs.package
+      config.systemd.package
     ];
     text = ''exec python3 ${./hound-ci/supervisor.py} "$@"'';
   };
@@ -82,11 +86,7 @@ let
       "CAP_SETGID"
       "CAP_SETPCAP"
     ];
-    # NNP interpreter exec otherwise loses the already-bounded UID-transition
-    # bit. Measured with the exact unit; setpriv clears ambient/bounding before QEMU.
-    AmbientCapabilities = [ "CAP_SETUID" ];
     DevicePolicy = "closed";
-    DeviceAllow = [ "/dev/kvm rw" ];
     ReadWritePaths = [ "/var/lib/hound-ci" ];
     InaccessiblePaths = [
       "/src"
@@ -120,7 +120,7 @@ let
 in
 {
   options.services.hound-ci = {
-    enable = lib.mkEnableOption "a disposable Ubuntu GitHub CI KVM pool";
+    enable = lib.mkEnableOption "a pool of disposable GitHub CI containers, one per job";
     workers = lib.mkOption {
       type = lib.types.ints.between 1 4;
       default = 4;
@@ -138,11 +138,6 @@ in
       type = lib.types.ints.between 0 3;
       default = 0;
       description = "Last N slots register only hound-ci-main (main's push/manual runs); 0 keeps the original labels";
-    };
-    imageName = lib.mkOption {
-      type = lib.types.strMatching "base(-[a-z0-9][a-z0-9-]{0,31})?\\.qcow2";
-      default = "base.qcow2";
-      description = "Immutable generation; deploy only after candidate qualification and explicit approval";
     };
     ghCredentialFile = lib.mkOption {
       type = lib.types.path;
@@ -184,41 +179,18 @@ in
         };
       };
       hound-ci-firewall = {
-        description = "Deny isolated QEMU UIDs access to host, private and LAN networks";
+        description = "Deny CI job containers (and the legacy QEMU UIDs) host, private and LAN networks";
         wantedBy = [ "multi-user.target" ];
         after = [
           "network-online.target"
           "nftables.service"
         ];
         wants = [ "network-online.target" ];
-        before = [ "hound-ci-image.service" ] ++ map (n: "hound-ci-${toString n}.service") slots;
+        before = map (n: "hound-ci-${toString n}.service") slots;
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
           ExecStart = "${supervisor}/bin/hound-ci firewall --count ${toString cfg.workers}";
-        };
-      };
-      hound-ci-image = {
-        description = "Bake and preflight pinned Ubuntu 24.04 CI golden image";
-        requires = [
-          "hound-ci-storage.service"
-          "hound-ci-firewall.service"
-        ];
-        after = [
-          "hound-ci-storage.service"
-          "hound-ci-firewall.service"
-          "network-online.target"
-        ];
-        unitConfig.ConditionPathExists = "!/var/lib/hound-ci/${cfg.imageName}";
-        serviceConfig = common // {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          ExecStart = "${supervisor}/bin/hound-ci base --provision ${./hound-ci/provision.sh} --cache-script ${./hound-ci/cache.py} --cache-pins ${./hound-ci/cache-pins.json} --fixtures ${./hound-ci/fixture-recipes} --image ${cfg.imageName}";
-          TimeoutStartSec = "2h";
-          Slice = "hound-ci.slice";
-          LimitFSIZE = "32G";
-          MemoryMax = "6G";
-          CPUQuota = "200%";
         };
       };
     }
@@ -226,17 +198,15 @@ in
       map (
         n:
         lib.nameValuePair "hound-ci-${toString n}" {
-          description = "Disposable GitHub CI Ubuntu VM slot ${toString n}";
+          description = "Disposable GitHub CI container slot ${toString n}";
           wantedBy = [ "multi-user.target" ];
           requires = [
             "hound-ci-storage.service"
             "hound-ci-firewall.service"
-            "hound-ci-image.service"
           ];
           after = [
             "hound-ci-storage.service"
             "hound-ci-firewall.service"
-            "hound-ci-image.service"
             "network-online.target"
           ];
           unitConfig = {
@@ -245,15 +215,16 @@ in
           };
           serviceConfig = common // {
             Slice = "hound-ci.slice";
-            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --guest ${./hound-ci/guest.sh} --image ${cfg.imageName}${labelArgs n}";
+            # The controller only talks to GitHub and asks PID 1 for the job unit
+            # (hound-ci-job-N.service), which holds the job's caps and runs nspawn.
+            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --system ${container} --helper ${supervisor}/bin/hound-ci --nspawn ${config.systemd.package}/bin/systemd-nspawn --dataset ${cfg.storageDataset}${labelArgs n}";
             LoadCredential = [ "gh-hosts:${cfg.ghCredentialFile}" ];
             RuntimeDirectory = "hound-ci-${toString n}";
             RuntimeDirectoryMode = "0700";
             Restart = "always";
             RestartSec = "10s";
-            CPUQuota = "600%";
-            MemoryHigh = "17G";
-            MemoryMax = "18G";
+            CPUQuota = "100%";
+            MemoryMax = "1G";
           };
         }
       ) slots

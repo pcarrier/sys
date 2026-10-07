@@ -1,7 +1,106 @@
-# Hound's disposable Ubuntu CI pool
+# Hound's disposable CI pool
 
 `feat/hound-ci.nix` is imported **only by hound**. It does not change the legacy
 `github-runner-hound.service`, crab/crab-win, indentbox, or the deployment runner.
+
+Since generation **nspawn-20261007** each job runs in a fresh **systemd-nspawn
+NixOS container** (Pierre, 10-06 21:02 UTC: "straight NixOS, no qemu"). The
+Ubuntu KVM VM design below ("VM generations") is kept for history and rollback:
+its units, `base-cache-v2.qcow2` and GC roots stay on hound.
+
+## Containers (generation nspawn-20261007)
+
+### One job
+
+1. The slot's controller (`hound-ci-N.service`, root, hardened, 1 GiB/1 CPU)
+   reconciles any previous registration, POSTs `generate-jitconfig` (labels as
+   before: slots 1–3 `[self-hosted, Linux, X64, hound-ci, hound-ci-main]`, slot 4
+   `[self-hosted, Linux, X64, hound-ci-main]`), writes the single-use JIT config
+   to `/run/hound-ci-N/jit` (root 0600) and asks PID 1 for the transient job unit
+   `hound-ci-job-N.service` (`systemd-run --wait`). It keeps the gh credential
+   (`LoadCredential`); the container never sees it.
+2. The job unit (`Slice=hound-ci.slice`, `BindsTo=` the slot, `MemoryMax=18G`,
+   `MemoryHigh=17G`, `CPUQuota=600%`, `TasksMax=16384`, `RuntimeMaxSec=8h`,
+   `Delegate=yes`):
+   - `ExecStartPre` `job-prepare`: a fresh dataset `tank/hound-ci/job-N`
+     (quota 120G, `devices=off`) at `/var/lib/hound-ci/job-N`, an empty root.
+   - `ExecStart` `job-run` → `systemd-nspawn --keep-unit --register=no
+     --private-users=pick --network-veth --bind-ro=/nix/store
+     --load-credential=jit:… <system>/init`; its console goes to
+     `job-N/console.log` on the job's dataset, never the host journal.
+   - `ExecStartPost` `job-network`: the container's sysfs (below), the veth
+     pair `ve-hci-job-N` 10.231.N.1/30 ↔ `host0` 10.231.N.2 with a default
+     route, then the JIT file is deleted (nspawn holds it as a credential).
+   - `ExecStopPost` `job-cleanup`: the console's last 64 KiB to
+     `/run/hound-ci-N/console.tail`, then `zfs destroy -r` of the job dataset.
+3. In the container (`feat/hound-ci/container.nix`, built from this flake's
+   nixpkgs), `hound-ci-job.service` waits for the route, runs the preflight
+   (Docker, Chrome **with** its sandbox, host/private addresses unreachable,
+   HTTPS to github.com) and then nixpkgs' `github-runner` (2.337.0)
+   `Runner.Listener run --jitconfig` as `runner`; when it ends the container
+   powers off. The controller reads the advisory markers
+   (`HOUND_CI_GUEST_PREFLIGHT_OK`, `HOUND_CI_GUEST_JOB_FINISHED`) from the tail,
+   DELETEs the runner by id and starts the next job.
+
+Failed gh calls are logged as `gh api failed: METHOD path exit=N http=S`
+(no body, fields or token): the VM controller's bare `CalledProcessError`
+couldn't say which call failed (slot 3, 10-06 19:44/19:45 UTC).
+
+### What jobs get
+
+NixOS, not Ubuntu: Docker 29 (the job's own `dockerd`, overlay2, crun),
+Google Chrome at `/usr/bin/google-chrome`, `/usr/bin/python3` with GTK/WebKit
+introspection, Xvfb, Node 26, rustup (jobs install their toolchain, which
+nixpkgs' rustup patches), the C toolchain, CMake, pkg-config, clang/libclang
+(`LIBCLANG_PATH`), OpenSSL, mkcert, D-Bus, Helm 4, gh, PowerShell, and nix-ld
+for downloaded binaries (setup-node's Node, sccache). `sudo` works (root in the
+container is unprivileged on hound). The app's CI is compatible with both
+images since xmit-dev/ultimator#381 (no APT on NixOS; Chrome found on PATH;
+the Flower cache key uses the container's system closure instead of dpkg).
+
+### Trust boundary (weaker than the VMs)
+
+A job is root in a container whose user namespace maps to an unprivileged,
+per-boot host UID range (`--private-users=pick`): no host UID, no host
+capability, no host file it can write. The host store is bound read-only and
+there is no Nix daemon socket, Docker socket, `/src`, credential or other host
+path in it. Its network namespace's only link is its veth; the `hound_ci` nft
+table rejects everything from `ve-hci-job-*` to the host itself (input), to
+private/CGNAT/link-local/LAN/other-slot addresses, IPv6 and spoofed sources
+(forward), and new connections into the container, and masquerades the rest.
+
+But it shares hound's **kernel**: a kernel bug reachable from an unprivileged
+user namespace (and jobs can create nested ones: Chrome's sandbox, Docker)
+reaches the host, which a KVM guest couldn't. nspawn's seccomp filter and
+capability set apply; the kernel is the boundary. Treat hound-ci as running
+code from anyone who can open a PR on xmit-dev/ultimator, as before.
+
+The container also gets a read-only **sysfs of an empty, host-owned network
+namespace** at `/run/hound-ci-sysfs` (root 0700). Docker (crun, and the
+privileged `docker:dind` the failover test runs) mounts a fresh sysfs per
+container, which the kernel permits in a user namespace only if a fully
+visible sysfs is already mounted there, and nspawn's `/sys` is a tmpfs of
+read-only sysfs subdirectories. That mount shows the same global device and
+kernel information as nspawn's `/sys` and no host interfaces; container root
+could remount it read-write, but its files are owned by the host's root.
+
+### Deploying and rolling back
+
+`feat/hound-ci/deploy-nspawn.py` (root): `--check` (read-only), `--apply`,
+`--rollback`. Like earlier rollouts it changes attached unit links
+(`/etc/systemd/system.attached`), never the host profile: never
+`nixos-rebuild switch` hound for this (its live profile carries changes not on
+main). `--apply` refuses unless all four slots are down (it never stops a slot,
+so it can't kill a job), writes the rollback ledger once
+(`/var/lib/hound-ci/rollout-nspawn-20261007/rollback.json`), roots the new units
+and the container system in `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261007`,
+replaces the firewall's and the slots' links (staged symlink + rename), runs one
+`daemon-reload`, restarts the firewall (it keeps the QEMU UID rules too) and
+starts the slots one by one. `--rollback` restores the ledger's links and
+reloads; stop the container slots first (between jobs), then start the VM
+slots. Every step is in `record.jsonl` next to the ledger.
+
+# VM generations (October 5–7, 2026)
 
 ## Intended operation
 

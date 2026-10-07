@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import uuid
+from types import SimpleNamespace
 
 STATE = Path('/var/lib/hound-ci')
 IMAGE_URL = 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'
@@ -318,8 +319,22 @@ def gh(arguments):
         hosts.symlink_to(credentials)
     env = os.environ.copy()
     env['GH_CONFIG_DIR'] = str(config)
-    result = run(['gh', 'api', *arguments], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        result = run(['gh', 'api', *arguments], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        message(gh_failure(arguments, error))
+        raise
     return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def gh_failure(arguments, error):
+    """Which API call failed and how, never its body, fields or token: the
+    method, the path without its query, gh's exit code and the HTTP status."""
+    method = arguments[arguments.index('-X') + 1] if '-X' in arguments else 'GET'
+    path = next((a for a in arguments if a.startswith('repos/')), '?').split('?')[0]
+    status = re.search(rb'HTTP (\d{3})', error.stderr or b'')
+    http = status.group(1).decode() if status else 'none'
+    return f'gh api failed: {method} {path} exit={error.returncode} http={http}'
 
 
 def save_record(path, value):
@@ -368,7 +383,10 @@ def cleanup_record(path, repo):
 # JIT runner labels: an exact allowlist. hound-ci-main marks slots that main's
 # push/manual runs target (xmit-dev/ultimator ci.yml); without --labels a slot
 # registers exactly the original four labels, in the original order.
-RUNNER_LABELS = ('self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main')
+# hound-ci-canary: a lone canary runner (slot 5, outside the pool) that only a
+# deliberately pushed canary branch's workflow targets.
+RUNNER_LABELS = ('self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main', 'hound-ci-canary')
+POOL_LABELS = {'hound-ci', 'hound-ci-main', 'hound-ci-canary'}
 DEFAULT_LABELS = ('self-hosted', 'Linux', 'X64', 'hound-ci')
 
 
@@ -383,8 +401,10 @@ def runner_labels(values):
         raise ValueError('Runner label outside the allowlist')
     if not {'self-hosted', 'Linux', 'X64'} <= set(values):
         raise ValueError('Runner labels must include self-hosted, Linux and X64')
-    if not {'hound-ci', 'hound-ci-main'} & set(values):
+    if len(POOL_LABELS & set(values)) == 0:
         raise ValueError('Runner labels must include hound-ci or hound-ci-main')
+    if 'hound-ci-canary' in values and len(POOL_LABELS & set(values)) != 1:
+        raise ValueError('A canary runner takes no pool label')
     return values
 
 
@@ -395,20 +415,197 @@ def jit_request(repo, name, labels):
             '-f', f'name={name}', '-F', 'runner_group_id=1', *fields, '-f', 'work_folder=_work']
 
 
-def worker(args):
-    account = pwd.getpwnam(f'hound-ci-{args.slot}')
-    record = STATE / f'slot-{args.slot}-registration.json'
-    # Reconcile a prior exact id before erasing its disk or requesting a new JIT.
-    cleanup_record(record, args.repo)
-    directory = STATE / f'slot-{args.slot}'
-    # Only this root-owned slot is reclaimed, never another job's targets.
-    if directory.exists():
-        shutil.rmtree(directory)
-    verify_image(image_path(args.image))
+JOB_NET = '10.231'
+CONSOLE_TAIL = 64 * 1024
+
+
+def job_names(slot, dataset):
+    """Everything one slot's job container is named: unit, dataset, paths, veth."""
+    if not 1 <= slot <= 5:  # 1-4: the pool; 5: the canary
+        raise ValueError('Invalid slot')
+    if not re.fullmatch(r'[A-Za-z0-9_-]+/hound-ci', dataset):
+        raise ValueError('Invalid CI dataset')
+    root = STATE / f'job-{slot}'
+    return SimpleNamespace(
+        unit=f'hound-ci-job-{slot}.service', machine=f'hci-job-{slot}', veth=f've-hci-job-{slot}',
+        dataset=f'{dataset}/job-{slot}', mountpoint=root, root=root / 'root', console=root / 'console.log',
+        runtime=Path(f'/run/hound-ci-{slot}'), host=f'{JOB_NET}.{slot}.1', guest=f'{JOB_NET}.{slot}.2')
+
+
+def job_unit_argv(slot, dataset, system, helper, nspawn):
+    """systemd-run for one job container: a transient unit in hound-ci.slice with
+    the slot's caps, bound to the slot's controller. PID 1 runs it as root: the
+    controller asks; it never holds the capabilities nspawn and ZFS need."""
+    names = job_names(slot, dataset)
+    if not re.fullmatch(r'/nix/store/[a-z0-9]{32}-nixos-system-hound-ci-[^/]+', system):
+        raise ValueError('Invalid container system')
+    common = ['--slot', str(slot), '--dataset', dataset]
+    properties = {
+        'Slice': 'hound-ci.slice', 'Delegate': 'yes', 'Type': 'notify', 'NotifyAccess': 'all',
+        'BindsTo': f'hound-ci-{slot}.service', 'After': f'hound-ci-{slot}.service',
+        'CPUQuota': '600%', 'CPUWeight': '20', 'IOWeight': '20', 'MemoryHigh': '17G', 'MemoryMax': '18G',
+        'TasksMax': '16384', 'KillMode': 'mixed', 'RuntimeMaxSec': '8h', 'TimeoutStartSec': '5min',
+        'TimeoutStopSec': '90s', 'StandardInput': 'null', 'StandardOutput': 'journal',
+        'StandardError': 'journal',
+        'ExecStartPre': ' '.join([helper, 'job-prepare', *common]),
+        'ExecStartPost': ' '.join([helper, 'job-network', *common]),
+        'ExecStopPost': ' '.join([helper, 'job-cleanup', *common]),
+    }
+    container = [
+        nspawn, '--quiet', '--keep-unit', '--register=no', '--notify-ready=yes',
+        f'--directory={names.root}', f'--machine={names.machine}', f'--hostname=hound-ci-{slot}',
+        # A private user namespace: container root is an unprivileged host UID range.
+        '--private-users=pick', '--private-users-ownership=auto',
+        # A private network namespace whose only link is the host veth the
+        # hound_ci nft table confines (no host, private or LAN destinations).
+        '--network-veth',
+        # Jobs read the host store; they can't write it and get no Nix daemon socket.
+        '--bind-ro=/nix/store',
+        f'--load-credential=jit:{names.runtime}/jit',
+        '--kill-signal=SIGRTMIN+3', '--resolv-conf=off', '--timezone=off', '--link-journal=no',
+        f'{system}/init',
+    ]
+    return ['systemd-run', '--quiet', '--wait', '--collect', f'--unit={names.unit}',
+            *[f'--property={key}={value}' for key, value in properties.items()],
+            helper, 'job-run', *common, '--', *container]
+
+
+def own_unit_cgroup(text=None):
+    """The job unit's cgroup, from a helper running as its Exec*= process
+    (delegated units run those in .control). Hound also has cgroup-v1 lines
+    (net_cls): only the one unified 0:: line counts."""
+    lines = (text if text is not None else Path('/proc/self/cgroup').read_text()).splitlines()
+    unified = [line[3:] for line in lines if line.startswith('0::')]
+    if len(unified) != 1:
+        raise RuntimeError('Expected exactly one unified cgroup line')
+    path = unified[0]
+    path = path.removesuffix('/.control')
+    if not re.fullmatch(r'/(?:[A-Za-z0-9_.@-]+/)*hound-ci-job-[1-5]\.service', path):
+        raise RuntimeError('Not running in a hound-ci job unit')
+    return Path('/sys/fs/cgroup' + path)
+
+
+def job_prepare(args):
+    """ExecStartPre: a fresh, quota-bounded dataset for the job's root."""
+    names = job_names(args.slot, args.dataset)
+    if subprocess.run(['zfs', 'list', '-H', '-o', 'name', names.dataset], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        run(['zfs', 'destroy', '-r', names.dataset])
     admission(128)
-    directory.mkdir(mode=0o700)
+    run(['zfs', 'create', '-o', 'quota=120G', '-o', f'mountpoint={names.mountpoint}', '-o', 'exec=on',
+         '-o', 'setuid=on', '-o', 'devices=off', names.dataset])
+    names.mountpoint.chmod(0o700)
+    names.root.mkdir(mode=0o755)
+    # nspawn wants an OS tree: the NixOS init builds the rest at boot.
+    (names.root / 'usr').mkdir(mode=0o755)
+    names.console.touch(mode=0o600)
+
+
+def job_run(args):
+    """ExecStart: nspawn, its console (job-controlled) in a file on the job's
+    quota-bounded dataset rather than in the host journal."""
+    names = job_names(args.slot, args.dataset)
+    if not args.command or Path(args.command[0]).name != 'systemd-nspawn':
+        raise ValueError('job-run runs systemd-nspawn only')
+    fd = os.open(names.console, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.close(fd)
+    os.execv(args.command[0], args.command)
+
+
+SYSCALLS = {'open_tree': 428, 'move_mount': 429, 'fsopen': 430, 'fsconfig': 431, 'fsmount': 432}  # x86_64
+HIDDEN_SYSFS = '/run/hound-ci-sysfs'
+
+
+def attach_sysfs(leader):
+    """Docker in the job (runc/crun, and privileged docker:dind) mounts a fresh
+    sysfs for each container. The kernel allows that in a user namespace only
+    when the mount namespace already holds a fully visible sysfs; nspawn's /sys
+    is a tmpfs of read-only sysfs subdirectory binds, so it doesn't. Give the
+    container one, from a fresh empty network namespace of the host's (no host
+    interfaces in it), mounted read-only at a root-only path. The host makes it
+    in a child process: setns() changes the caller's namespaces."""
+    pid = os.fork()
+    if pid == 0:
+        code = 1
+        try:
+            import ctypes
+            libc = ctypes.CDLL(None, use_errno=True)
+            def call(name, *arguments):
+                result = libc.syscall(SYSCALLS[name], *arguments)
+                if result < 0:
+                    raise OSError(ctypes.get_errno(), name)
+                return result
+            mount_ns = os.open(f'/proc/{leader}/ns/mnt', os.O_RDONLY | os.O_CLOEXEC)
+            os.unshare(os.CLONE_NEWNET)
+            context = call('fsopen', b'sysfs', 1)  # FSOPEN_CLOEXEC
+            call('fsconfig', context, 6, None, None, 0)  # FSCONFIG_CMD_CREATE
+            mount = call('fsmount', context, 1, 0x1 | 0x2 | 0x4 | 0x8)  # CLOEXEC; RDONLY|NOSUID|NODEV|NOEXEC
+            os.setns(mount_ns, os.CLONE_NEWNS)
+            os.makedirs(HIDDEN_SYSFS, mode=0o700, exist_ok=True)
+            call('move_mount', mount, b'', -100, HIDDEN_SYSFS.encode(), 0x4)  # AT_FDCWD, MOVE_MOUNT_F_EMPTY_PATH
+            code = 0
+        finally:
+            os._exit(code)
+    _, status = os.waitpid(pid, 0)
+    if os.waitstatus_to_exitcode(status) != 0:
+        raise RuntimeError('Could not give the job container a sysfs')
+
+
+def job_network(args):
+    """ExecStartPost, once the container is up: its sysfs, then the veth pair's
+    addresses, then drop the JIT file (nspawn has already loaded it)."""
+    names = job_names(args.slot, args.dataset)
+    leader = int((own_unit_cgroup() / 'payload' / 'init.scope' / 'cgroup.procs').read_text().split()[0])
+    attach_sysfs(leader)
+    run(['ip', 'addr', 'add', f'{names.host}/30', 'dev', names.veth])
+    run(['ip', 'link', 'set', names.veth, 'up'])
+    inside = ['nsenter', '-t', str(leader), '-n', 'ip']
+    run([*inside, 'addr', 'add', f'{names.guest}/30', 'dev', 'host0'])
+    run([*inside, 'link', 'set', 'host0', 'up'])
+    run([*inside, 'route', 'add', 'default', 'via', names.host])
+    (names.runtime / 'jit').unlink(missing_ok=True)
+
+
+def job_cleanup(args):
+    """ExecStopPost: keep the console's tail for the controller, destroy the job."""
+    names = job_names(args.slot, args.dataset)
+    (names.runtime / 'jit').unlink(missing_ok=True)
+    try:
+        with names.console.open('rb') as console:
+            console.seek(max(0, console.seek(0, os.SEEK_END) - CONSOLE_TAIL))
+            tail = console.read()
+    except OSError:
+        tail = b''
+    if names.runtime.is_dir():
+        save_bytes(names.runtime / 'console.tail', tail)
+    if subprocess.run(['zfs', 'list', '-H', '-o', 'name', names.dataset], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        run(['zfs', 'destroy', '-r', names.dataset])
+
+
+def save_bytes(path, data):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(data)
+
+
+def worker(args):
+    record = STATE / f'slot-{args.slot}-registration.json'
+    # Reconcile a prior exact id before requesting a new JIT.
+    cleanup_record(record, args.repo)
+    names = job_names(args.slot, args.dataset)
+    # A job unit left from a crashed controller is stopped (its ExecStopPost
+    # destroys the job) before this slot starts another.
+    subprocess.run(['systemctl', 'stop', names.unit], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['systemctl', 'reset-failed', names.unit], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not Path(args.system, 'init').is_file():
+        raise RuntimeError('Container system closure missing')
+    admission(128)
     name = f'hound-ci-{args.slot}-{uuid.uuid4().hex[:12]}'
     registered = False
+    jit_file = names.runtime / 'jit'
+    tail = names.runtime / 'console.tail'
+    tail.unlink(missing_ok=True)
     # Preserve the exact unique-name intent even if the POST response is lost.
     save_record(record, {'repo': args.repo, 'id': None, 'name': name})
     try:
@@ -416,34 +613,44 @@ def worker(args):
         runner_id = registration['runner']['id']
         save_record(record, {'repo': args.repo, 'id': runner_id, 'name': name})
         registered = True
-        jit = registration['encoded_jit_config']
-        disk = directory / 'job.qcow2'
-        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(image_path(args.image)), str(disk)], stdout=subprocess.DEVNULL)
-        guest = Path(args.guest).read_text()
-        config = json.dumps({'jit': jit, 'name': name})
-        iso = seed(directory, [
-            {'path': '/etc/hound-ci-registration.json', 'permissions': '0600', 'content': config},
-            {'path': '/root/start-ci.sh', 'permissions': '0700', 'content': guest}], {
-            'ssh_pwauth': False, 'runcmd': [['bash', '/root/start-ci.sh']],
-            'output': {'all': '| tee -a /var/log/cloud-init-output.log /dev/ttyS0'}})
-        del jit, registration, config
-        registered = True
-        message(f'slot={args.slot} name={name} repo={args.repo} disposable VM started')
-        log = boot(directory, disk, iso, account.pw_name, 16384, 6, 8)
-        # Do not publish raw guest/PR-controlled console content in host journal.
-        console = log.read_bytes()
+        save_bytes(jit_file, registration['encoded_jit_config'].encode())
+        del registration
+        message(f'slot={args.slot} name={name} id={runner_id} repo={args.repo} container starting')
+        result = subprocess.run(job_unit_argv(args.slot, args.dataset, args.system, args.helper, args.nspawn),
+                                stdin=subprocess.DEVNULL, timeout=8 * 3600 + 600)
+        # Do not publish raw job-controlled console content in the host journal.
+        console = tail.read_bytes() if tail.exists() else b''
         preflight = b'HOUND_CI_GUEST_PREFLIGHT_OK' in console
         completed = b'HOUND_CI_GUEST_JOB_FINISHED' in console
-        message(f'slot={args.slot} VM stopped; preflight={preflight}; runner completed={completed}; erasing disk')
+        message(f'slot={args.slot} container stopped; unit status={result.returncode}; preflight={preflight}; runner completed={completed}')
         if not STOP_REQUESTED and not (preflight and completed):
-            raise RuntimeError('Guest preflight/runner startup failed; restart rate-limited')
+            raise RuntimeError('Container preflight/runner startup failed; restart rate-limited')
     finally:
-        try:
-            if registered:
-                cleanup_record(record, args.repo)
-        finally:
-            # Preserve a failed API cleanup record, but never retain job credentials/disk.
-            shutil.rmtree(directory, ignore_errors=False)
+        jit_file.unlink(missing_ok=True)
+        if registered:
+            cleanup_record(record, args.repo)
+
+
+def job_chains(slots, private_v4):
+    """Job containers' only link is their host veth (ve-hci-job-N). They reach
+    the internet through NAT, and nothing of hound's: no host address on any
+    interface (input), no private, LAN, link-local or other slot's destination,
+    no IPv6, and no source but their own address (forward)."""
+    veths = ', '.join(f'"ve-hci-job-{n}"' for n in slots)
+    spoof = '\n'.join(f' iifname "ve-hci-job-{n}" ip saddr != {JOB_NET}.{n}.2 counter drop' for n in slots)
+    return f''' chain job_input {{ type filter hook input priority -20; policy accept;
+ iifname {{ {veths} }} counter reject
+ }}
+ chain job_forward {{ type filter hook forward priority -20; policy accept;
+{spoof}
+ iifname {{ {veths} }} meta nfproto ipv6 counter reject
+ iifname {{ {veths} }} ip daddr {{ {', '.join(sorted(private_v4))} }} counter reject
+ oifname {{ {veths} }} ct state != {{ established, related }} counter drop
+ }}
+ chain job_nat {{ type nat hook postrouting priority srcnat; policy accept;
+ ip saddr {JOB_NET}.0.0/16 oifname != {{ {veths} }} counter masquerade
+ }}
+'''
 
 
 def firewall(args):
@@ -469,7 +676,7 @@ def firewall(args):
  meta skuid {{ {ids} }} ip daddr {{ {', '.join(sorted(v4))} }} counter reject
  meta skuid {{ {ids} }} ip6 daddr {{ {', '.join(sorted(v6))} }} counter reject
  }}
- }}\n'''
+{job_chains(range(1, args.count + 1), v4)} }}\n'''
     run(['nft', '--check', '-f', '-'], input=rules.encode())
     run(['nft', '-f', '-'], input=rules.encode())
     # Fail closed against a KNOWN listening host socket, not a possibly closed
@@ -501,9 +708,16 @@ def main():
     bake.add_argument('--fixtures', required=True)
     bake.add_argument('--image', default='base.qcow2'); bake.add_argument('--source-sha256')
     bake.add_argument('--source-image')
-    slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True); slot.add_argument('--guest', required=True); slot.add_argument('--image', default='base.qcow2')
+    slot = sub.add_parser('worker'); slot.add_argument('--slot', type=int, required=True); slot.add_argument('--repo', required=True)
+    slot.add_argument('--system', required=True, help='the container NixOS system closure')
+    slot.add_argument('--helper', required=True, help='this program, for the job unit\'s Exec*= helpers')
+    slot.add_argument('--nspawn', required=True); slot.add_argument('--dataset', required=True)
     slot.add_argument('--labels', nargs='+', default=list(DEFAULT_LABELS), metavar='LABEL',
                       help='JIT runner labels (allowlist: ' + ', '.join(RUNNER_LABELS) + '); last argument')
+    for mode in ('job-prepare', 'job-run', 'job-network', 'job-cleanup'):
+        job = sub.add_parser(mode); job.add_argument('--slot', type=int, required=True); job.add_argument('--dataset', required=True)
+        if mode == 'job-run':
+            job.add_argument('command', nargs=argparse.REMAINDER)
     acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
     volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)
     args = parser.parse_args()
@@ -514,6 +728,12 @@ def main():
             parser.error(str(error))
     try:
         if args.mode == 'worker':
+            # The slot's stop also stops its job unit (BindsTo=); finish this
+            # iteration's cleanup instead of starting another job.
+            def stop(_signum, _frame):
+                global STOP_REQUESTED
+                STOP_REQUESTED = True
+            signal.signal(signal.SIGTERM, stop)
             # Completion-driven lifecycle, not status polling. Successful jobs
             # do not consume systemd's bounded failure/restart allowance.
             while not STOP_REQUESTED:
@@ -521,7 +741,10 @@ def main():
                 if not STOP_REQUESTED:
                     time.sleep(10)
         else:
-            {'base': base, 'firewall': firewall, 'storage': storage}[args.mode](args)
+            if args.mode == 'job-run' and args.command[:1] == ['--']:
+                args.command = args.command[1:]
+            {'base': base, 'firewall': firewall, 'storage': storage, 'job-prepare': job_prepare,
+             'job-run': job_run, 'job-network': job_network, 'job-cleanup': job_cleanup}[args.mode](args)
     except Exception as error:
         # Never echo gh API response/token/credential paths or guest-controlled output.
         message(f'{args.mode} failed: {type(error).__name__}; inspect private state (no automatic unlimited retries)')
