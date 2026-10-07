@@ -15,8 +15,8 @@ fail() {
 jit_file="${CREDENTIALS_DIRECTORY:-}/jit"
 [[ -r $jit_file ]] || fail 'no jit credential'
 
-# pasta configures the network from the host once the container runs: wait for
-# its default route (event-driven, bounded), never for host DNS.
+# The host configures host0 once the container runs (supervisor job-network): wait
+# for its default route (event-driven, bounded), never for host DNS.
 if ! ip -4 route show default | grep -q .; then
   timeout 120 ip monitor route | grep -m1 -q '^default' || true
 fi
@@ -30,7 +30,7 @@ as_runner() {
 
 # Preflight: Docker (the job's own daemon), Chrome's namespace sandbox (no
 # --no-sandbox), and that host/private networks stay unreachable (the host's nft
-# table denies the slot's pasta UID; this checks it from the inside).
+# table's job chains drop them; this checks it from the inside).
 as_runner docker info --format 'Docker {{.ServerVersion}} storage={{.Driver}}' || fail docker
 as_runner /usr/bin/google-chrome --version || fail chrome
 profile=$(as_runner mktemp -d)

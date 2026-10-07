@@ -2,8 +2,9 @@
 # Host side (feat/hound-ci.nix, supervisor.py `job`): an empty per-job root on its
 # own ZFS dataset, the host /nix/store bound read-only, a private user namespace
 # (no host UID in the container), a private network namespace reached only through
-# pasta running as the slot's UID (the hound_ci nft table denies that UID host and
-# private networks), the slot's cgroup caps, and a single-use JIT runner config as
+# a per-slot veth NATed by the host (the hound_ci nft table's job chains drop its
+# input to the host, spoofed sources, IPv6 and private destinations), a read-only
+# sysfs from a fresh network namespace for Docker, the slot's cgroup caps, and a single-use JIT runner config as
 # the systemd credential `jit`. The container powers off when its one job ends.
 {
   config,
@@ -109,8 +110,9 @@ in
     firewall.enable = false;
     resolvconf.enable = false;
   };
-  # pasta configures the interface; these resolvers are public, never the host's.
-  environment.etc."resolv.conf".text = "nameserver 1.1.1.1\nnameserver 9.9.9.9\noptions timeout:5 attempts:1\n";
+  # The host configures host0 (supervisor job-network); these resolvers are public, never the host's.
+  environment.etc."resolv.conf".text =
+    "nameserver 1.1.1.1\nnameserver 9.9.9.9\noptions timeout:5 attempts:1\n";
   # No Nix in jobs: the host store is bound read-only and no daemon socket exists.
   nix.enable = false;
   documentation.enable = false;

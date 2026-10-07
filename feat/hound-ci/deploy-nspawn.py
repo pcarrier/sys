@@ -38,11 +38,11 @@ OLD = {
 }
 # What this tree builds (check.sh verifies it).
 NEW = {
-    'hound-ci-1.service': '@NEW1@',
-    'hound-ci-2.service': '@NEW2@',
-    'hound-ci-3.service': '@NEW3@',
-    'hound-ci-4.service': '@NEW4@',
-    'hound-ci-firewall.service': '@NEWFW@',
+    'hound-ci-1.service': '/nix/store/gvpf7nc33n8pylzqmv10ll1zczl96hvm-unit-hound-ci-1.service',
+    'hound-ci-2.service': '/nix/store/0x904kbzi3x4parg8zxmn2dw54jx07pk-unit-hound-ci-2.service',
+    'hound-ci-3.service': '/nix/store/9dsrjq0ypi115qi51ag24nsfs7c63dr8-unit-hound-ci-3.service',
+    'hound-ci-4.service': '/nix/store/kqx65byzwd8c8pkpzgqvsfinzlnyhidd-unit-hound-ci-4.service',
+    'hound-ci-firewall.service': '/nix/store/i88x1lhizr5ipbqmiim3vq28qx0xdwqb-unit-hound-ci-firewall.service',
 }
 # Kept as they are (the slots still need storage; image/slice stay for rollback).
 KEPT = ('hound-ci-storage.service', 'hound-ci-image.service', 'hound-ci.slice')
