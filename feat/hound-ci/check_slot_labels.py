@@ -12,6 +12,7 @@ SHARED = ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']
 MAIN = ['self-hosted', 'Linux', 'X64', 'hound-ci-main']
 BASE = re.compile(r'/nix/store/[a-z0-9]{32}-hound-ci/bin/hound-ci worker --slot ([1-4]) --repo xmit-dev/ultimator '
                   r'--system /nix/store/[a-z0-9]{32}-nixos-system-hound-ci-[^ ]+ '
+                  r'--store-paths /nix/store/[a-z0-9]{32}-closure-info/store-paths '
                   r'--helper /nix/store/[a-z0-9]{32}-hound-ci/bin/hound-ci '
                   r'--nspawn /nix/store/[a-z0-9]{32}-systemd-[^ /]+/bin/systemd-nspawn --dataset tank/hound-ci')
 

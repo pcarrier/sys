@@ -38,11 +38,11 @@ OLD = {
 }
 # What this tree builds (check.sh verifies it).
 NEW = {
-    'hound-ci-1.service': '/nix/store/gvpf7nc33n8pylzqmv10ll1zczl96hvm-unit-hound-ci-1.service',
-    'hound-ci-2.service': '/nix/store/0x904kbzi3x4parg8zxmn2dw54jx07pk-unit-hound-ci-2.service',
-    'hound-ci-3.service': '/nix/store/9dsrjq0ypi115qi51ag24nsfs7c63dr8-unit-hound-ci-3.service',
-    'hound-ci-4.service': '/nix/store/kqx65byzwd8c8pkpzgqvsfinzlnyhidd-unit-hound-ci-4.service',
-    'hound-ci-firewall.service': '/nix/store/i88x1lhizr5ipbqmiim3vq28qx0xdwqb-unit-hound-ci-firewall.service',
+    'hound-ci-1.service': '/nix/store/qii8vja72xfbc5c0xd31izy75hkq2knn-unit-hound-ci-1.service',
+    'hound-ci-2.service': '/nix/store/fp8w5sarz8kdkrw62v49ndbxr8131lzr-unit-hound-ci-2.service',
+    'hound-ci-3.service': '/nix/store/v0440dhsswyxydx7x3n00fx7kf23mzqz-unit-hound-ci-3.service',
+    'hound-ci-4.service': '/nix/store/85rr10lb7ww6b614nvrv2ajhxxdhs29x-unit-hound-ci-4.service',
+    'hound-ci-firewall.service': '/nix/store/zadnpln2l1prr3rx3vqj9d2d1pcahi7g-unit-hound-ci-firewall.service',
 }
 # Kept as they are (the slots still need storage; image/slice stay for rollback).
 KEPT = ('hound-ci-storage.service', 'hound-ci-image.service', 'hound-ci.slice')
@@ -98,6 +98,10 @@ def problems():
             found.append(f'hound-ci-{slot}: {state.get("ActiveState")} MainPID={state.get("MainPID")} (drain first; never stopped here)')
         if state.get('DropInPaths'):
             found.append(f'hound-ci-{slot}: drop-ins {state["DropInPaths"]}')
+    # The canary controller (hound-ci-5) would lose its job to the firewall restart.
+    canary = unit_state('hound-ci-5.service')
+    if canary.get('ActiveState') not in ('inactive', 'failed') or canary.get('MainPID') not in ('0', None):
+        found.append(f'hound-ci-5: {canary.get("ActiveState")} MainPID={canary.get("MainPID")} (stop the canary first)')
     for slot in (*SLOTS, 5):
         job = unit_state(f'hound-ci-job-{slot}.service')
         if job.get('ActiveState') not in ('inactive', 'failed'):
@@ -123,6 +127,8 @@ def store_closure_roots():
         for word in Path(path, name).read_text().split():
             if word.startswith('/nix/store/') and 'nixos-system-hound-ci-' in word:
                 roots['container-system'] = word.split('/init')[0]
+            if word.startswith('/nix/store/') and word.endswith('-closure-info/store-paths'):
+                roots['container-closure'] = word.removesuffix('/store-paths')
     return roots
 
 

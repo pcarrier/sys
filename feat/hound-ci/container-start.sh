@@ -17,8 +17,14 @@ jit_file="${CREDENTIALS_DIRECTORY:-}/jit"
 
 # The host configures host0 once the container runs (supervisor job-network): wait
 # for its default route (event-driven, bounded), never for host DNS.
+# The monitor starts before the second check, so a route added in between is seen.
 if ! ip -4 route show default | grep -q .; then
-  timeout 120 ip monitor route | grep -m1 -q '^default' || true
+  coproc route_monitor { exec timeout 120 ip monitor route; }
+  if ! ip -4 route show default | grep -q .; then
+    grep -m1 -q '^default' <&"${route_monitor[0]}" || true
+  fi
+  # shellcheck disable=SC2154 # coproc sets route_monitor_PID
+  kill "$route_monitor_PID" 2>/dev/null || true
 fi
 ip -4 route show default | grep -q . || fail 'no network'
 

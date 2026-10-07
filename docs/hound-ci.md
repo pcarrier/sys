@@ -13,7 +13,7 @@ its units, `base-cache-v2.qcow2` and GC roots stay on hound.
 ### One job
 
 1. The slot's controller (`hound-ci-N.service`, root, hardened, 1 GiB/1 CPU)
-   reconciles any previous registration, POSTs `generate-jitconfig` (labels as
+   stops any leftover job unit, then reconciles previous registrations, POSTs `generate-jitconfig` (labels as
    before: slots 1–3 `[self-hosted, Linux, X64, hound-ci, hound-ci-main]`, slot 4
    `[self-hosted, Linux, X64, hound-ci-main]`), writes the single-use JIT config
    to `/run/hound-ci-N/jit` (root 0600) and asks PID 1 for the transient job unit
@@ -21,18 +21,34 @@ its units, `base-cache-v2.qcow2` and GC roots stay on hound.
    (`LoadCredential`); the container never sees it.
 2. The job unit (`Slice=hound-ci.slice`, `BindsTo=` the slot, `MemoryMax=18G`,
    `MemoryHigh=17G`, `CPUQuota=600%`, `TasksMax=16384`, `RuntimeMaxSec=8h`,
-   `Delegate=yes`):
-   - `ExecStartPre` `job-prepare`: a fresh dataset `tank/hound-ci/job-N`
-     (quota 120G, `devices=off`) at `/var/lib/hound-ci/job-N`, an empty root.
-   - `ExecStart` `job-run` → `systemd-nspawn --keep-unit --register=no
-     --private-users=pick --network-veth --bind-ro=/nix/store
+   `Delegate=yes`, `PrivateMounts=yes`, `DevicePolicy=closed` with nspawn's
+   device list plus `/dev/zfs` for its own dataset work, and a cgroup
+   `IPAddressDeny=` of private, link-local, multicast and IPv6 destinations
+   except loopback and the inner Docker networks, a second layer beside nft):
+   - `ExecStartPre` `job-prepare`: refuses unless the `hound_ci` table holds the
+     slot's job chains (fail closed), destroys the slot's leftovers, reaps
+     datasets set aside earlier, checks free space, then creates a fresh dataset
+     `tank/hound-ci/job-N` (quota 120G, `devices=off`, **`canmount=noauto`**).
+   - `ExecStart` `job-run`, in its own private mount namespace: mounts the
+     dataset (`/var/lib/hound-ci/job-N`, an empty root) and the **closure-only
+     store view** (below), then execs `systemd-nspawn --keep-unit --register=no
+     --private-users=pick --network-veth --bind-ro=/run/hound-ci-N/store:/nix/store
+     --system-call-filter='~io_uring_setup io_uring_enter io_uring_register'
      --load-credential=jit:… <system>/init`; its console goes to
      `job-N/console.log` on the job's dataset, never the host journal.
    - `ExecStartPost` `job-network`: the container's sysfs (below), the veth
      pair `ve-hci-job-N` 10.231.N.1/30 ↔ `host0` 10.231.N.2 with a default
      route, then the JIT file is deleted (nspawn holds it as a credential).
    - `ExecStopPost` `job-cleanup`: the console's last 64 KiB to
-     `/run/hound-ci-N/console.tail`, then `zfs destroy -r` of the job dataset.
+     `/run/hound-ci-N/console.tail`, then `zfs destroy -r` of the job dataset;
+     if the kernel still holds it (busy), it is renamed aside
+     (`tank/hound-ci/reap-job-N-<UTC>-<id>`) for a later `job-prepare` to reap,
+     so the slot's next job never waits on it.
+
+   Job datasets are never mounted in hound's own mount namespace: a namespace
+   copied from it while one is mounted there (Nix keeps one per build sandbox)
+   pins that mount until the build ends, and `zfs destroy` says busy (10-07:
+   three times on the canary slot, once failing its next start).
 3. In the container (`feat/hound-ci/container.nix`, built from this flake's
    nixpkgs), `hound-ci-job.service` waits for the route, runs the preflight
    (Docker, Chrome **with** its sandbox, host/private addresses unreachable,
@@ -41,6 +57,22 @@ its units, `base-cache-v2.qcow2` and GC roots stay on hound.
    powers off. The controller reads the advisory markers
    (`HOUND_CI_GUEST_PREFLIGHT_OK`, `HOUND_CI_GUEST_JOB_FINISHED`) from the tail,
    DELETEs the runner by id and starts the next job.
+
+A DELETE GitHub refuses (422 for a runner it still sees busy after a killed job
+or a controller restart, 5xx) never ends the controller: the record moves to
+`/var/lib/hound-ci/slot-N-stale-<id>.json`, later iterations retry it (dropped
+on 204 or 404), and the slot carries on with a fresh JIT name. Only a container
+that never passes its preflight ends the controller (systemd's start limit, 4
+per hour, then holds the slot); a job killed after preflight (OOM, timeout) is
+the job's, and the next container starts. That was the 10-07 03:58 UTC outage:
+after `pkill -9 qemu`, every restart raised on the 422 and the slots hit their
+start limit.
+
+The slots `Want` (not `Require`) `hound-ci-firewall.service`: a firewall
+restart doesn't restart the slots and kill their jobs; `job-prepare` refuses a
+container while the slot's chains are missing, and the job units' cgroup
+`IPAddressDeny=` covers running jobs during the table's recreation. The
+firewall always makes chains for slots 1–4 and the canary slot 5.
 
 Failed gh calls are logged as `gh api failed: METHOD path exit=N http=S`
 (no body, fields or token): the VM controller's bare `CalledProcessError`
@@ -62,9 +94,14 @@ the Flower cache key uses the container's system closure instead of dpkg).
 
 A job is root in a container whose user namespace maps to an unprivileged,
 per-boot host UID range (`--private-users=pick`): no host UID, no host
-capability, no host file it can write. The host store is bound read-only and
-there is no Nix daemon socket, Docker socket, `/src`, credential or other host
-path in it. Its network namespace's only link is its veth; the `hound_ci` nft
+capability, no host file it can write. Its `/nix/store` holds **only the
+container system's closure** (851 paths at nspawn-20261007, from
+`closureInfo`'s `store-paths`): `job-run` builds a tmpfs of read-only,
+nosuid, nodev binds of exactly those paths in nspawn's private mount namespace,
+so hound's other store paths (flake sources of private repositories, other
+sessions' build outputs and `.drv` environments, units with credentials) are
+not visible. There is no Nix daemon socket, Docker socket, `/src`, credential or
+other host path in it. Its network namespace's only link is its veth; the `hound_ci` nft
 table rejects everything from `ve-hci-job-*` to the host itself (input), to
 private/CGNAT/link-local/LAN/other-slot addresses, IPv6 and spoofed sources
 (forward), and new connections into the container, and masquerades the rest.
@@ -72,7 +109,11 @@ private/CGNAT/link-local/LAN/other-slot addresses, IPv6 and spoofed sources
 But it shares hound's **kernel**: a kernel bug reachable from an unprivileged
 user namespace (and jobs can create nested ones: Chrome's sandbox, Docker)
 reaches the host, which a KVM guest couldn't. nspawn's seccomp filter and
-capability set apply; the kernel is the boundary. Treat hound-ci as running
+capability set apply, and **io_uring is denied** (`io_uring_setup`, `_enter`,
+`_register` return EPERM in the container and everything under it); the kernel
+is the boundary. Pierre accepted the shared kernel on 10-07 on those two
+conditions: "Accept shared kernel, with the io_uring block and a store limited
+to the container's own packages". Treat hound-ci as running
 code from anyone who can open a PR on xmit-dev/ultimator, as before.
 
 The container also gets a read-only **sysfs of an empty, host-owned network
@@ -90,10 +131,11 @@ could remount it read-write, but its files are owned by the host's root.
 `--rollback`. Like earlier rollouts it changes attached unit links
 (`/etc/systemd/system.attached`), never the host profile: never
 `nixos-rebuild switch` hound for this (its live profile carries changes not on
-main). `--apply` refuses unless all four slots are down (it never stops a slot,
-so it can't kill a job), writes the rollback ledger once
-(`/var/lib/hound-ci/rollout-nspawn-20261007/rollback.json`), roots the new units
-and the container system in `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261007`,
+main). `--apply` refuses unless all four slots and the canary controller
+`hound-ci-5` are down (it never stops a slot, so it can't kill a job; the
+firewall restart would cost the canary its job), writes the rollback ledger once
+(`/var/lib/hound-ci/rollout-nspawn-20261007/rollback.json`), roots the new units,
+the container system and its closure list in `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261007`,
 replaces the firewall's and the slots' links (staged symlink + rename), runs one
 `daemon-reload`, restarts the firewall (it keeps the QEMU UID rules too) and
 starts the slots one by one. `--rollback` restores the ledger's links and

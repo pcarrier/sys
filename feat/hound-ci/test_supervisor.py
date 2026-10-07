@@ -20,6 +20,7 @@ spec.loader.exec_module(supervisor)
 SYSTEM = '/nix/store/' + 'a' * 32 + '-nixos-system-hound-ci-26.11pre-git'
 HELPER = '/nix/store/x-hound-ci/bin/hound-ci'
 NSPAWN = '/nix/store/x-systemd/bin/systemd-nspawn'
+PATHS = '/nix/store/' + 'c' * 32 + '-closure-info/store-paths'
 
 
 class SupervisorTests(unittest.TestCase):
@@ -48,20 +49,41 @@ class SupervisorTests(unittest.TestCase):
         self.assertNotIn('172.17.0.0/16', rules[0])
         self.assertIn('destroy table inet hound_ci', rules[0])
         self.assertNotIn('flush ruleset', rules[0])
+        # Job chains for the pool and the canary slot, whatever the count.
+        self.assertIn('iifname "ve-hci-job-5" ip saddr != 10.231.5.2 counter drop', rules[0])
+        self.assertIn('iifname "ve-hci-job-4" ip saddr != 10.231.4.2 counter drop', rules[0])
 
     def test_registration_recovery_is_exact_and_preserved_on_api_failure(self):
         with tempfile.TemporaryDirectory() as root:
-            path = Path(root) / 'registration.json'
+            path = Path(root) / 'slot-1-registration.json'
             supervisor.save_record(path, {'repo': 'xmit-dev/ultimator', 'id': 321, 'name': 'hound-ci-1-test'})
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            failure = subprocess.CalledProcessError(1, ['gh'], stderr=b'HTTP 503')
-            with patch.object(supervisor, 'gh', side_effect=failure):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    supervisor.cleanup_record(path, 'xmit-dev/ultimator')
-            self.assertTrue(path.exists())
+            # 422 (GitHub still sees the runner busy) or 5xx: never raises; the
+            # record goes aside, kept, and later iterations retry it.
+            for status, runner in ((b'HTTP 422', 321), (b'HTTP 503', 322)):
+                supervisor.save_record(path, {'repo': 'xmit-dev/ultimator', 'id': runner, 'name': 'hound-ci-1-test'})
+                failure = subprocess.CalledProcessError(1, ['gh'], stderr=status)
+                with patch.object(supervisor, 'gh', side_effect=failure), patch.object(supervisor, 'message'):
+                    self.assertFalse(supervisor.cleanup_record(path, 'xmit-dev/ultimator'))
+                self.assertFalse(path.exists())
+                aside = Path(root) / f'slot-1-stale-{runner}.json'
+                self.assertEqual(json.loads(aside.read_text())['id'], runner)
+            with patch.object(supervisor, 'STATE', Path(root)), patch.object(supervisor, 'message'), \
+                    patch.object(supervisor, 'gh', side_effect=[subprocess.CalledProcessError(1, ['gh'], stderr=b'HTTP 422'), None]) as api:
+                supervisor.retry_stale(1, 'xmit-dev/ultimator')
+            self.assertEqual([c.args[0] for c in api.call_args_list],
+                             [['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/321'],
+                              ['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/322']])
+            self.assertTrue((Path(root) / 'slot-1-stale-321.json').exists())  # still busy: kept in place
+            self.assertFalse((Path(root) / 'slot-1-stale-322.json').exists())  # deleted: dropped
+            with patch.object(supervisor, 'STATE', Path(root)), \
+                    patch.object(supervisor, 'gh', side_effect=subprocess.CalledProcessError(1, ['gh'], stderr=b'HTTP 404')):
+                supervisor.retry_stale(1, 'xmit-dev/ultimator')
+            self.assertFalse((Path(root) / 'slot-1-stale-321.json').exists())  # GitHub forgot it: dropped
+            supervisor.save_record(path, {'repo': 'xmit-dev/ultimator', 'id': 323, 'name': 'hound-ci-1-test'})
             with patch.object(supervisor, 'gh', return_value=None) as api:
-                supervisor.cleanup_record(path, 'xmit-dev/ultimator')
-            api.assert_called_once_with(['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/321'])
+                self.assertTrue(supervisor.cleanup_record(path, 'xmit-dev/ultimator'))
+            api.assert_called_once_with(['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/323'])
             self.assertFalse(path.exists())
 
     def test_uncertain_post_recovers_only_exact_owned_name(self):
@@ -203,7 +225,7 @@ class SupervisorTests(unittest.TestCase):
     def parse_worker(self, *extra):
         argv = ['hound-ci', 'worker', '--slot', '4', '--repo', 'xmit-dev/ultimator', '--system', SYSTEM,
                 '--helper', '/nix/store/x-hound-ci/bin/hound-ci', '--nspawn', '/nix/store/x-systemd/bin/systemd-nspawn',
-                '--dataset', 'tank/hound-ci', *extra]
+                '--dataset', 'tank/hound-ci', '--store-paths', PATHS, *extra]
         seen = []
         with patch.object(supervisor.sys, 'argv', argv), patch.object(supervisor, 'worker', side_effect=lambda args: seen.append(args.labels)), \
                 patch.object(supervisor, 'STOP_REQUESTED', False), patch.object(supervisor.time, 'sleep', side_effect=SystemExit(0)):
@@ -250,13 +272,18 @@ class SupervisorTests(unittest.TestCase):
         self.assertNotIn('/registration-token', code)
         self.assertNotIn('hostfwd=', code)
         self.assertNotIn('guestfwd=', code)
-        argv = supervisor.job_unit_argv(2, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN)
+        argv = supervisor.job_unit_argv(2, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN, PATHS)
         nspawn = argv[argv.index(NSPAWN):]
-        # Private user and network namespaces; the store read-only; no other host path.
-        for flag in ('--private-users=pick', '--network-veth', '--bind-ro=/nix/store', '--register=no', '--keep-unit'):
+        # Private user and network namespaces; only the closure's store view,
+        # read-only; no other host path; no io_uring (Pierre's condition, 10-07).
+        for flag in ('--private-users=pick', '--network-veth', '--bind-ro=/run/hound-ci-2/store:/nix/store', '--register=no',
+                     '--keep-unit', '--system-call-filter=~io_uring_setup io_uring_enter io_uring_register'):
             self.assertIn(flag, nspawn)
-        self.assertEqual([a for a in nspawn if a.startswith(('--bind', '--overlay', '--tmpfs'))], ['--bind-ro=/nix/store'])
-        for forbidden in ('--capability', '--private-users=no', '--network-zone', '--private-network=no', '--system-call-filter',
+        self.assertEqual([a for a in nspawn if a.startswith(('--bind', '--overlay', '--tmpfs'))],
+                         ['--bind-ro=/run/hound-ci-2/store:/nix/store'])
+        self.assertEqual([a for a in nspawn if a.startswith('--system-call-filter')],
+                         ['--system-call-filter=~io_uring_setup io_uring_enter io_uring_register'])
+        for forbidden in ('--capability', '--private-users=no', '--network-zone', '--private-network=no', '--bind-ro=/nix/store',
                           '--bind=', '/var/run/docker.sock', '/nix/var', '--volatile'):
             self.assertFalse([a for a in nspawn if forbidden in a], forbidden)
         start = Path(__file__).with_name('container-start.sh').read_text()
@@ -267,19 +294,31 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn('boot.isContainer = true;', container)
 
     def test_job_unit_is_bound_capped_and_named_by_slot(self):
-        argv = supervisor.job_unit_argv(3, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN)
+        argv = supervisor.job_unit_argv(3, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN, PATHS)
         self.assertEqual(argv[:5], ['systemd-run', '--quiet', '--wait', '--collect', '--unit=hound-ci-job-3.service'])
         props = dict(a.removeprefix('--property=').split('=', 1) for a in argv if a.startswith('--property='))
         for key, value in {'Slice': 'hound-ci.slice', 'Delegate': 'yes', 'BindsTo': 'hound-ci-3.service',
                            'MemoryMax': '18G', 'MemoryHigh': '17G', 'CPUQuota': '600%', 'RuntimeMaxSec': '8h',
-                           'StandardOutput': 'journal', 'Type': 'notify'}.items():
+                           'StandardOutput': 'journal', 'Type': 'notify', 'PrivateMounts': 'yes', 'NotifyAccess': 'main',
+                           'DevicePolicy': 'closed'}.items():
             self.assertEqual(props[key], value, key)
+        pairs = [a.removeprefix('--property=').split('=', 1) for a in argv if a.startswith('--property=')]
+        self.assertEqual([v for k, v in pairs if k == 'DeviceAllow'],
+                         ['/dev/null rwm', '/dev/zero rwm', '/dev/full rwm', '/dev/random rwm', '/dev/urandom rwm',
+                          '/dev/tty rwm', '/dev/ptmx rwm', 'char-pts rw', '/dev/net/tun rwm', '/dev/fuse rwm',
+                          '/dev/zfs rw'])
+        # Second network layer: no private/link-local/IPv6 destination but loopback and inner Docker.
+        self.assertIn('10.0.0.0/8', props['IPAddressDeny'].split())
+        self.assertIn('::/0', props['IPAddressDeny'].split())
+        self.assertIn('192.168.0.0/16', props['IPAddressDeny'].split())
+        self.assertEqual(props['IPAddressAllow'].split(), ['127.0.0.0/8', '::1/128', '172.30.0.0/16', '172.31.255.0/24'])
         common = '--slot 3 --dataset tank/hound-ci'
         self.assertEqual(props['ExecStartPre'], f'{HELPER} job-prepare {common}')
         self.assertEqual(props['ExecStartPost'], f'{HELPER} job-network {common}')
         self.assertEqual(props['ExecStopPost'], f'{HELPER} job-cleanup {common}')
         run = argv.index(HELPER)
-        self.assertEqual(argv[run:run + 7], [HELPER, 'job-run', '--slot', '3', '--dataset', 'tank/hound-ci', '--'])
+        self.assertEqual(argv[run:run + 11], [HELPER, 'job-run', '--slot', '3', '--dataset', 'tank/hound-ci',
+                                              '--system', SYSTEM, '--store-paths', PATHS, '--'])
         self.assertIn('--directory=/var/lib/hound-ci/job-3/root', argv)
         self.assertIn('--machine=hci-job-3', argv)
         self.assertIn('--load-credential=jit:/run/hound-ci-3/jit', argv)
@@ -287,7 +326,101 @@ class SupervisorTests(unittest.TestCase):
         for bad in ((0, 'tank/hound-ci', SYSTEM), (6, 'tank/hound-ci', SYSTEM), (1, 'tank', SYSTEM),
                     (1, 'tank/hound-ci', '/nix/store/x/init'), (1, 'tank/hound-ci', '/tmp/nixos-system-hound-ci-1')):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                supervisor.job_unit_argv(*bad, HELPER, NSPAWN)
+                supervisor.job_unit_argv(*bad, HELPER, NSPAWN, PATHS)
+        with self.assertRaises(ValueError):
+            supervisor.job_unit_argv(1, 'tank/hound-ci', SYSTEM, HELPER, NSPAWN, '/tmp/store-paths')
+
+    def test_job_dataset_never_mounts_in_the_host_namespace_and_busy_ones_go_aside(self):
+        calls = []
+
+        def fake(argv, **kw):
+            calls.append(argv)
+            if argv[:2] == ['zfs', 'list'] and '-d' in argv:
+                return subprocess.CompletedProcess(argv, 0, 'tank/hound-ci\ntank/hound-ci/reap-job-2-x\ntank/hound-ci/job-1\n')
+            if argv[:2] == ['zfs', 'list']:
+                return subprocess.CompletedProcess(argv, 0)  # the job's dataset exists
+            if argv[:3] == ['zfs', 'destroy', '-r'] and argv[3] == 'tank/hound-ci/job-2':
+                return subprocess.CompletedProcess(argv, 1)  # busy
+            return subprocess.CompletedProcess(argv, 0)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(supervisor, 'STATE', Path(tmp)), \
+                patch.object(supervisor.subprocess, 'run', side_effect=fake), patch.object(supervisor, 'admission'), \
+                patch.object(supervisor, 'message'), patch.object(supervisor, 'require_job_chains') as chains:
+            supervisor.job_prepare(SimpleNamespace(slot=2, dataset='tank/hound-ci'))
+            chains.assert_called_once()
+            create = next(c for c in calls if c[:2] == ['zfs', 'create'])
+            self.assertIn('canmount=noauto', create)
+            self.assertFalse([c for c in calls if c[:2] == ['zfs', 'mount']])  # never in the host's namespace
+            # job-run, in nspawn's own mount namespace: mount, store view, then exec nspawn.
+            prepared = list(calls)
+            calls.clear()
+            Path(tmp, 'job-2').mkdir()  # what `zfs mount` would provide
+            order = []
+            with patch.object(supervisor, 'store_view', side_effect=lambda *a: order.append(('view', a[1:]))), \
+                    patch.object(supervisor.os, 'dup2'), patch.object(supervisor.os, 'execv', side_effect=lambda *a: order.append(('exec', a[0]))):
+                supervisor.job_run(SimpleNamespace(slot=2, dataset='tank/hound-ci', system=SYSTEM, store_paths=PATHS,
+                                                   command=[NSPAWN, '--quiet']))
+            self.assertEqual(calls, [['zfs', 'mount', 'tank/hound-ci/job-2']])
+            self.assertEqual(order, [('view', (SYSTEM, PATHS)), ('exec', NSPAWN)])
+            self.assertTrue(Path(tmp, 'job-2', 'root', 'usr').is_dir())
+        renames = [c for c in prepared if c[:2] == ['zfs', 'rename']]
+        self.assertEqual(len(renames), 1)
+        self.assertEqual(renames[0][2], 'tank/hound-ci/job-2')
+        self.assertTrue(renames[0][3].startswith('tank/hound-ci/reap-job-2-'))
+        self.assertIn(['zfs', 'destroy', '-r', 'tank/hound-ci/reap-job-2-x'], prepared)
+        self.assertNotIn(['zfs', 'destroy', '-r', 'tank/hound-ci/job-1'], prepared)  # another slot's live job
+
+    def test_job_cleanup_never_fails_on_a_busy_dataset(self):
+        calls = []
+
+        def fake(argv, **kw):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 1 if argv[:2] == ['zfs', 'destroy'] else 0)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(supervisor, 'STATE', Path(tmp)), \
+                patch.object(supervisor.subprocess, 'run', side_effect=fake), patch.object(supervisor, 'message'):
+            supervisor.job_cleanup(SimpleNamespace(slot=4, dataset='tank/hound-ci'))
+        self.assertTrue(any(c[:3] == ['zfs', 'rename', 'tank/hound-ci/job-4'] and c[3].startswith('tank/hound-ci/reap-job-4-')
+                            for c in calls))
+
+    def test_job_prepare_fails_closed_without_the_slots_chains(self):
+        names = supervisor.job_names(5, 'tank/hound-ci')
+        good = supervisor.job_chains([1, 2, 3, 4, 5], {'10.0.0.0/8'})
+        listed = lambda text: patch.object(supervisor, 'run', return_value=SimpleNamespace(stdout=text))
+        with listed(good):
+            supervisor.require_job_chains(names)
+        for text in ('', supervisor.job_chains([1, 2, 3, 4], {'10.0.0.0/8'})):
+            with self.subTest(text=text[:20]), listed(text), self.assertRaisesRegex(RuntimeError, 'job chains'):
+                supervisor.require_job_chains(names)
+
+    def test_store_view_is_exactly_the_closure_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp, 'host-store')
+            store.mkdir()
+            system = store / ('s' * 32 + '-nixos-system-hound-ci-1')
+            system.mkdir()
+            script = store / ('f' * 32 + '-script.sh')
+            script.write_text('')
+            link = store / ('l' * 32 + '-link')
+            link.symlink_to('/nix/store/elsewhere')
+            closure = Path(tmp, 'store-paths')
+            closure.write_text('\n'.join(map(str, (system, script, link))) + '\n')
+            mounts = []
+            names = SimpleNamespace(store=Path(tmp, 'run', 'store'))
+            Path(tmp, 'run').mkdir()
+            with patch.object(supervisor, 'STORE_PATH', __import__('re').compile(r'.*/[a-z0-9]{32}-[A-Za-z0-9+._?=-]+')), \
+                    patch.object(supervisor, 'mount', side_effect=lambda *a: mounts.append(a)):
+                supervisor.store_view(names, str(system), str(closure))
+                self.assertEqual(mounts[0][:3], ('tmpfs', names.store, 'tmpfs'))
+                binds = [m for m in mounts if m[0] is not None and m[2] is None]
+                self.assertEqual([b[0] for b in binds], [str(system), str(script)])
+                for bind in binds:  # each bind remounted read-only, nosuid, nodev
+                    remount = mounts[mounts.index(bind) + 1]
+                    self.assertEqual((remount[0], remount[1]), (None, bind[1]))
+                    self.assertEqual(remount[3] & 0b111, supervisor.MS_RDONLY | supervisor.MS_NOSUID | supervisor.MS_NODEV)
+                self.assertEqual(os.readlink(names.store / link.name), '/nix/store/elsewhere')
+                self.assertEqual(mounts[-1][3] & supervisor.MS_RDONLY, supervisor.MS_RDONLY)  # the view itself read-only
+                closure.write_text(str(script) + '\n')  # the system missing from its own closure
+                with self.assertRaisesRegex(RuntimeError, 'closure'):
+                    supervisor.store_view(SimpleNamespace(store=Path(tmp, 'other')), str(system), str(closure))
 
     def test_job_chains_confine_each_veth(self):
         rules = supervisor.job_chains(range(1, 5), {'10.0.0.0/8', '192.168.0.0/16'})
@@ -339,12 +472,16 @@ class SupervisorTests(unittest.TestCase):
                     self.assertEqual((jit.read_text(), jit.stat().st_mode & 0o777), ('SECRET-JIT', 0o600))
                     (runtime / 'console.tail').write_bytes(console)
                     self.assertNotIn('SECRET-JIT', ' '.join(argv))
-                return SimpleNamespace(returncode=0)
+                return SimpleNamespace(returncode=0 if b'FINISHED' in console else 1)
             names = supervisor.job_names(1, 'tank/hound-ci')
             names.runtime = runtime
+            (root / 'store-paths').write_text(str(system) + '\n')
             args = SimpleNamespace(slot=1, repo='xmit-dev/ultimator', system=str(system), helper=HELPER, nspawn=NSPAWN,
-                                   dataset='tank/hound-ci', labels=['self-hosted', 'Linux', 'X64', 'hound-ci'])
+                                   dataset='tank/hound-ci', labels=['self-hosted', 'Linux', 'X64', 'hound-ci'],
+                                   store_paths=str(root / 'store-paths'))
+            # Finished; killed after preflight (OOM, timeout: the job's, not the slot's); never up.
             for console, fails in ((b'HOUND_CI_GUEST_PREFLIGHT_OK\nHOUND_CI_GUEST_JOB_FINISHED status=0\n', False),
+                                   (b'HOUND_CI_GUEST_PREFLIGHT_OK\n', False),
                                    (b'HOUND_CI_GUEST_PREFLIGHT_FAILED docker\n', True)):
                 calls.clear()
                 with self.subTest(fails=fails), patch.object(supervisor, 'STATE', root), \
@@ -359,6 +496,44 @@ class SupervisorTests(unittest.TestCase):
                     self.assertEqual(calls[-1], ['-X', 'DELETE', 'repos/xmit-dev/ultimator/actions/runners/77'])
                     self.assertFalse((runtime / 'jit').exists())
                     self.assertFalse((root / 'slot-1-registration.json').exists())
+
+    def test_worker_stops_a_leftover_job_before_deleting_and_survives_422(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            system = root / 'system'
+            system.mkdir()
+            (system / 'init').write_text('')
+            (root / 'store-paths').write_text(str(system) + '\n')
+            runtime = root / 'run'
+            runtime.mkdir()
+            # A controller restarted mid-job: its record names a runner GitHub still sees busy.
+            supervisor.save_record(root / 'slot-1-registration.json', {'repo': 'xmit-dev/ultimator', 'id': 55, 'name': 'hound-ci-1-old'})
+            events = []
+            busy = subprocess.CalledProcessError(1, ['gh'], stderr=b'HTTP 422')
+            def fake_gh(arguments):
+                events.append(('gh', ' '.join(arguments[:3])))
+                if 'generate-jitconfig' in ' '.join(arguments):
+                    return {'runner': {'id': 78}, 'encoded_jit_config': 'J'}
+                raise busy  # every DELETE: still busy
+            def fake_subprocess(argv, **kw):
+                events.append(tuple(argv[:2]))
+                if argv[0] == 'systemd-run':
+                    (runtime / 'console.tail').write_bytes(b'HOUND_CI_GUEST_PREFLIGHT_OK\n')  # killed mid-job
+                return SimpleNamespace(returncode=1)
+            names = supervisor.job_names(1, 'tank/hound-ci')
+            names.runtime = runtime
+            args = SimpleNamespace(slot=1, repo='xmit-dev/ultimator', system=str(system), helper=HELPER, nspawn=NSPAWN,
+                                   dataset='tank/hound-ci', labels=['self-hosted', 'Linux', 'X64', 'hound-ci'],
+                                   store_paths=str(root / 'store-paths'))
+            with patch.object(supervisor, 'STATE', root), patch.object(supervisor, 'job_names', return_value=names), \
+                    patch.object(supervisor, 'gh', side_effect=fake_gh), patch.object(supervisor, 'message'), \
+                    patch.object(supervisor.subprocess, 'run', side_effect=fake_subprocess), \
+                    patch.object(supervisor, 'job_unit_argv', return_value=['systemd-run']):
+                supervisor.worker(args)  # no exception: the slot carries on
+            stop = events.index(('systemctl', 'stop'))
+            first_delete = next(i for i, e in enumerate(events) if e == ('gh', '-X DELETE repos/xmit-dev/ultimator/actions/runners/55'))
+            self.assertLess(stop, first_delete)
+            self.assertEqual(sorted(p.name for p in root.glob('slot-1-*.json')), ['slot-1-stale-55.json', 'slot-1-stale-78.json'])
 
 
 if __name__ == '__main__':

@@ -352,32 +352,65 @@ def save_record(path, value):
         os.close(directory)
 
 
-def cleanup_record(path, repo):
+def set_aside(path, kind, suffix):
+    """Move a registration record aside (slot-N-<kind>-<suffix>.json), keeping it."""
+    aside = path.with_name(path.name.replace('-registration.json', f'-{kind}-{suffix}.json'))
+    path.replace(aside)
+    message(f'registration record set aside as {aside.name}')
+    return aside
+
+
+def cleanup_record(path, repo, aside=True):
+    """Delete the exact runner a record names. Never raises for an API failure:
+    GitHub answers 422 for a runner it still sees busy (a killed job, a restart
+    mid-job) and 5xx when it has trouble; the record then goes aside as
+    slot-N-stale-<id>.json (in place when aside=False), and later iterations
+    retry it (retry_stale), so the slot carries on with a fresh JIT name. True
+    once the runner is gone (deleted, or 404)."""
     if not path.exists():
-        return
-    record = json.loads(path.read_text())
-    if record['repo'] != repo or not record['name'].startswith('hound-ci-'):
-        raise RuntimeError('Registration recovery record invalid; inspect without replacing it')
-    runner_id = record['id']
-    if runner_id is None:
-        # Uncertain POST/crash before receiving an id: reconcile only the
-        # unique name durably recorded BEFORE that POST, never fuzzy prefixes.
-        batches = gh([f'repos/{repo}/actions/runners?per_page=100', '--paginate', '--slurp'])
-        matches = [r for batch in batches for r in batch['runners'] if r['name'] == record['name']]
-        if len(matches) > 1:
-            raise RuntimeError('Ambiguous exact-name recovery; manual inspection required')
-        if not matches:
-            path.unlink()
-            return
-        runner_id = matches[0]['id']
-    if type(runner_id) is not int or runner_id <= 0:
-        raise RuntimeError('Invalid exact runner id in recovery record')
+        return True
     try:
+        record = json.loads(path.read_text())
+        runner_id = record['id']
+        valid = (record['repo'] == repo and isinstance(record['name'], str) and record['name'].startswith('hound-ci-')
+                 and (runner_id is None or (type(runner_id) is int and runner_id > 0)))
+    except (ValueError, KeyError, TypeError):
+        valid = False
+    if not valid:
+        if aside:
+            set_aside(path, 'invalid', uuid.uuid4().hex[:12])
+        return False
+    try:
+        if runner_id is None:
+            # Uncertain POST/crash before receiving an id: reconcile only the
+            # unique name durably recorded BEFORE that POST, never fuzzy prefixes.
+            batches = gh([f'repos/{repo}/actions/runners?per_page=100', '--paginate', '--slurp'])
+            matches = [r for batch in batches for r in batch['runners'] if r['name'] == record['name']]
+            if len(matches) > 1:
+                raise LookupError('Ambiguous exact-name recovery')
+            if not matches:
+                path.unlink()
+                return True
+            runner_id = matches[0]['id']
         gh(['-X', 'DELETE', f"repos/{repo}/actions/runners/{runner_id}"])
     except subprocess.CalledProcessError as error:
         if b'HTTP 404' not in (error.stderr or b''):
-            raise
+            if aside:
+                set_aside(path, 'stale', runner_id if runner_id is not None else record['name'])
+            return False
+    except (LookupError, ValueError, KeyError, TypeError):
+        if aside:
+            set_aside(path, 'stale', record['name'])
+        return False
     path.unlink()
+    return True
+
+
+def retry_stale(slot, repo):
+    """Retry the runners earlier iterations couldn't delete; drop each record
+    once GitHub deletes it or no longer knows it (204/404)."""
+    for path in sorted(STATE.glob(f'slot-{slot}-stale-*.json')):
+        cleanup_record(path, repo, aside=False)
 
 
 # JIT runner labels: an exact allowlist. hound-ci-main marks slots that main's
@@ -419,6 +452,25 @@ JOB_NET = '10.231'
 CONSOLE_TAIL = 64 * 1024
 
 
+REAP_PREFIX = 'reap-job-'
+CANARY_SLOT = 5
+# The job unit's second network layer (cgroup BPF, beside the nft job chains):
+# no private, link-local, multicast or IPv6 destination but the container's own
+# loopback and its inner Docker networks (container.nix bip and address pool).
+JOB_IP_DENY = ('0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 '
+               '198.18.0.0/15 224.0.0.0/3 ::/0')
+# systemd-run takes prefixes only (no symbolic localhost).
+JOB_IP_ALLOW = '127.0.0.0/8 ::1/128 172.30.0.0/16 172.31.255.0/24'
+# systemd-nspawn's own device list (what machined gives containers), and
+# /dev/zfs for the unit's ExecStartPre/ExecStopPost dataset work: the container
+# has no node for it (nspawn's /dev; no mknod in its user namespace).
+JOB_DEVICES = ('/dev/null rwm', '/dev/zero rwm', '/dev/full rwm', '/dev/random rwm', '/dev/urandom rwm',
+               '/dev/tty rwm', '/dev/ptmx rwm', 'char-pts rw', '/dev/net/tun rwm', '/dev/fuse rwm', '/dev/zfs rw')
+# Pierre's condition for sharing hound's kernel (10-07): no io_uring in jobs.
+JOB_SYSCALL_DENY = '~io_uring_setup io_uring_enter io_uring_register'
+STORE_PATH = re.compile(r'/nix/store/[a-z0-9]{32}-[A-Za-z0-9+._?=-]+')
+
+
 def job_names(slot, dataset):
     """Everything one slot's job container is named: unit, dataset, paths, veth."""
     if not 1 <= slot <= 5:  # 1-4: the pool; 5: the canary
@@ -427,30 +479,37 @@ def job_names(slot, dataset):
         raise ValueError('Invalid CI dataset')
     root = STATE / f'job-{slot}'
     return SimpleNamespace(
-        unit=f'hound-ci-job-{slot}.service', machine=f'hci-job-{slot}', veth=f've-hci-job-{slot}',
+        slot=slot, unit=f'hound-ci-job-{slot}.service', machine=f'hci-job-{slot}', veth=f've-hci-job-{slot}',
         dataset=f'{dataset}/job-{slot}', mountpoint=root, root=root / 'root', console=root / 'console.log',
-        runtime=Path(f'/run/hound-ci-{slot}'), host=f'{JOB_NET}.{slot}.1', guest=f'{JOB_NET}.{slot}.2')
+        runtime=Path(f'/run/hound-ci-{slot}'), store=Path(f'/run/hound-ci-{slot}/store'), host=f'{JOB_NET}.{slot}.1', guest=f'{JOB_NET}.{slot}.2')
 
 
-def job_unit_argv(slot, dataset, system, helper, nspawn):
+def job_unit_argv(slot, dataset, system, helper, nspawn, store_paths):
     """systemd-run for one job container: a transient unit in hound-ci.slice with
     the slot's caps, bound to the slot's controller. PID 1 runs it as root: the
     controller asks; it never holds the capabilities nspawn and ZFS need."""
     names = job_names(slot, dataset)
     if not re.fullmatch(r'/nix/store/[a-z0-9]{32}-nixos-system-hound-ci-[^/]+', system):
         raise ValueError('Invalid container system')
+    if not re.fullmatch(r'/nix/store/[a-z0-9]{32}-closure-info/store-paths', store_paths):
+        raise ValueError('Invalid container closure list')
     common = ['--slot', str(slot), '--dataset', dataset]
-    properties = {
-        'Slice': 'hound-ci.slice', 'Delegate': 'yes', 'Type': 'notify', 'NotifyAccess': 'all',
-        'BindsTo': f'hound-ci-{slot}.service', 'After': f'hound-ci-{slot}.service',
-        'CPUQuota': '600%', 'CPUWeight': '20', 'IOWeight': '20', 'MemoryHigh': '17G', 'MemoryMax': '18G',
-        'TasksMax': '16384', 'KillMode': 'mixed', 'RuntimeMaxSec': '8h', 'TimeoutStartSec': '5min',
-        'TimeoutStopSec': '90s', 'StandardInput': 'null', 'StandardOutput': 'journal',
-        'StandardError': 'journal',
-        'ExecStartPre': ' '.join([helper, 'job-prepare', *common]),
-        'ExecStartPost': ' '.join([helper, 'job-network', *common]),
-        'ExecStopPost': ' '.join([helper, 'job-cleanup', *common]),
-    }
+    properties = [
+        ('Slice', 'hound-ci.slice'), ('Delegate', 'yes'), ('Type', 'notify'), ('NotifyAccess', 'main'),
+        ('BindsTo', f'hound-ci-{slot}.service'), ('After', f'hound-ci-{slot}.service'),
+        # Each Exec*= process gets its own private mount namespace: job-run
+        # mounts the dataset and the store view in nspawn's, never the host's.
+        ('PrivateMounts', 'yes'),
+        ('CPUQuota', '600%'), ('CPUWeight', '20'), ('IOWeight', '20'), ('MemoryHigh', '17G'), ('MemoryMax', '18G'),
+        ('TasksMax', '16384'), ('KillMode', 'mixed'), ('RuntimeMaxSec', '8h'), ('TimeoutStartSec', '5min'),
+        ('TimeoutStopSec', '90s'), ('StandardInput', 'null'), ('StandardOutput', 'journal'),
+        ('StandardError', 'journal'),
+        ('IPAddressDeny', JOB_IP_DENY), ('IPAddressAllow', JOB_IP_ALLOW),
+        ('DevicePolicy', 'closed'), *[('DeviceAllow', device) for device in JOB_DEVICES],
+        ('ExecStartPre', ' '.join([helper, 'job-prepare', *common])),
+        ('ExecStartPost', ' '.join([helper, 'job-network', *common])),
+        ('ExecStopPost', ' '.join([helper, 'job-cleanup', *common])),
+    ]
     container = [
         nspawn, '--quiet', '--keep-unit', '--register=no', '--notify-ready=yes',
         f'--directory={names.root}', f'--machine={names.machine}', f'--hostname=hound-ci-{slot}',
@@ -459,15 +518,17 @@ def job_unit_argv(slot, dataset, system, helper, nspawn):
         # A private network namespace whose only link is the host veth the
         # hound_ci nft table confines (no host, private or LAN destinations).
         '--network-veth',
-        # Jobs read the host store; they can't write it and get no Nix daemon socket.
-        '--bind-ro=/nix/store',
+        # Only the container system's own closure, read-only (job_prepare's
+        # view), never the host's whole store; no Nix daemon socket.
+        f'--bind-ro={names.store}:/nix/store',
+        f'--system-call-filter={JOB_SYSCALL_DENY}',
         f'--load-credential=jit:{names.runtime}/jit',
         '--kill-signal=SIGRTMIN+3', '--resolv-conf=off', '--timezone=off', '--link-journal=no',
         f'{system}/init',
     ]
     return ['systemd-run', '--quiet', '--wait', '--collect', f'--unit={names.unit}',
-            *[f'--property={key}={value}' for key, value in properties.items()],
-            helper, 'job-run', *common, '--', *container]
+            *[f'--property={key}={value}' for key, value in properties],
+            helper, 'job-run', *common, '--system', system, '--store-paths', store_paths, '--', *container]
 
 
 def own_unit_cgroup(text=None):
@@ -485,27 +546,111 @@ def own_unit_cgroup(text=None):
     return Path('/sys/fs/cgroup' + path)
 
 
+def zfs_exists(name):
+    return subprocess.run(['zfs', 'list', '-H', '-o', 'name', name],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def discard_dataset(names):
+    """Destroy the job's dataset; when the kernel still holds it (busy), rename
+    it aside for job_prepare to reap later, so the slot's next job never waits."""
+    if not zfs_exists(names.dataset):
+        return
+    if subprocess.run(['zfs', 'destroy', '-r', names.dataset]).returncode == 0:
+        return
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + uuid.uuid4().hex[:8]
+    aside = f'{names.dataset.rsplit("/", 1)[0]}/{REAP_PREFIX}{names.slot}-{stamp}'
+    run(['zfs', 'rename', names.dataset, aside])
+    message(f'slot={names.slot} job dataset busy; renamed aside to reap later')
+
+
+def reap(dataset):
+    """Best effort: destroy the job datasets earlier jobs renamed aside."""
+    listed = subprocess.run(['zfs', 'list', '-H', '-d', '1', '-o', 'name', dataset],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    for name in listed.stdout.split():
+        if name.startswith(f'{dataset}/{REAP_PREFIX}'):
+            subprocess.run(['zfs', 'destroy', '-r', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def require_job_chains(names):
+    """Fail closed: no container without the slot's nft job chains (hound_ci
+    table, made by hound-ci-firewall) in place."""
+    listed = run(['nft', 'list', 'table', 'inet', 'hound_ci'], stdout=subprocess.PIPE, text=True).stdout
+    veth = f'"{names.veth}"'
+    needed = (f'iifname {veth} ip saddr != {names.guest} counter',)
+    lines = listed.splitlines()
+    if (not all(any(n in line for line in lines) for n in needed)
+            or not any(veth in line and 'ip daddr' in line and 'reject' in line for line in lines)
+            or not any(veth in line and 'oifname' in line and 'drop' in line for line in lines)):
+        raise RuntimeError(f'No hound_ci job chains for {names.veth}; refusing to start the container')
+
+
+def mount(source, target, fstype, flags, data=None):
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    encode = lambda value: None if value is None else str(value).encode()
+    if libc.mount(encode(source), encode(target), encode(fstype), ctypes.c_ulong(flags), encode(data)) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(target))
+
+
+MS_RDONLY, MS_NOSUID, MS_NODEV, MS_REMOUNT, MS_BIND = 1, 2, 4, 32, 4096
+
+
+def store_view(names, system, store_paths):
+    """A read-only /nix/store for the container holding exactly its system's
+    closure (closureInfo's store-paths): a tmpfs of read-only binds, in this
+    unit's mount namespace only."""
+    paths = Path(store_paths).read_text().split()
+    if system not in paths or not all(STORE_PATH.fullmatch(path) for path in paths):
+        raise RuntimeError('Container closure list invalid')
+    names.store.mkdir(mode=0o700, exist_ok=True)
+    mount('tmpfs', names.store, 'tmpfs', MS_NOSUID | MS_NODEV, 'mode=0755,size=16m,nr_inodes=262144')
+    for path in paths:
+        target = names.store / Path(path).name
+        if os.path.islink(path):
+            os.symlink(os.readlink(path), target)
+            continue
+        if os.path.isdir(path):
+            target.mkdir()
+        else:
+            target.touch(mode=0o444)
+        mount(path, target, None, MS_BIND)
+        mount(None, target, None, MS_BIND | MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NODEV)
+    mount(None, names.store, None, MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NODEV, 'mode=0755')
+
+
 def job_prepare(args):
-    """ExecStartPre: a fresh, quota-bounded dataset for the job's root."""
+    """ExecStartPre: refuse without the slot's nft chains, free the slot's own
+    leftovers, then create a fresh, quota-bounded dataset for the job's root,
+    never mounted in the host's mount namespace (canmount=noauto): any namespace
+    copied from the host while it is mounted there (Nix keeps one per build
+    sandbox) would pin it, and its destroy would be busy."""
     names = job_names(args.slot, args.dataset)
-    if subprocess.run(['zfs', 'list', '-H', '-o', 'name', names.dataset], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-        run(['zfs', 'destroy', '-r', names.dataset])
+    require_job_chains(names)
+    discard_dataset(names)
+    reap(args.dataset)
     admission(128)
-    run(['zfs', 'create', '-o', 'quota=120G', '-o', f'mountpoint={names.mountpoint}', '-o', 'exec=on',
-         '-o', 'setuid=on', '-o', 'devices=off', names.dataset])
+    run(['zfs', 'create', '-o', 'canmount=noauto', '-o', 'quota=120G', '-o', f'mountpoint={names.mountpoint}',
+         '-o', 'exec=on', '-o', 'setuid=on', '-o', 'devices=off', names.dataset])
+
+
+def job_run(args):
+    """ExecStart, in the unit's private mount namespace (PrivateMounts=yes; each
+    Exec*= process gets its own, so the mounts happen here, in nspawn's): the
+    job's dataset, the closure-only store view, then nspawn with its console
+    (job-controlled) in a file on the quota-bounded dataset, not the journal."""
+    names = job_names(args.slot, args.dataset)
+    if not args.command or Path(args.command[0]).name != 'systemd-nspawn':
+        raise ValueError('job-run runs systemd-nspawn only')
+    run(['zfs', 'mount', names.dataset])
     names.mountpoint.chmod(0o700)
     names.root.mkdir(mode=0o755)
     # nspawn wants an OS tree: the NixOS init builds the rest at boot.
     (names.root / 'usr').mkdir(mode=0o755)
     names.console.touch(mode=0o600)
-
-
-def job_run(args):
-    """ExecStart: nspawn, its console (job-controlled) in a file on the job's
-    quota-bounded dataset rather than in the host journal."""
-    names = job_names(args.slot, args.dataset)
-    if not args.command or Path(args.command[0]).name != 'systemd-nspawn':
-        raise ValueError('job-run runs systemd-nspawn only')
+    store_view(names, args.system, args.store_paths)
     fd = os.open(names.console, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
     os.dup2(fd, 1)
     os.dup2(fd, 2)
@@ -571,6 +716,9 @@ def job_cleanup(args):
     """ExecStopPost: keep the console's tail for the controller, destroy the job."""
     names = job_names(args.slot, args.dataset)
     (names.runtime / 'jit').unlink(missing_ok=True)
+    # Its own private mount namespace: mount the dataset here to read the tail.
+    if zfs_exists(names.dataset):
+        subprocess.run(['zfs', 'mount', names.dataset], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         with names.console.open('rb') as console:
             console.seek(max(0, console.seek(0, os.SEEK_END) - CONSOLE_TAIL))
@@ -579,8 +727,7 @@ def job_cleanup(args):
         tail = b''
     if names.runtime.is_dir():
         save_bytes(names.runtime / 'console.tail', tail)
-    if subprocess.run(['zfs', 'list', '-H', '-o', 'name', names.dataset], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-        run(['zfs', 'destroy', '-r', names.dataset])
+    discard_dataset(names)
 
 
 def save_bytes(path, data):
@@ -591,16 +738,17 @@ def save_bytes(path, data):
 
 def worker(args):
     record = STATE / f'slot-{args.slot}-registration.json'
-    # Reconcile a prior exact id before requesting a new JIT.
-    cleanup_record(record, args.repo)
     names = job_names(args.slot, args.dataset)
-    # A job unit left from a crashed controller is stopped (its ExecStopPost
-    # destroys the job) before this slot starts another.
+    # A job unit left from a crashed controller is stopped first (its runner
+    # stops; its ExecStopPost destroys the job), then its runner is deleted.
     subprocess.run(['systemctl', 'stop', names.unit], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(['systemctl', 'reset-failed', names.unit], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if not Path(args.system, 'init').is_file():
+    # Reconcile a prior exact id before requesting a new JIT; what GitHub
+    # refuses now goes aside and is retried, never blocking the slot.
+    retry_stale(args.slot, args.repo)
+    cleanup_record(record, args.repo)
+    if not Path(args.system, 'init').is_file() or not Path(args.store_paths).is_file():
         raise RuntimeError('Container system closure missing')
-    admission(128)
     name = f'hound-ci-{args.slot}-{uuid.uuid4().hex[:12]}'
     registered = False
     jit_file = names.runtime / 'jit'
@@ -616,14 +764,18 @@ def worker(args):
         save_bytes(jit_file, registration['encoded_jit_config'].encode())
         del registration
         message(f'slot={args.slot} name={name} id={runner_id} repo={args.repo} container starting')
-        result = subprocess.run(job_unit_argv(args.slot, args.dataset, args.system, args.helper, args.nspawn),
+        result = subprocess.run(job_unit_argv(args.slot, args.dataset, args.system, args.helper, args.nspawn,
+                                              args.store_paths),
                                 stdin=subprocess.DEVNULL, timeout=8 * 3600 + 600)
         # Do not publish raw job-controlled console content in the host journal.
         console = tail.read_bytes() if tail.exists() else b''
         preflight = b'HOUND_CI_GUEST_PREFLIGHT_OK' in console
         completed = b'HOUND_CI_GUEST_JOB_FINISHED' in console
         message(f'slot={args.slot} container stopped; unit status={result.returncode}; preflight={preflight}; runner completed={completed}')
-        if not STOP_REQUESTED and not (preflight and completed):
+        # A container that can't come up is systematic: end and let systemd's
+        # rate limit hold the slot. A job killed after preflight (OOM, timeout,
+        # a stop) is the job's: the next iteration starts a fresh container.
+        if not STOP_REQUESTED and not preflight:
             raise RuntimeError('Container preflight/runner startup failed; restart rate-limited')
     finally:
         jit_file.unlink(missing_ok=True)
@@ -676,7 +828,7 @@ def firewall(args):
  meta skuid {{ {ids} }} ip daddr {{ {', '.join(sorted(v4))} }} counter reject
  meta skuid {{ {ids} }} ip6 daddr {{ {', '.join(sorted(v6))} }} counter reject
  }}
-{job_chains(range(1, args.count + 1), v4)} }}\n'''
+{job_chains(sorted({*range(1, args.count + 1), CANARY_SLOT}), v4)} }}\n'''
     run(['nft', '--check', '-f', '-'], input=rules.encode())
     run(['nft', '-f', '-'], input=rules.encode())
     # Fail closed against a KNOWN listening host socket, not a possibly closed
@@ -712,11 +864,13 @@ def main():
     slot.add_argument('--system', required=True, help='the container NixOS system closure')
     slot.add_argument('--helper', required=True, help='this program, for the job unit\'s Exec*= helpers')
     slot.add_argument('--nspawn', required=True); slot.add_argument('--dataset', required=True)
+    slot.add_argument('--store-paths', required=True, help='closureInfo store-paths of --system')
     slot.add_argument('--labels', nargs='+', default=list(DEFAULT_LABELS), metavar='LABEL',
                       help='JIT runner labels (allowlist: ' + ', '.join(RUNNER_LABELS) + '); last argument')
     for mode in ('job-prepare', 'job-run', 'job-network', 'job-cleanup'):
         job = sub.add_parser(mode); job.add_argument('--slot', type=int, required=True); job.add_argument('--dataset', required=True)
         if mode == 'job-run':
+            job.add_argument('--system', required=True); job.add_argument('--store-paths', required=True)
             job.add_argument('command', nargs=argparse.REMAINDER)
     acl = sub.add_parser('firewall'); acl.add_argument('--count', type=int, required=True)
     volume = sub.add_parser('storage'); volume.add_argument('--dataset', required=True)

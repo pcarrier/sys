@@ -37,6 +37,8 @@ let
   users = [ "hound-ci-image" ] ++ map (n: "hound-ci-${toString n}") slots;
   # The NixOS system every job boots; built from this flake's nixpkgs.
   container = (pkgs.nixos ./hound-ci/container.nix).config.system.build.toplevel;
+  # Its closure: the only store paths a job sees (supervisor.py store_view).
+  closure = pkgs.closureInfo { rootPaths = [ container ]; };
   supervisor = pkgs.writeShellApplication {
     name = "hound-ci";
     runtimeInputs = with pkgs; [
@@ -200,10 +202,11 @@ in
         lib.nameValuePair "hound-ci-${toString n}" {
           description = "Disposable GitHub CI container slot ${toString n}";
           wantedBy = [ "multi-user.target" ];
-          requires = [
-            "hound-ci-storage.service"
-            "hound-ci-firewall.service"
-          ];
+          # Wants, not Requires: a firewall restart must not restart the slots
+          # and kill their jobs. job-prepare refuses a container without the
+          # slot's nft chains, and the job unit's IPAddressDeny stays meanwhile.
+          requires = [ "hound-ci-storage.service" ];
+          wants = [ "hound-ci-firewall.service" ];
           after = [
             "hound-ci-storage.service"
             "hound-ci-firewall.service"
@@ -217,7 +220,7 @@ in
             Slice = "hound-ci.slice";
             # The controller only talks to GitHub and asks PID 1 for the job unit
             # (hound-ci-job-N.service), which holds the job's caps and runs nspawn.
-            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --system ${container} --helper ${supervisor}/bin/hound-ci --nspawn ${config.systemd.package}/bin/systemd-nspawn --dataset ${cfg.storageDataset}${labelArgs n}";
+            ExecStart = "${supervisor}/bin/hound-ci worker --slot ${toString n} --repo ${cfg.repository} --system ${container} --store-paths ${closure}/store-paths --helper ${supervisor}/bin/hound-ci --nspawn ${config.systemd.package}/bin/systemd-nspawn --dataset ${cfg.storageDataset}${labelArgs n}";
             LoadCredential = [ "gh-hosts:${cfg.ghCredentialFile}" ];
             RuntimeDirectory = "hound-ci-${toString n}";
             RuntimeDirectoryMode = "0700";

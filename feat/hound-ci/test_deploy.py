@@ -87,6 +87,16 @@ class DeployTests(unittest.TestCase):
             self.assertFalse(any(call[0] in ('stop', 'kill', 'start', 'daemon-reload') for call in host.calls))
             self.assertEqual(os.readlink(host.attached / 'hound-ci-1.service'), f'{host.old["hound-ci-1.service"]}/hound-ci-1.service')
 
+    def test_refuses_while_the_canary_controller_runs(self):
+        with tempfile.TemporaryDirectory() as root:
+            host = Host(root)
+            host.states['hound-ci-5.service'] = {'ActiveState': 'active', 'MainPID': '7', 'DropInPaths': ''}
+            found = self.run_with(host, deploy.problems)
+            self.assertTrue(any(line.startswith('hound-ci-5:') and 'canary' in line for line in found))
+            with self.assertRaises(SystemExit):
+                self.run_with(host, deploy.apply)
+            self.assertFalse(any(call[0] in ('restart', 'start', 'daemon-reload') for call in host.calls))
+
     def test_refuses_unknown_links_and_wrong_labels(self):
         with tempfile.TemporaryDirectory() as root:
             host = Host(root)
