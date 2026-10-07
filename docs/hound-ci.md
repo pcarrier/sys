@@ -988,3 +988,35 @@ the eight-hour lifetime, the worker raises, `cleanup_record` deletes the
 runner registration, the controller exits 1 and `Restart=always` starts it
 again after 10 s: one restart per eight hours, far below
 `StartLimitBurst=4` per hour. Only `NRestarts` and the journal show it.
+
+## Rollout record — October 6, 2026 (main slot)
+
+All times UTC; cleared HEAD 1c716ff, Pierre's "Yes: roll out now".
+Records: `/var/lib/hound-ci-rollout-records-20261006/main-slot-20261006/`
+(root 0600 logs and `SHA256SUMS`).
+
+- 16:13:29 root GC roots `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261006`
+  (the 9 cleared helper copies and 4 units, SHAs re-verified).
+- 16:17:38 `ROLLBACK_CAPTURED` (ledger `e2f30528…`, profile `0yjgryij…`).
+- 16:19:47 drain ARMED, `idle_risk=none`. All four hardware-drained by
+  16:59:19. Actions capture 17:09:46, CERTIFIED 17:11:20 (terminal jobs:
+  slot 1 cancelled, slot 2 failure, slots 3 and 4 cancelled; manifest
+  `05b555eb…`, terminal certificate `ec21248e…`).
+- 17:39:48 held lease `8a08e9f5…` (structure `f79cbf4e…`, manager 261.2
+  `448f82f2…`). Activation 17:44:18: root namespace, four roots, four links,
+  `reload-new-held`, `holds-remove-reload`, then slot 1 started 17:58:03
+  (PID 2039286). **HOLD** 17:58:04 at slot 2's pre-intent recheck: the
+  validator compared `/proc/PID/cgroup` to exactly `0::<unit cgroup>`, but
+  hound mounts a cgroup-v1 `net_cls` hierarchy (Mullvad's
+  `mullvad-exclusions`, waydroid's LXC) and every process also lists
+  `1:net_cls:/`. Fixed afterwards in `unified_cgroup()` (one `0::` line, v1
+  lines only at `/`), for later generations.
+- Parent-approved fallback: per slot, `anchor-proof.py` `ANCHOR_PROOF_OK`
+  then `systemctl --job-mode=fail start`: slot 2 18:15:39 (PID 2306247),
+  slot 3 18:22:16 (2394302), slot 4 18:34:00 (2567651). A first slot-4
+  run printed `ANCHOR_PROOF_OK` but was killed with its tool before any
+  start; the proof was rerun.
+- Runners 18:40: 603/607/601 `[self-hosted, Linux, X64, hound-ci,
+  hound-ci-main]`, 605 `[self-hosted, Linux, X64, hound-ci-main]`.
+- 21:23:23 lease released (`ba97423a…`). `activation.json` stays at
+  `start-anchor-complete` (12 events) and must never be resumed.

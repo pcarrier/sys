@@ -1830,6 +1830,28 @@ def process_cgroup(pid):
     return data.decode('ascii')
 
 
+V1_ROOT_LINE = re.compile(r'[1-9][0-9]*:[a-z_,=]+:/')
+
+
+def unified_cgroup(text):
+    """The cgroup-v2 path of a /proc/PID/cgroup text, or HOLD.
+
+    Exactly one unified line '0::PATH'. A host may also mount cgroup-v1
+    hierarchies (hound: net_cls, for Mullvad and waydroid's LXC); their lines
+    are allowed only at their root '/', where they place nothing.
+    """
+    require(isinstance(text, str) and text.endswith('\n'), 'Process cgroup text malformed')
+    unified = []
+    for line in text[:-1].split('\n'):
+        if line.startswith('0::'):
+            unified.append(line[3:])
+        else:
+            require(V1_ROOT_LINE.fullmatch(line) is not None,
+                    'Process is in a non-root cgroup-v1 hierarchy or the cgroup text is malformed')
+    require(len(unified) == 1 and unified[0].startswith('/'), 'Exactly one unified cgroup-v2 line required')
+    return unified[0]
+
+
 def expected_start_record(entry):
     slot = entry['slot']
     unit = f'hound-ci-{slot}.service'
@@ -1932,7 +1954,7 @@ def validate_tracked_slot(drain, entry, item, values, tracked, manifest):
             values.get('InvocationID') == tracked['invocation_id'] != entry['invocation_id'],
             'Tracked new controller live MainPID/InvocationID/cgroup drift')
     require(drain.starttime(tracked['pid']) == tracked['starttime'], 'Tracked new controller PID reused/replaced')
-    require(process_cgroup(tracked['pid']) == f'0::{tracked["control_group"]}\n',
+    require(unified_cgroup(process_cgroup(tracked['pid'])) == tracked['control_group'],
             'Tracked new controller is not in its exact unit cgroup')
     require(item.get('cgroup_removed') is True or item.get('cgroup_empty') is True,
             'Original cgroup drain proof missing for tracked slot')
