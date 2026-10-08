@@ -375,7 +375,17 @@ class SupervisorTests(unittest.TestCase):
         def fake(argv, **kw):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 1 if argv[:2] == ['zfs', 'destroy'] else 0)
+        real_names = supervisor.job_names
+
+        def sandboxed(slot, dataset):
+            # Never the live /run/hound-ci-N: job_cleanup removes the JIT file there (on hound, a running job's).
+            names = real_names(slot, dataset)
+            names.runtime = Path(tmp) / f'run-{slot}'
+            names.runtime.mkdir(exist_ok=True)
+            names.store = names.runtime / 'store'
+            return names
         with tempfile.TemporaryDirectory() as tmp, patch.object(supervisor, 'STATE', Path(tmp)), \
+                patch.object(supervisor, 'job_names', sandboxed), \
                 patch.object(supervisor.subprocess, 'run', side_effect=fake), patch.object(supervisor, 'message'):
             supervisor.job_cleanup(SimpleNamespace(slot=4, dataset='tank/hound-ci'))
         self.assertTrue(any(c[:3] == ['zfs', 'rename', 'tank/hound-ci/job-4'] and c[3].startswith('tank/hound-ci/reap-job-4-')

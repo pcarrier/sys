@@ -14,6 +14,7 @@ export PYTHONDONTWRITEBYTECODE=1
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_capture_rollback.py
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_generation.py
 "${PYTHON:-python3}" -I -B feat/hound-ci/test_deploy.py
+"${PYTHON:-python3}" -I -B feat/hound-ci/test_roll.py
 bash -n feat/hound-ci/guest.sh
 bash -n feat/hound-ci/provision.sh
 bash -n feat/hound-ci/cache-only.sh
@@ -37,7 +38,8 @@ nix build --no-link --print-out-paths \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-3.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-4.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci.slice".unit'
-# deploy-nspawn.py's pinned new units are exactly what this tree builds.
+# roll-slots.py's pinned slot units are exactly what this tree builds; deploy-nspawn.py's
+# firewall unit still is (the 10-08 swap's, unchanged since).
 nix build --no-link --print-out-paths \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-1.service".unit' \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-2.service".unit' \
@@ -46,8 +48,13 @@ nix build --no-link --print-out-paths \
   '.#nixosConfigurations.hound.config.systemd.units."hound-ci-firewall.service".unit' |
   "${PYTHON:-python3}" -I -B -c '
 import importlib.util, sys
-spec = importlib.util.spec_from_file_location("deploy", "feat/hound-ci/deploy-nspawn.py")
-deploy = importlib.util.module_from_spec(spec); spec.loader.exec_module(deploy)
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
+deploy = load("deploy", "feat/hound-ci/deploy-nspawn.py")
+roll = load("roll", "feat/hound-ci/roll-slots.py")
 built = sys.stdin.read().split()
-assert sorted(built) == sorted(deploy.NEW.values()), ("pinned NEW units differ from the build", built)
+expected = [*roll.ROLL.values(), deploy.NEW["hound-ci-firewall.service"]]
+assert sorted(built) == sorted(expected), ("pinned units differ from the build", built)
 print("PINNED_UNITS_OK")'

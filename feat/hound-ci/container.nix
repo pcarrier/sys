@@ -77,6 +77,12 @@ let
       pkgs.libsoup_3
     ];
     CHROME_BIN = "/usr/bin/google-chrome";
+    # nixpkgs' github-runner ships externals/node24 only (Node 20 is gone from nixpkgs).
+    # Node 20 JavaScript actions already run on it, but hashFiles() and the runner's other
+    # internal scripts ask for node20 unless told otherwise (10-08: setup-ci's
+    # `hashFiles('ultimator/flake.lock')` failed with "…/externals/node20/bin/node: No such file").
+    ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION = "node24";
+    ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION = "node24";
     HOUND_CI_CONTAINER = "nspawn-nixos";
   };
   runnerEnv = pkgs.writeText "hound-ci-runner.env" (
