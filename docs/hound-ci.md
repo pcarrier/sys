@@ -62,11 +62,14 @@ A DELETE GitHub refuses (422 for a runner it still sees busy after a killed job
 or a controller restart, 5xx) never ends the controller: the record moves to
 `/var/lib/hound-ci/slot-N-stale-<id>.json`, later iterations retry it (dropped
 on 204 or 404), and the slot carries on with a fresh JIT name. Only a container
-that never passes its preflight ends the controller (systemd's start limit, 4
-per hour, then holds the slot); a job killed after preflight (OOM, timeout) is
-the job's, and the next container starts. That was the 10-07 03:58 UTC outage:
+that never passes its preflight, or a failed JIT POST (GitHub down, rate
+limited), ends the controller; a job killed after preflight (OOM, timeout) is
+the job's, and the next container starts. The slots have no start limit
+(`StartLimitIntervalSec=0`): systemd restarts them with a backoff from 10 s up
+to 5 min (`RestartSteps=8`, `RestartMaxDelaySec=5min`), so a GitHub incident
+never leaves them at start-limit-hit. That was the 10-07 03:58 UTC outage:
 after `pkill -9 qemu`, every restart raised on the 422 and the slots hit their
-start limit.
+start limit (then 4 per hour).
 
 The slots `Want` (not `Require`) `hound-ci-firewall.service`: a firewall
 restart doesn't restart the slots and kill their jobs; `job-prepare` refuses a

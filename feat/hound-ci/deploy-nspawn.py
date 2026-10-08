@@ -38,11 +38,11 @@ OLD = {
 }
 # What this tree builds (check.sh verifies it).
 NEW = {
-    'hound-ci-1.service': '/nix/store/qii8vja72xfbc5c0xd31izy75hkq2knn-unit-hound-ci-1.service',
-    'hound-ci-2.service': '/nix/store/fp8w5sarz8kdkrw62v49ndbxr8131lzr-unit-hound-ci-2.service',
-    'hound-ci-3.service': '/nix/store/v0440dhsswyxydx7x3n00fx7kf23mzqz-unit-hound-ci-3.service',
-    'hound-ci-4.service': '/nix/store/85rr10lb7ww6b614nvrv2ajhxxdhs29x-unit-hound-ci-4.service',
-    'hound-ci-firewall.service': '/nix/store/zadnpln2l1prr3rx3vqj9d2d1pcahi7g-unit-hound-ci-firewall.service',
+    'hound-ci-1.service': '/nix/store/a0xq4bjxz1km827klsy82941rqp53i0l-unit-hound-ci-1.service',
+    'hound-ci-2.service': '/nix/store/k6hpvwqwgxvppcz4vi3bb0mlxwvfr0lv-unit-hound-ci-2.service',
+    'hound-ci-3.service': '/nix/store/2gxaxz943x9kaz51lkbaa48y68qw6jnj-unit-hound-ci-3.service',
+    'hound-ci-4.service': '/nix/store/d7fjpwpq14s6n91xxxy2yqh69f2slbr9-unit-hound-ci-4.service',
+    'hound-ci-firewall.service': '/nix/store/xmkjwblf03zb17v1iigdj6yzgia6s2kx-unit-hound-ci-firewall.service',
 }
 # Kept as they are (the slots still need storage; image/slice stay for rollback).
 KEPT = ('hound-ci-storage.service', 'hound-ci-image.service', 'hound-ci.slice')

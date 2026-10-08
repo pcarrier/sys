@@ -504,7 +504,8 @@ def job_unit_argv(slot, dataset, system, helper, nspawn, store_paths):
         ('TasksMax', '16384'), ('KillMode', 'mixed'), ('RuntimeMaxSec', '8h'), ('TimeoutStartSec', '5min'),
         ('TimeoutStopSec', '90s'), ('StandardInput', 'null'), ('StandardOutput', 'journal'),
         ('StandardError', 'journal'),
-        ('IPAddressDeny', JOB_IP_DENY), ('IPAddressAllow', JOB_IP_ALLOW),
+        # Its own veth address too (10.231.N.2, inside the 10/8 deny).
+        ('IPAddressDeny', JOB_IP_DENY), ('IPAddressAllow', f'{JOB_IP_ALLOW} {names.guest}/32'),
         ('DevicePolicy', 'closed'), *[('DeviceAllow', device) for device in JOB_DEVICES],
         ('ExecStartPre', ' '.join([helper, 'job-prepare', *common])),
         ('ExecStartPost', ' '.join([helper, 'job-network', *common])),

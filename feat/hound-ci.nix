@@ -213,8 +213,10 @@ in
             "network-online.target"
           ];
           unitConfig = {
-            StartLimitIntervalSec = "1h";
-            StartLimitBurst = 4;
+            # No start limit: a GitHub incident (JIT POST 5xx, rate limit) or a
+            # failing preflight must not leave the slots at start-limit-hit
+            # (10-07 03:58 UTC); restarts back off instead (RestartSteps).
+            StartLimitIntervalSec = 0;
           };
           serviceConfig = common // {
             Slice = "hound-ci.slice";
@@ -226,6 +228,8 @@ in
             RuntimeDirectoryMode = "0700";
             Restart = "always";
             RestartSec = "10s";
+            RestartSteps = 8;
+            RestartMaxDelaySec = "5min";
             CPUQuota = "100%";
             MemoryMax = "1G";
           };

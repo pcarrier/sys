@@ -311,7 +311,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn('10.0.0.0/8', props['IPAddressDeny'].split())
         self.assertIn('::/0', props['IPAddressDeny'].split())
         self.assertIn('192.168.0.0/16', props['IPAddressDeny'].split())
-        self.assertEqual(props['IPAddressAllow'].split(), ['127.0.0.0/8', '::1/128', '172.30.0.0/16', '172.31.255.0/24'])
+        self.assertEqual(props['IPAddressAllow'].split(), ['127.0.0.0/8', '::1/128', '172.30.0.0/16', '172.31.255.0/24', '10.231.3.2/32'])
         common = '--slot 3 --dataset tank/hound-ci'
         self.assertEqual(props['ExecStartPre'], f'{HELPER} job-prepare {common}')
         self.assertEqual(props['ExecStartPost'], f'{HELPER} job-network {common}')
