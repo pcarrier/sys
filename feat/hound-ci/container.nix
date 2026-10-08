@@ -78,13 +78,29 @@ let
     ];
     CHROME_BIN = "/usr/bin/google-chrome";
     # nixpkgs' github-runner ships externals/node24 only (Node 20 is gone from nixpkgs).
-    # Node 20 JavaScript actions already run on it, but hashFiles() and the runner's other
-    # internal scripts ask for node20 unless told otherwise (10-08: setup-ci's
-    # `hashFiles('ultimator/flake.lock')` failed with "…/externals/node20/bin/node: No such file").
-    ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION = "node24";
+    # Node 20 JavaScript actions run on it with this; the runner's internal scripts
+    # (hashFiles()) can't be moved off node20 by environment (runner below).
     ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION = "node24";
     HOUND_CI_CONTAINER = "nspawn-nixos";
   };
+  # Runner 2.337.0's internal Node (hashFiles() and other expression helpers) is
+  # NodeUtil.GetInternalNodeVersion(): BuiltInNodeVersions is { "node20" } only, so
+  # ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node24 is ignored and it always runs
+  # externals/node20/bin/node (10-08: setup-ci's `hashFiles('ultimator/flake.lock')`
+  # failed with "…/externals/node20/bin/node: No such file", with that variable set).
+  # A copy of the runner (5.8 MB: .NET resolves externals from the real path of its
+  # binaries, so a symlink tree wouldn't do) whose externals/node20 is Node 24.
+  runner = pkgs.runCommand "github-runner-${pkgs.github-runner.version}-node20-is-node24" { } ''
+    cp -a ${pkgs.github-runner} $out
+    chmod -R u+w $out
+    test -e $out/lib/externals/node24/bin/node
+    test ! -e $out/lib/externals/node20
+    ln -s node24 $out/lib/externals/node20
+    for f in $out/bin/* $out/lib/github-runner/*.sh; do
+      [ -L "$f" ] || substituteInPlace "$f" --replace-quiet ${pkgs.github-runner} $out
+    done
+    ! grep -rl ${pkgs.github-runner} $out/bin
+  '';
   runnerEnv = pkgs.writeText "hound-ci-runner.env" (
     lib.concatStrings (
       lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}\n") runnerVars
@@ -270,7 +286,7 @@ in
     serviceConfig = {
       Type = "exec";
       ImportCredential = "jit";
-      ExecStart = "${start}/bin/hound-ci-start ${pkgs.github-runner} ${runnerEnv} ${devEnv}";
+      ExecStart = "${start}/bin/hound-ci-start ${runner} ${runnerEnv} ${devEnv}";
       StandardOutput = "journal+console";
       StandardError = "journal+console";
       TimeoutStartSec = "infinity";

@@ -290,6 +290,11 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn('--jitconfig', start)
         self.assertNotIn('--no-sandbox', start.replace('(no\n# --no-sandbox)', ''))
         container = Path(__file__).with_name('container.nix').read_text()
+        # Runner 2.337.0's internal node (hashFiles) is node20 whatever the environment says:
+        # the job runs a runner copy whose externals/node20 is Node 24, never the bare package.
+        self.assertIn('ln -s node24 $out/lib/externals/node20', container)
+        self.assertIn('hound-ci-start ${runner} ', container)
+        self.assertNotIn('hound-ci-start ${pkgs.github-runner}', container)
         self.assertIn('nix.enable = false;', container)
         self.assertIn('boot.isContainer = true;', container)
 

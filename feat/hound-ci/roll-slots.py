@@ -26,25 +26,26 @@ from pathlib import Path
 import subprocess
 import sys
 
-GENERATION = 'roll-20261008'
+# One generation per roll: each writes its own write-once rollback ledger.
+GENERATION = 'roll-20261008-node20'
 STATE = Path('/var/lib/hound-ci/rollout-' + GENERATION)
 ATTACHED = Path('/etc/systemd/system.attached')
 GCROOTS = Path('/nix/var/nix/gcroots/hound-ci-rollout-sources-20261008')
 SLOTS = (1, 2, 3, 4)
 LABELS = {1: 'hound-ci hound-ci-main', 2: 'hound-ci hound-ci-main', 3: 'hound-ci hound-ci-main', 4: 'hound-ci-main'}
-# The live links after the 10-08 swap (deploy-nspawn.py's NEW).
+# The live links after roll-20261008 (5cba771, 13:16 UTC); its ledger keeps the swap's.
 LIVE = {
-    'hound-ci-1.service': '/nix/store/a0xq4bjxz1km827klsy82941rqp53i0l-unit-hound-ci-1.service',
-    'hound-ci-2.service': '/nix/store/k6hpvwqwgxvppcz4vi3bb0mlxwvfr0lv-unit-hound-ci-2.service',
-    'hound-ci-3.service': '/nix/store/2gxaxz943x9kaz51lkbaa48y68qw6jnj-unit-hound-ci-3.service',
-    'hound-ci-4.service': '/nix/store/d7fjpwpq14s6n91xxxy2yqh69f2slbr9-unit-hound-ci-4.service',
-}
-# What this tree builds (check.sh verifies it).
-ROLL = {
     'hound-ci-1.service': '/nix/store/ncsgsc911w3plkfh8bk55snxvlvqnlgp-unit-hound-ci-1.service',
     'hound-ci-2.service': '/nix/store/w5d9632fw53rwafcphhnnazhgf2jcrdj-unit-hound-ci-2.service',
     'hound-ci-3.service': '/nix/store/jwsbawnj76f82rzczd30y082w76qmwys-unit-hound-ci-3.service',
     'hound-ci-4.service': '/nix/store/6824lkqvv1qf2n1y1xh9xvf2vq91cxc9-unit-hound-ci-4.service',
+}
+# What this tree builds (check.sh verifies it).
+ROLL = {
+    'hound-ci-1.service': '/nix/store/i42y3n95l6y0k4pnwh5q6n7dsgv9ipl2-unit-hound-ci-1.service',
+    'hound-ci-2.service': '/nix/store/m9dlqf1i9kppq6483nqn3307mmcgcjcq-unit-hound-ci-2.service',
+    'hound-ci-3.service': '/nix/store/82hkvsqf1wxcx68236q3y5430f5yybmb-unit-hound-ci-3.service',
+    'hound-ci-4.service': '/nix/store/n08kqwm9n0a5mj24xpd58kgqbn5j1m7r-unit-hound-ci-4.service',
 }
 
 
