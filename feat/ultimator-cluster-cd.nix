@@ -24,6 +24,7 @@
 #     release that), or pcarrier's own ~/.ssh/id_ed25519 until it exists, with a warning.
 # Its output goes to /var/log/ultimator-cluster-release/<run>.log, which the job follows; the logs go after 30 days.
 # A release goes on to its end when the job stops early (a cancelled run, this runner restarting).
+# Forge's deploy executor (feat/forge-deploy.nix) starts the same unit as forge-<run>-<attempt>.
 #
 # The runner registers with /var/lib/secrets/github-runner-deploy.token: a registration token (org › Settings ›
 # Actions › Runners › New runner, or `gh api -X POST orgs/xmit-dev/actions/runners/registration-token --jq .token`;
@@ -139,7 +140,8 @@ in
       set -uo pipefail
       run=$1
       args=()
-      case "$run" in dry-*) args+=(--build-only) ;; esac
+      # dry-<run>-<attempt> from GitHub's runner, forge-dry-<run>-<attempt> from Forge's (feat/forge-deploy.nix).
+      case "$run" in dry-* | forge-dry-*) args+=(--build-only) ;; esac
       if [ -e ${state}/hold ]; then
         echo "::error::Cluster releases are held: $(head -c 2000 ${state}/hold | tr '\n' ' ')(${state}/hold on ${host}: remove it, then run the workflow again)"
         exit 1
