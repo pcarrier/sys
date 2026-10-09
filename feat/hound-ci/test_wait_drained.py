@@ -22,6 +22,12 @@ from unittest.mock import Mock, patch
 waiter = ModuleType('waiter')
 waiter.__file__ = str(Path(__file__).with_name('wait-drained.py'))
 exec(compile(Path(waiter.__file__).read_bytes(), waiter.__file__, 'exec'), waiter.__dict__)
+# Fixture clock: the first rollout's approval-relative layout (approval 11:56,
+# arming ~12:20), shifted to 10-06. The real constant (11:45, Pierre's 'Go
+# ahead' for the main slot) is pinned by test_generation_witness_constant.
+FIXTURE_WITNESS = '2026-10-06T11:56:00+00:00'
+REAL_WITNESS = waiter.WITNESS_SINCE
+waiter.WITNESS_SINCE = FIXTURE_WITNESS
 
 
 def source_meta(data, **changes):
@@ -61,7 +67,7 @@ def entry(slot=1):
 def manifest():
     return {
         'phase': 'armed-awaiting-job-completion', 'boot_id': BOOT,
-        'created_utc': '2026-10-05T12:20:00+00:00',
+        'created_utc': '2026-10-06T12:20:00+00:00',
         'witness_since': waiter.WITNESS_SINCE,
         'drain_nonce': '123456781234423482341234567890ab',
         'operator_source': '/nix/store/reviewed-operator.py', 'operator_sha256': 'a' * 64,
@@ -133,7 +139,7 @@ def receipt(e=None):
     e = e or entry()
     return {'slot': e['slot'], 'old_pid': e['pid'], 'starttime': e['starttime'],
             'repo': waiter.REPO, 'name': registration(e)['name'], 'route_blocked': True,
-            'utc': '2026-10-05T12:21:00+00:00'}
+            'utc': '2026-10-06T12:21:00+00:00'}
 
 
 class PureWitnessTests(unittest.TestCase):
@@ -153,7 +159,7 @@ class PureWitnessTests(unittest.TestCase):
             lambda m: m['controllers'][0].update(qemu_gid=True),
             lambda m: m.pop('witness_since'),
             lambda m: m.update(witness_since=m['created_utc']),
-            lambda m: m.update(created_utc='2026-10-05T11:55:00+00:00'),
+            lambda m: m.update(created_utc='2026-10-06T11:55:00+00:00'),
             lambda m: m['controllers'].pop(),
             lambda m: m['controllers'][3].update(slot=3),
             lambda m: m['controllers'][0].update(pid=m['controllers'][1]['pid']),
@@ -262,7 +268,7 @@ class PureWitnessTests(unittest.TestCase):
         for key, value in (('slot', 2), ('old_pid', 999), ('starttime', 'reused'),
                            ('repo', 'other/repo'), ('name', 'hound-ci-1-aaaaaaaaaaaa'),
                            ('route_blocked', False), ('route_blocked', 1),
-                           ('utc', '2026-10-05T11:55:00+00:00'), ('utc', '2026-10-05T12:21:00')):
+                           ('utc', '2026-10-06T11:55:00+00:00'), ('utc', '2026-10-06T12:21:00')):
             changed = {**receipt(), key: value}
             with self.subTest(key=key, value=value), self.assertRaises(RuntimeError):
                 waiter.registration_witness(entry(), registration(), changed)
@@ -298,7 +304,7 @@ class PureWitnessTests(unittest.TestCase):
         waiter.consume_journal(entry(), item, row)  # Real stop before 12:20 arming.
         waiter.consume_journal(entry(), item, manager_row())
         item['controller_exited'] = True
-        self.assertLess('2026-10-05T12:05:00+00:00', m['created_utc'])
+        self.assertLess('2026-10-06T12:05:00+00:00', m['created_utc'])
         self.assertTrue(waiter.evaluate(entry(), item, values(), False, registration(), receipt()))
         self.assertTrue(item['completed_vm'])
 
@@ -832,7 +838,7 @@ class EventLoopTests(unittest.TestCase):
         snapshots = []
         drain = SimpleNamespace(STATE=waiter.STATE, properties=Mock(side_effect=lambda slot: values(entry(slot), main=current(slot))),
                                 starttime=Mock(side_effect=lambda pid: str(pid + 900)), public_registration=Mock(return_value=None),
-                                save=Mock(side_effect=lambda value: snapshots.append(copy.deepcopy(value))), timestamp=lambda: '2026-10-05T12:40:00+00:00')
+                                save=Mock(side_effect=lambda value: snapshots.append(copy.deepcopy(value))), timestamp=lambda: '2026-10-06T12:40:00+00:00')
         return drain, snapshots
 
     def test_lost_wake_pidfd_and_subtree_terminal_before_mainpid_clears(self):
@@ -991,6 +997,14 @@ class EventLoopTests(unittest.TestCase):
                 waiter.wait_drained(drain, m)
         self.assertEqual(m['phase'], 'armed-awaiting-job-completion')
         self.assertEqual(calls, {slot: 2 for slot in waiter.SLOTS})
+
+
+class GenerationWitnessTests(unittest.TestCase):
+    def test_generation_witness_constant(self):
+        # Pierre's 'Go ahead' (11:45 UTC) bounds main-slot-20261006's witness;
+        # the fixtures run on FIXTURE_WITNESS instead.
+        self.assertEqual(REAL_WITNESS, '2026-10-06T11:45:00+00:00')
+        self.assertLess(REAL_WITNESS, FIXTURE_WITNESS)
 
 
 if __name__ == '__main__':

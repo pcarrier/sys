@@ -60,7 +60,7 @@ def blocked(args):
     return hostname == 'github.com' and normalized == ROUTE and (method or ('POST' if body else 'GET')) == 'POST'
 
 
-STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
+STATE = Path('/var/lib/hound-ci/rollout-main-slot-20261006')
 
 
 # The waiter rewrites manifest.json with full-boot VM histories (270 VMs by

@@ -49,10 +49,11 @@ def hash_bytes(data):
 
 
 def command(slot, new=False):
+    # Old: the loaded cache-v2 controller; new: the same plus --labels.
     result = ['/nix/store/' + ('new' if new else 'old') + '-hound-ci/bin/hound-ci',
               'worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator',
-              '--guest', '/nix/store/' + ('new' if new else 'old') + '-guest.sh']
-    return result + (['--image', 'base-cache-v2.qcow2'] if new else [])
+              '--guest', '/nix/store/cache-v2-guest.sh', '--image', 'base-cache-v2.qcow2']
+    return result + (['--labels', *act.LABELS[slot]] if new else [])
 
 
 def unit_data(slot, new=False):
@@ -162,7 +163,8 @@ class Fixture:
                          'controllers': [], 'drain_witness': {}}
         self.backup = {'schema': 2, 'host_profile': str(profile), 'host_profile_resolved': str(profile),
                        'old_image': {'path': str(act.OLD_IMAGE), 'sha256': act.OLD_SHA},
-                       'old_unit_links': [], str(act.GCROOTS): [], str(act.ENABLE): []}
+                       'old_unit_links': [], str(act.GCROOTS): [], str(act.ENABLE): [],
+                       'retained_root_directories': {}}
         self.manager = {f'hound-ci-{slot}.service': loaded(slot) for slot in act.UNITS}
         self.dependencies = {name: {'Id': name, 'LoadState': 'loaded', 'ActiveState': 'active',
                                     'Requires': '', 'Wants': '', 'Requisite': '', 'BindsTo': ''}
@@ -1436,6 +1438,128 @@ class ResumeTests(unittest.TestCase):
         self.fixture.activate(resume=True)  # still resumable afterwards
         self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
 
+
+    def hold_post_intent(self, label, when):
+        """HOLD in the post-intent recheck of `label` (before its operation) when when(activation)."""
+        real = act.Activation.recheck
+        def recheck(activation, phase):
+            if phase == label + '-post-intent' and when(activation):
+                raise RuntimeError('fixture post-intent HOLD at ' + label)
+            return real(activation, phase)
+        with patch.object(act.Activation, 'recheck', autospec=True, side_effect=recheck):
+            with self.assertRaisesRegex(RuntimeError, 'fixture post-intent HOLD'):
+                self.fixture.activate()
+
+    def completed_steps(self):
+        return [(e['operation'], e['details'].get('unit')) for e in self.fixture.receipt()['events']
+                if e['completion_utc']]
+
+    def test_resume_phase_is_released_only_once_the_holds_are_off(self):
+        for label, when, expected in (
+                ('unit-link-replace', lambda a: len(a.replaced) == 3, act.RESUME_PHASE),
+                ('holds-remove-reload', lambda a: True, act.RESUME_PHASE),
+                ('start-anchor', lambda a: not a.started, act.RESUME_RELEASED_PHASE),
+                ('start-anchor', lambda a: len(a.started) == 2, act.RESUME_RELEASED_PHASE)):
+            with self.subTest(label=label, expected=expected):
+                self.tearDown(); self.setUp()
+                self.hold_at(label, when)
+                self.fixture.validator.rechecks.clear()
+                self.fixture.activate(resume=True)
+                self.assertEqual(self.fixture.validator.rechecks[0], expected)
+                self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+
+    def test_post_intent_hold_is_recorded_aborted_and_resume_repeats_only_that_step(self):
+        self.hold_post_intent('unit-link-replace', lambda a: len(a.replaced) == 1)
+        receipt = self.fixture.receipt()
+        last = receipt['events'][-1]
+        self.assertEqual((last['operation'], last['details']['unit'], last['completion_utc']),
+                         ('unit-link-replace', 'hound-ci-2.service', None))
+        self.assertIn('fixture post-intent HOLD', last['aborted_reason'])
+        self.assertEqual(receipt['phase'], 'unit-link-replace' + act.ABORTED)
+        self.assertEqual(act.recorded_progress(receipt), act.activation_plan()[:4])
+        self.assertEqual(os.readlink(act.ATTACHED / 'hound-ci-2.service'), '/nix/store/old-unit-2/hound-ci-2.service')
+        self.assertEqual(self.fixture.commands, [])
+        self.fixture.activate(resume=True)
+        self.assertEqual(self.completed_steps(), act.activation_plan())
+        self.assertEqual(sum('aborted_utc' in e for e in self.fixture.receipt()['events']), 1)
+        self.assertEqual(self.fixture.receipt()['phase'], 'new-four-started-awaiting-runtime-proof')
+
+    def test_aborted_start_is_never_dispatched_and_resume_starts_it_once(self):
+        self.hold_post_intent('start-anchor', lambda a: len(a.started) == 2)
+        receipt = self.fixture.receipt()
+        self.assertEqual(receipt['phase'], 'start-anchor' + act.ABORTED)
+        self.assertEqual(receipt['slot_starts']['3']['stage'], 'start-intent')
+        self.assertEqual([argv[4] for argv in self.fixture.commands if is_start(argv)],
+                         ['hound-ci-1.service', 'hound-ci-2.service'])
+        # Aborted twice at the same step: still resumable.
+        real = act.Activation.recheck
+        def recheck(activation, phase):
+            if phase == 'start-anchor-post-intent':
+                raise RuntimeError('fixture post-intent HOLD again')
+            return real(activation, phase)
+        with patch.object(act.Activation, 'recheck', autospec=True, side_effect=recheck):
+            with self.assertRaisesRegex(RuntimeError, 'HOLD again'):
+                self.fixture.activate(resume=True)
+        self.assertEqual(sum('aborted_utc' in e for e in self.fixture.receipt()['events']), 2)
+        self.fixture.activate(resume=True)
+        self.assertEqual([argv[4] for argv in self.fixture.commands if is_start(argv)],
+                         [f'hound-ci-{slot}.service' for slot in (1, 2, 3, 4)])
+        self.assertEqual(self.completed_steps(), act.activation_plan())
+
+    def test_operation_failure_after_the_recheck_is_still_an_open_intent(self):
+        real = act.run
+        def run(argv, *args, **kwargs):
+            if is_start(argv) and argv[4] == 'hound-ci-2.service':
+                raise RuntimeError('fixture: start request failed')
+            return real(argv, *args, **kwargs)
+        with patch.object(act, 'run', side_effect=run), self.assertRaisesRegex(RuntimeError, 'start request failed'):
+            self.fixture.activate()
+        last = self.fixture.receipt()['events'][-1]
+        self.assertNotIn('aborted_utc', last)
+        self.assertEqual(self.fixture.receipt()['phase'], 'start-anchor-intent')
+        with self.assertRaisesRegex(RuntimeError, 'INTENT without completion'):
+            self.fixture.activate(resume=True)
+
+    def test_aborted_records_are_checked(self):
+        self.hold_post_intent('unit-link-replace', lambda a: len(a.replaced) == 1)
+        path = act.STATE / 'activation.json'
+        original = json.loads(path.read_text())
+        cases = (
+            ('aborted with completion', lambda v: v['events'][-1].update(completion_utc='2026-10-06T00:00:00+00:00'), 'aborted step malformed'),
+            ('aborted without reason', lambda v: v['events'][-1].pop('aborted_reason'), 'event malformed'),
+            ('aborted out of order', lambda v: v['events'][-1]['details'].update(unit='hound-ci-3.service'), 'not a prefix'),
+            ('phase not the aborted one', lambda v: v.update(phase='unit-link-replace-complete'), 'Recorded phase'),
+        )
+        for label, change, message in cases:
+            with self.subTest(case=label):
+                value = deepcopy(original)
+                change(value)
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.fixture.activate(resume=True)
+                self.assertEqual(self.fixture.commands, [])
+
+    def test_resume_requires_the_same_activation_and_effect_sources(self):
+        self.hold_at('unit-link-replace', lambda activation: len(activation.replaced) == 3)
+        sources = self.fixture.receipt()['program_sources']
+        self.assertEqual(sources, {'activation_source': str(Path(act.__file__)),
+                                   'activation_sha256': self.fixture.activation_sha,
+                                   'effect_source': str(self.fixture.effect_source),
+                                   'effect_sha256': self.fixture.effect_sha})
+        path = act.STATE / 'activation.json'
+        original = json.loads(path.read_text())
+        for key in sources:
+            with self.subTest(key=key):
+                value = deepcopy(original)
+                value['program_sources'][key] = '0' * 64
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                with self.assertRaisesRegex(RuntimeError, 'another certificate/image/validator'):
+                    self.fixture.activate(resume=True)
+                self.assertEqual(self.fixture.commands, [])
+        value = deepcopy(original); value.pop('program_sources')
+        path.write_text(json.dumps(value)); path.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'another certificate/image/validator'):
+            self.fixture.activate(resume=True)
 
 class TraversalContractTests(unittest.TestCase):
     """JOB_RELATIONS is tied to what effect-proof.py's closure() traverses."""

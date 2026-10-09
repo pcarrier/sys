@@ -1,12 +1,161 @@
-# Hound's disposable Ubuntu CI pool
+# Hound's disposable CI pool
 
 `feat/hound-ci.nix` is imported **only by hound**. It does not change the legacy
 `github-runner-hound.service`, crab/crab-win, indentbox, or the deployment runner.
 
+Since generation **nspawn-20261007** each job runs in a fresh **systemd-nspawn
+NixOS container** (Pierre, 10-06 21:02 UTC: "straight NixOS, no qemu"). The
+Ubuntu KVM VM design below ("VM generations") is kept for history and rollback:
+its units, `base-cache-v2.qcow2` and GC roots stay on hound.
+
+## Containers (generation nspawn-20261007)
+
+### One job
+
+1. The slot's controller (`hound-ci-N.service`, root, hardened, 1 GiB/1 CPU)
+   stops any leftover job unit, then reconciles previous registrations, POSTs `generate-jitconfig` (labels as
+   before: slots 1–3 `[self-hosted, Linux, X64, hound-ci, hound-ci-main]`, slot 4
+   `[self-hosted, Linux, X64, hound-ci-main]`), writes the single-use JIT config
+   to `/run/hound-ci-N/jit` (root 0600) and asks PID 1 for the transient job unit
+   `hound-ci-job-N.service` (`systemd-run --wait`). It keeps the gh credential
+   (`LoadCredential`); the container never sees it.
+2. The job unit (`Slice=hound-ci.slice`, `BindsTo=` the slot, `MemoryMax=18G`,
+   `MemoryHigh=17G`, `CPUQuota=600%`, `TasksMax=16384`, `RuntimeMaxSec=8h`,
+   `Delegate=yes`, `PrivateMounts=yes`, `DevicePolicy=closed` with nspawn's
+   device list plus `/dev/zfs` for its own dataset work, and a cgroup
+   `IPAddressDeny=` of private, link-local, multicast and IPv6 destinations
+   except loopback and the inner Docker networks, a second layer beside nft):
+   - `ExecStartPre` `job-prepare`: refuses unless the `hound_ci` table holds the
+     slot's job chains (fail closed), destroys the slot's leftovers, reaps
+     datasets set aside earlier, checks free space, then creates a fresh dataset
+     `tank/hound-ci/job-N` (quota 120G, `devices=off`, **`canmount=noauto`**).
+   - `ExecStart` `job-run`, in its own private mount namespace: mounts the
+     dataset (`/var/lib/hound-ci/job-N`, an empty root) and the **closure-only
+     store view** (below), then execs `systemd-nspawn --keep-unit --register=no
+     --private-users=pick --network-veth --bind-ro=/run/hound-ci-N/store:/nix/store
+     --system-call-filter='~io_uring_setup io_uring_enter io_uring_register'
+     --load-credential=jit:… <system>/init`; its console goes to
+     `job-N/console.log` on the job's dataset, never the host journal.
+   - `ExecStartPost` `job-network`: the container's sysfs (below), the veth
+     pair `ve-hci-job-N` 10.231.N.1/30 ↔ `host0` 10.231.N.2 with a default
+     route, then the JIT file is deleted (nspawn holds it as a credential).
+   - `ExecStopPost` `job-cleanup`: the console's last 64 KiB to
+     `/run/hound-ci-N/console.tail`, then `zfs destroy -r` of the job dataset;
+     if the kernel still holds it (busy), it is renamed aside
+     (`tank/hound-ci/reap-job-N-<UTC>-<id>`) for a later `job-prepare` to reap,
+     so the slot's next job never waits on it.
+
+   Job datasets are never mounted in hound's own mount namespace: a namespace
+   copied from it while one is mounted there (Nix keeps one per build sandbox)
+   pins that mount until the build ends, and `zfs destroy` says busy (10-07:
+   three times on the canary slot, once failing its next start).
+3. In the container (`feat/hound-ci/container.nix`, built from this flake's
+   nixpkgs), `hound-ci-job.service` waits for the route, runs the preflight
+   (Docker, Chrome **with** its sandbox, host/private addresses unreachable,
+   HTTPS to github.com) and then nixpkgs' `github-runner` (2.337.0)
+   `Runner.Listener run --jitconfig` as `runner`; when it ends the container
+   powers off. The controller reads the advisory markers
+   (`HOUND_CI_GUEST_PREFLIGHT_OK`, `HOUND_CI_GUEST_JOB_FINISHED`) from the tail,
+   DELETEs the runner by id and starts the next job.
+
+A DELETE GitHub refuses (422 for a runner it still sees busy after a killed job
+or a controller restart, 5xx) never ends the controller: the record moves to
+`/var/lib/hound-ci/slot-N-stale-<id>.json`, later iterations retry it (dropped
+on 204 or 404), and the slot carries on with a fresh JIT name. Only a container
+that never passes its preflight, or a failed JIT POST (GitHub down, rate
+limited), ends the controller; a job killed after preflight (OOM, timeout) is
+the job's, and the next container starts. The slots have no start limit
+(`StartLimitIntervalSec=0`): systemd restarts them with a backoff from 10 s up
+to 5 min (`RestartSteps=8`, `RestartMaxDelaySec=5min`), so a GitHub incident
+never leaves them at start-limit-hit. That was the 10-07 03:58 UTC outage:
+after `pkill -9 qemu`, every restart raised on the 422 and the slots hit their
+start limit (then 4 per hour).
+
+The slots `Want` (not `Require`) `hound-ci-firewall.service`: a firewall
+restart doesn't restart the slots and kill their jobs; `job-prepare` refuses a
+container while the slot's chains are missing, and the job units' cgroup
+`IPAddressDeny=` covers running jobs during the table's recreation. The
+firewall always makes chains for slots 1–4 and the canary slot 5.
+
+Failed gh calls are logged as `gh api failed: METHOD path exit=N http=S`
+(no body, fields or token): the VM controller's bare `CalledProcessError`
+couldn't say which call failed (slot 3, 10-06 19:44/19:45 UTC).
+
+### What jobs get
+
+NixOS, not Ubuntu: Docker 29 (the job's own `dockerd`, overlay2, crun),
+Google Chrome at `/usr/bin/google-chrome`, `/usr/bin/python3` with GTK/WebKit
+introspection, Xvfb, Node 26, rustup (jobs install their toolchain, which
+nixpkgs' rustup patches), the C toolchain, CMake, pkg-config, clang/libclang
+(`LIBCLANG_PATH`), OpenSSL, mkcert, D-Bus, Helm 4, gh, PowerShell, and nix-ld
+for downloaded binaries (setup-node's Node, sccache). `sudo` works (root in the
+container is unprivileged on hound). The app's CI is compatible with both
+images since xmit-dev/ultimator#381 (no APT on NixOS; Chrome found on PATH;
+the Flower cache key uses the container's system closure instead of dpkg).
+
+### Trust boundary (weaker than the VMs)
+
+A job is root in a container whose user namespace maps to an unprivileged,
+per-boot host UID range (`--private-users=pick`): no host UID, no host
+capability, no host file it can write. Its `/nix/store` holds **only the
+container system's closure** (851 paths at nspawn-20261007, from
+`closureInfo`'s `store-paths`): `job-run` builds a tmpfs of read-only,
+nosuid, nodev binds of exactly those paths in nspawn's private mount namespace,
+so hound's other store paths (flake sources of private repositories, other
+sessions' build outputs and `.drv` environments, units with credentials) are
+not visible. There is no Nix daemon socket, Docker socket, `/src`, credential or
+other host path in it. Its network namespace's only link is its veth; the `hound_ci` nft
+table rejects everything from `ve-hci-job-*` to the host itself (input), to
+private/CGNAT/link-local/LAN/other-slot addresses, IPv6 and spoofed sources
+(forward), and new connections into the container, and masquerades the rest.
+
+But it shares hound's **kernel**: a kernel bug reachable from an unprivileged
+user namespace (and jobs can create nested ones: Chrome's sandbox, Docker)
+reaches the host, which a KVM guest couldn't. nspawn's seccomp filter and
+capability set apply, and **io_uring is denied** (`io_uring_setup`, `_enter`,
+`_register` return EPERM in the container and everything under it); the kernel
+is the boundary. Pierre accepted the shared kernel on 10-07 on those two
+conditions: "Accept shared kernel, with the io_uring block and a store limited
+to the container's own packages". Treat hound-ci as running
+code from anyone who can open a PR on xmit-dev/ultimator, as before.
+
+The container also gets a read-only **sysfs of an empty, host-owned network
+namespace** at `/run/hound-ci-sysfs` (root 0700). Docker (crun, and the
+privileged `docker:dind` the failover test runs) mounts a fresh sysfs per
+container, which the kernel permits in a user namespace only if a fully
+visible sysfs is already mounted there, and nspawn's `/sys` is a tmpfs of
+read-only sysfs subdirectories. That mount shows the same global device and
+kernel information as nspawn's `/sys` and no host interfaces; container root
+could remount it read-write, but its files are owned by the host's root.
+
+### Deploying and rolling back
+
+`feat/hound-ci/deploy-nspawn.py` (root): `--check` (read-only), `--apply`,
+`--rollback`. Like earlier rollouts it changes attached unit links
+(`/etc/systemd/system.attached`), never the host profile: never
+`nixos-rebuild switch` hound for this (its live profile carries changes not on
+main). `--apply` refuses unless all four slots and the canary controller
+`hound-ci-5` are down (it never stops a slot, so it can't kill a job; the
+firewall restart would cost the canary its job), writes the rollback ledger once
+(`/var/lib/hound-ci/rollout-nspawn-20261007/rollback.json`), roots the new units,
+the container system and its closure list in `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261007`,
+replaces the firewall's and the slots' links (staged symlink + rename), runs one
+`daemon-reload`, restarts the firewall (it keeps the QEMU UID rules too) and
+starts the slots one by one. `--rollback` restores the ledger's links and
+reloads; stop the container slots first (between jobs), then start the VM
+slots. Every step is in `record.jsonl` next to the ledger.
+
+# VM generations (October 5–7, 2026)
+
 ## Intended operation
 
-- Four repository-bound slots for `xmit-dev/ultimator`, labels
-  `[self-hosted, Linux, X64, hound-ci]`.
+- Four repository-bound slots for `xmit-dev/ultimator`. With
+  `reservedMainSlots = 0` every slot registers the original
+  `[self-hosted, Linux, X64, hound-ci]` (no `--labels` argument). Hound sets
+  `reservedMainSlots = 1`: slot 4 registers only
+  `[self-hosted, Linux, X64, hound-ci-main]`, slots 1–3
+  `[self-hosted, Linux, X64, hound-ci, hound-ci-main]` (see "Reserved main
+  slot" below).
 - Each job gets a fresh Ubuntu **24.04 amd64 KVM VM**, six vCPUs, **16 GiB** RAM,
   and a **120 GiB sparse qcow2 disk**. Its dedicated `tank/hound-ci` dataset has
   hard quota/refquota **512 GiB**; admission requires 1 TiB shared-pool free and
@@ -796,3 +945,123 @@ is kept beside the log.
 live state no longer matches it (slot 4's link, the holds and the loaded units
 differ), so a resume HOLDs at its first recheck. The manual-completion log is
 the record of those steps.
+
+## Reserved main slot — generation main-slot-20261006 (planned, not executed)
+
+**Why.** GitHub hands queued jobs to JIT runners in no particular order, and
+pull-request jobs win, so jobs of pushes to `main` (the only ones that write
+the shared caches) wait behind every PR. xmit-dev/ultimator#316 makes push and
+manual runs on `main` ask for `[self-hosted, Linux, X64, hound-ci-main]` and
+everything else for `[self-hosted, Linux, X64, hound-ci]`. Slot 4 then serves
+only `main`; slots 1–3 serve both. #316 merges only after the four new units
+run (until then its main jobs would find no runner).
+
+**Code.** `supervisor.py worker --labels LABEL...` (last argument) validates
+the labels (non-empty, no duplicates, allowlist `self-hosted Linux X64
+hound-ci hound-ci-main`, must hold `self-hosted`, `Linux`, `X64` and at least
+one of `hound-ci`/`hound-ci-main`) before any work; without it the JIT request is
+byte-identical to before. `services.hound-ci.reservedMainSlots` (0–3, below
+`workers`) gives the last N slots the main-only labels; 0 leaves `ExecStart`
+without `--labels`. `check.sh` evaluates hound's units with 1, 0 and 2
+(`check_slot_labels.py`) and checks the rollout's pinned units against the
+build.
+
+**Units.** Only `ExecStart` differs from the loaded cache-v2 units
+(`pahfqs…`/`0rvyj9…`/`gq43yb…`/`rkmx5h…`): the new wrapper
+`gxbncrk0…-hound-ci` (supervisor `2s5sylgd…`), the same guest `sawmqyv0…` and
+image `base-cache-v2.qcow2` (`daf2ab77…`, unchanged), plus `--labels`. New
+units: `qaa4grx7…-unit-hound-ci-1.service`, `4wyv5r95…-2`, `lcxqsv1x…-3`,
+`77h7vxpx…-4`. The image, firewall and storage units also change in the tree
+but are not part of this rollout.
+
+**Tooling.** The October 5–6 helpers are retargeted to this generation:
+state `/var/lib/hound-ci/rollout-main-slot-20261006` (never the 20261005
+state, whose `activation.json` must not resume), witness from 11:45 UTC
+(Pierre's go-ahead), old controllers = the loaded cache-v2 ones (supervisor
+`snp22ndc…`, wrapper `grszl3cv…`, guest `sawmqyv0…`, `--image
+base-cache-v2.qcow2`), activation's new argv = old argv + `--labels`. New
+`capture-rollback.py` (root, write-once) writes the schema-2 ledger
+`/var/lib/hound-ci/rollout-main-slot-backup-20261006` that activation's
+`Backup` reads, including the exact inventory of the retained
+`gcroots/hound-ci/cache-v2-20261005` namespace, which activation now checks
+too. It pins hound's current profile (`0yjgryij…`, switched 12:39 UTC
+October 6, which added `wireguard-wg-ultimator`): if the profile moves again
+before the capture, re-pin it in a reviewed commit. `test_generation.py`
+keeps the helpers' constants consistent.
+
+**Resume and aborted steps.** `--resume` after `holds-remove-reload`
+rechecks under `resume-validated-released`, a hold-released phase of
+`finish-drain.py` (`RELEASE_PHASES`); with the holds still loaded it stays
+`resume-validated`. Each phase is refused by the real validator under the
+other hold state. A step whose post-intent recheck HOLDs, before its
+operation is dispatched, is recorded `aborted_utc`/`aborted_reason` (phase
+`<step>-aborted-before-operation`) and a resume repeats it; an aborted
+`start-anchor` leaves that slot's record at `start-intent`, which the
+validator accepts only while the slot is strictly stopped under its original
+invocation. A failure inside the operation is still an open intent (manual
+reconcile). The journal's `program_sources` (activation and effect-proof
+source and SHA) must match on resume.
+
+**Scheduling, not isolation (P2-4).** The reserved slot is a scheduling
+preference: `hound-ci-main` runners are ordinary JIT runners of the same
+repository, and any workflow of `xmit-dev/ultimator` that asks for
+`hound-ci-main` (including a PR that edits `ci.yml`) can be scheduled on
+slot 4. Every job still gets a fresh disposable VM; nothing about secrets,
+caches or the host boundary depends on the label.
+
+**Next rollout's drain (P2-3).** Once #316 is live, slot 4 is busy only while
+a main run is. `drain-old.py` arms only when all four runners are online and
+busy, and the drain certifies each slot from a completed job (Actions
+evidence). An idle slot 4 never becomes busy outside main runs, and a VM that
+ends at its eight-hour lifetime without a job leaves no job evidence. The
+following rollout therefore needs a reviewed idle-slot path (arm and certify
+a slot whose last VM ended without a job) before it can drain slot 4; don't
+force it by queueing work.
+
+**Plan** (each step needs Pierre's OK; review of #15 and this change first):
+
+1. `capture-rollback.py` → `ROLLBACK_CAPTURED`.
+2. `drain-old.py` arm (all four online and busy, else `NOT_READY`, exit 75),
+   `wait-drained.py`, `finish-drain.py` capture/certify.
+3. A new held lease (effect structure recomputed), then
+   `activate-cache-v2.py` (`--resume` after an interruption); by hand, the
+   per-slot `anchor-proof.py` then `systemctl --job-mode=fail start`.
+4. Merge #316.
+
+Until #316 merges, slot 4 holds an idle `hound-ci-main` runner. Its VM reaches
+the eight-hour lifetime, the worker raises, `cleanup_record` deletes the
+runner registration, the controller exits 1 and `Restart=always` starts it
+again after 10 s: one restart per eight hours, far below
+`StartLimitBurst=4` per hour. Only `NRestarts` and the journal show it.
+
+## Rollout record — October 6, 2026 (main slot)
+
+All times UTC; cleared HEAD 1c716ff, Pierre's "Yes: roll out now".
+Records: `/var/lib/hound-ci-rollout-records-20261006/main-slot-20261006/`
+(root 0600 logs and `SHA256SUMS`).
+
+- 16:13:29 root GC roots `/nix/var/nix/gcroots/hound-ci-rollout-sources-20261006`
+  (the 9 cleared helper copies and 4 units, SHAs re-verified).
+- 16:17:38 `ROLLBACK_CAPTURED` (ledger `e2f30528…`, profile `0yjgryij…`).
+- 16:19:47 drain ARMED, `idle_risk=none`. All four hardware-drained by
+  16:59:19. Actions capture 17:09:46, CERTIFIED 17:11:20 (terminal jobs:
+  slot 1 cancelled, slot 2 failure, slots 3 and 4 cancelled; manifest
+  `05b555eb…`, terminal certificate `ec21248e…`).
+- 17:39:48 held lease `8a08e9f5…` (structure `f79cbf4e…`, manager 261.2
+  `448f82f2…`). Activation 17:44:18: root namespace, four roots, four links,
+  `reload-new-held`, `holds-remove-reload`, then slot 1 started 17:58:03
+  (PID 2039286). **HOLD** 17:58:04 at slot 2's pre-intent recheck: the
+  validator compared `/proc/PID/cgroup` to exactly `0::<unit cgroup>`, but
+  hound mounts a cgroup-v1 `net_cls` hierarchy (Mullvad's
+  `mullvad-exclusions`, waydroid's LXC) and every process also lists
+  `1:net_cls:/`. Fixed afterwards in `unified_cgroup()` (one `0::` line, v1
+  lines only at `/`), for later generations.
+- Parent-approved fallback: per slot, `anchor-proof.py` `ANCHOR_PROOF_OK`
+  then `systemctl --job-mode=fail start`: slot 2 18:15:39 (PID 2306247),
+  slot 3 18:22:16 (2394302), slot 4 18:34:00 (2567651). A first slot-4
+  run printed `ANCHOR_PROOF_OK` but was killed with its tool before any
+  start; the proof was rerun.
+- Runners 18:40: 603/607/601 `[self-hosted, Linux, X64, hound-ci,
+  hound-ci-main]`, 605 `[self-hosted, Linux, X64, hound-ci-main]`.
+- 21:23:23 lease released (`ba97423a…`). `activation.json` stays at
+  `start-anchor-complete` (12 events) and must never be resumed.

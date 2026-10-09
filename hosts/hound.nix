@@ -15,7 +15,7 @@ lib.bare {
     {
       services.hound-ci = {
         enable = true;
-        imageName = "base-cache-v2.qcow2";
+        reservedMainSlots = 1;
       };
     }
     ../feat/libk.nix

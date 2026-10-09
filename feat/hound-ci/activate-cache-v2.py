@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """One-shot, ONLY-four activation. No repair, retry, rollback or profile switch.
 
+Generation main-slot-20261006: replaces the four cache-v2 units loaded since
+the 10-06 rollout with the reservedMainSlots = 1 units (same image
+base-cache-v2.qcow2; only the controller adds --labels: slots 1-3 hound-ci +
+hound-ci-main, slot 4 hound-ci-main only). OLD_IMAGE and CANDIDATE are the
+same immutable file: no image changes.
+
 Integration contract (fail CLOSED until finish-drain.py implements it):
 * ACTIVATION_TRANSITION_API="tracked-controller-identity-v1" must be explicitly
   exported by the pinned shared validator. drain.activation_new_controllers
@@ -30,16 +36,22 @@ Integration contract (fail CLOSED until finish-drain.py implements it):
   original cgroup removal, registration and terminal Actions-job evidence.
 * rollback-manifest.json schema=2 augments the existing public manifest with
   host_profile_resolved, old_unit_links entries {unit,path,target,uid,gid,
-  sha256,backup}, old_image {path,sha256}, and the two existing absolute-key
-  linklists (entries {path,target,uid,gid}). Unit copies must be root:root0600.
+  sha256,backup}, old_image {path,sha256}, the two existing absolute-key
+  linklists (entries {path,target,uid,gid}) and retained_root_directories
+  {name: linklist} (capture-rollback.py writes it for this generation).
+  Unit copies must be root:root0600.
   No summaries or booleans substitute for the validator's full certificate.
 
 A durable intent with no completion is an EXPLICIT HOLD for manual reconcile:
 the operation may or may not have happened. Never rerun this program to
 complete/undo an interrupted activation. --resume continues ONLY a recorded
 activation whose every event completed and which is a prefix of the reviewed
-plan (activation_plan), under a new held lease, after the same full recheck;
-it never undoes, repeats or skips a step. A start whose result was not
+plan (activation_plan), under a new held lease, after the same full recheck
+(phase resume-validated while the holds are loaded, resume-validated-released
+once holds-remove-reload completed), with the same activation/effect-proof
+sources (program_sources); it never undoes, repeats or skips a step. A step
+whose post-intent recheck HOLDed is recorded aborted-before-operation (nothing
+was dispatched) and a resume repeats it. A start whose result was not
 recorded, an open intent, or state the journal does not describe (e.g. steps
 done by hand) HOLDs.
 """
@@ -58,25 +70,28 @@ import stat
 import subprocess
 import sys
 
-STATE = Path('/var/lib/hound-ci/rollout-cache-v2-20261005')
-BACKUP = Path('/var/lib/hound-ci/rollout-cache-v2-backup-20261005')
+STATE = Path('/var/lib/hound-ci/rollout-main-slot-20261006')
+BACKUP = Path('/var/lib/hound-ci/rollout-main-slot-backup-20261006')
 ATTACHED = Path('/etc/systemd/system.attached')
 RUNTIME = Path('/run/systemd/system')
 GCROOTS = Path('/nix/var/nix/gcroots/hound-ci')
 ENABLE = ATTACHED / 'multi-user.target.wants'
-ROOT_NAME = 'cache-v2-20261005'
+ROOT_NAME = 'main-slot-20261006'
 CGROUPS = Path('/sys/fs/cgroup')
 CURRENT = Path('/run/current-system')
 CANDIDATE = Path('/var/lib/hound-ci/base-cache-v2.qcow2')
-OLD_IMAGE = Path('/var/lib/hound-ci/base.qcow2')
+OLD_IMAGE = Path('/var/lib/hound-ci/base-cache-v2.qcow2')
 CANDIDATE_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
-OLD_SHA = '0e856d33b2e9c08e54863b3916d7a3aef7fce69d513f7f163450e3a015d9056b'
+OLD_SHA = 'daf2ab773887c98d9b8ac107a6cfcce9db450364d55fa7645ee46a873805296b'
 UNITS = {
-    1: '/nix/store/pahfqs4j2ynghvh356qjxv5mwx48mk0n-unit-hound-ci-1.service',
-    2: '/nix/store/0rvyj9c7i52yy7yw7iabcah6v8g4pkfs-unit-hound-ci-2.service',
-    3: '/nix/store/gq43ybz4c5hwvww1w7jxplkbk62xhm64-unit-hound-ci-3.service',
-    4: '/nix/store/rkmx5h7g74pk8qg9li1hhz91adirmdby-unit-hound-ci-4.service',
+    1: '/nix/store/qaa4grx7b2gbhxbl0mgczk8k3iqmr3gn-unit-hound-ci-1.service',
+    2: '/nix/store/4wyv5r9548pzsyf1cw530zsrv52vpqbn-unit-hound-ci-2.service',
+    3: '/nix/store/lcxqsv1xiszm9lbpgix7gj0sfqcvs36r-unit-hound-ci-3.service',
+    4: '/nix/store/77h7vxpxb04hvyndhx9azqwiax1k0hzm-unit-hound-ci-4.service',
 }
+SHARED_LABELS = ['self-hosted', 'Linux', 'X64', 'hound-ci', 'hound-ci-main']
+LABELS = {1: SHARED_LABELS, 2: SHARED_LABELS, 3: SHARED_LABELS, 4: ['self-hosted', 'Linux', 'X64', 'hound-ci-main']}
+IMAGE_ARGS = ['--image', 'base-cache-v2.qcow2']
 DROPIN = '90-cache-rollout-drain.conf'
 HOLD = b'[Service]\nRestart=no\n'
 DEPENDENCIES = {'hound-ci-storage.service', 'hound-ci-firewall.service',
@@ -325,31 +340,55 @@ def activation_plan():
 
 
 RESUME_PHASE = 'resume-validated'
+# A resume after holds-remove-reload: the holds are already off, so the shared
+# validator must see a hold-released phase (finish-drain.RELEASE_PHASES).
+# Plain RESUME_PHASE stays for resumes whose holds are still loaded.
+RESUME_RELEASED_PHASE = 'resume-validated-released'
+RESUME_PHASES = {RESUME_PHASE, RESUME_RELEASED_PHASE}
+ABORTED = '-aborted-before-operation'
+
+
+class AbortedBeforeOperation(Exception):
+    """The post-intent recheck HOLDed BEFORE the operation was dispatched."""
 
 
 def recorded_progress(value):
     """The completed steps of a recorded activation, or HOLD.
 
     Every event must have completed (an open intent may or may not have taken
-    effect), the events must be exactly a prefix of activation_plan(), the
-    phase must be the last completion (or a resume preflight), and some step
-    must remain. The journal says nothing of steps done outside this program.
+    effect) or be recorded as aborted before its operation was dispatched
+    (the post-intent recheck HOLDed first: that step did not happen, and a
+    resume repeats it). The completed events must be exactly a prefix of
+    activation_plan(), each aborted event the step after the completed ones
+    before it, the phase the last event's (or a resume preflight's), and some
+    step must remain. The journal says nothing of steps done outside this
+    program.
     """
     require(isinstance(value, dict) and value.get('schema') == 2 and isinstance(value.get('events'), list),
             'Recorded activation journal schema unknown: manual reconcile')
-    plan, done = activation_plan(), []
+    plan, done, last = activation_plan(), [], None
     for event in value['events']:
-        require(isinstance(event, dict) and set(event) == {'operation', 'details', 'intent_utc', 'completion_utc'} and
+        keys = {'operation', 'details', 'intent_utc', 'completion_utc'}
+        require(isinstance(event, dict) and set(event) in (keys, keys | {'aborted_utc', 'aborted_reason'}) and
                 isinstance(event['details'], dict) and isinstance(event['intent_utc'], str),
                 'Recorded activation event malformed: manual reconcile')
+        step = (event['operation'], event['details'].get('unit'))
+        require(len(done) < len(plan) and step == plan[len(done)],
+                'Recorded events are not a prefix of the reviewed plan: manual reconcile')
+        if 'aborted_utc' in event:
+            require(event['completion_utc'] is None and isinstance(event['aborted_utc'], str) and
+                    isinstance(event['aborted_reason'], str),
+                    'Recorded aborted step malformed: manual reconcile')
+            last = event['operation'] + ABORTED
+            continue
         require(isinstance(event['completion_utc'], str),
                 'Recorded INTENT without completion (' + str(event['operation']) +
                 '): it may or may not have happened; manual reconcile, never resume')
-        done.append((event['operation'], event['details'].get('unit')))
-    require(done == plan[:len(done)], 'Recorded events are not a prefix of the reviewed plan: manual reconcile')
+        done.append(step)
+        last = event['operation'] + '-complete'
     require(len(done) < len(plan), 'Recorded activation dispatched all four starts: nothing to resume')
-    phases = {RESUME_PHASE, done[-1][0] + '-complete'} if done else {RESUME_PHASE, 'preflight', 'validated-all-four-stopped'}
-    require(value.get('phase') in phases, 'Recorded phase is not its last completed step: manual reconcile')
+    phases = RESUME_PHASES | ({last} if last else {'preflight', 'validated-all-four-stopped'})
+    require(value.get('phase') in phases, 'Recorded phase is not its last recorded step: manual reconcile')
     return done
 
 
@@ -382,7 +421,15 @@ class Journal:
         self.value['events'].append(event)
         self.value['phase'] = label + '-intent'
         self.save()
-        operation()  # Exceptions leave intent and all previously done changes.
+        try:
+            operation()  # Other exceptions leave intent and all previously done changes.
+        except AbortedBeforeOperation as aborted:
+            # Nothing was dispatched: record that durably, so --resume repeats
+            # this step instead of demanding a manual reconcile.
+            event.update(aborted_utc=timestamp(), aborted_reason=str(aborted.__cause__)[:1000])
+            self.value['phase'] = label + ABORTED
+            self.save()
+            raise aborted.__cause__
         for directory in directories:
             fsync_dir(directory)
         event['completion_utc'] = timestamp()
@@ -899,7 +946,12 @@ def validate_link(entry, expected_target=None):
             f'Original target/link ownership drift: {path}')
 
 
-def link_inventory(folder, entries, allowed_directory=None):
+def link_inventory(folder, entries, allowed_directory=None, retained=None):
+    """folder holds exactly entries' links, plus allowed_directory and retained.
+
+    retained maps a directory name to its own exact link inventory (an earlier
+    generation's root namespace that must stay as it was).
+    """
     require(isinstance(entries, list), 'Backup link inventory missing')
     names = set()
     for entry in entries:
@@ -912,6 +964,12 @@ def link_inventory(folder, entries, allowed_directory=None):
     if allowed_directory is not None and allowed_directory in current:
         trusted_directory(folder / allowed_directory)
         current.remove(allowed_directory)
+    for name, inner in (retained or {}).items():
+        require(name not in names and name != allowed_directory and name in current,
+                f'Retained root directory missing: {folder / name}')
+        trusted_directory(folder / name)
+        link_inventory(folder / name, inner)
+        current.remove(name)
     require(current == names, f'Original link inventory changed: {folder}')
 
 
@@ -943,6 +1001,12 @@ class Backup:
         require(manifest.get('old_image') == {'path': str(OLD_IMAGE), 'sha256': OLD_SHA},
                 'Original immutable golden image rollback pin missing')
         require(str(GCROOTS) in manifest and str(ENABLE) in manifest, 'Original roots/enablelinks missing')
+        retained = manifest.get('retained_root_directories')
+        require(isinstance(retained, dict) and ROOT_NAME not in retained and
+                all(re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', name) and isinstance(inner, list)
+                    for name, inner in retained.items()),
+                'Retained GC-root directory inventory missing/invalid')
+        self.retained = retained
 
     def profile(self):
         require(os.readlink(CURRENT) == self.value['host_profile'] and
@@ -958,7 +1022,7 @@ class Backup:
             require(store_file(entry['target']) == self.content[name] and
                     read_file(entry['backup'], mode=0o600) == self.content[name],
                     'Original rollback content no longer preserved')
-        link_inventory(GCROOTS, self.value[str(GCROOTS)], ROOT_NAME if roots_created else None)
+        link_inventory(GCROOTS, self.value[str(GCROOTS)], ROOT_NAME if roots_created else None, self.retained)
         link_inventory(ENABLE, self.value[str(ENABLE)])
 
 
@@ -1107,7 +1171,7 @@ class DrainView:
 
 
 class Activation:
-    def __init__(self, validator, drain, manifest, backup, images, effects, window):
+    def __init__(self, validator, drain, manifest, backup, images, effects, window, sources=None):
         self.validator, self.drain, self.manifest = validator, drain, manifest
         self.effects, self.window = effects, window
         self.started = {}
@@ -1129,11 +1193,12 @@ class Activation:
             new, new_rest = unit_command(data)
             old, old_rest = unit_command(backup.content[name])
             require(old_rest == new_rest, 'Only ExecStart may differ from original policy')
-            require(len(new) == 10 and new[1:] ==
-                    ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator',
-                     '--guest', new[7], '--image', 'base-cache-v2.qcow2'],
+            require(new[1:] == ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator',
+                                '--guest', new[7], *IMAGE_ARGS, '--labels', *LABELS[slot]],
                     'Unexpected exact new worker argv')
-            require(len(old) == 8 and old[1:7] == new[1:7], 'Unexpected exact original worker argv')
+            require(old[1:] == ['worker', '--slot', str(slot), '--repo', 'xmit-dev/ultimator',
+                                '--guest', old[7], *IMAGE_ARGS] and old[7] == new[7],
+                    'Unexpected exact original worker argv')
             for argv in (old, new):
                 store_file(argv[0])
                 store_file(argv[7])
@@ -1148,12 +1213,15 @@ class Activation:
                                 'terminal_certificate': strict_json(read_file(STATE / 'actions-terminal.json', mode=0o600, limit=JSON_LIMIT)),
                                 'control_window': window.value, 'control_window_sha256': window.expected_sha,
                                 'events': []})
+        # The reviewed activation/effect-proof bytes this run executes: a
+        # resume must run the same ones (adopt() compares them).
+        self.journal.value['program_sources'] = dict(sources or {})
 
     def adopt(self, recorded):
         """Take over a recorded activation's completed steps (recorded_progress)."""
         done = recorded_progress(recorded)
         for key in ('candidate_sha256', 'old_image_sha256', 'certificate_sha256', 'validator_source',
-                    'validator_sha256', 'manifest'):
+                    'validator_sha256', 'manifest', 'program_sources'):
             require(recorded.get(key) == self.journal.value[key],
                     'Recorded activation belongs to another certificate/image/validator: manual reconcile')
         starts = recorded.get('slot_starts', {})
@@ -1271,16 +1339,23 @@ class Activation:
         if prepare is not None:
             prepare(before, details['validation_sha256'])  # Saved WITH the intent.
         def checked_operation():
-            after = self.recheck(label + '-post-intent')
-            require(canonical(after) == canonical(before),
-                    'Post-durable-INTENT actual graph/state changed: explicit HOLD')
+            try:
+                after = self.recheck(label + '-post-intent')
+                require(canonical(after) == canonical(before),
+                        'Post-durable-INTENT actual graph/state changed: explicit HOLD')
+            except Exception as error:
+                # Only a HOLD of the recheck: the operation was NOT dispatched.
+                raise AbortedBeforeOperation(label) from error
             operation()
         self.journal.change(label, details, checked_operation, directories)
 
     def execute(self):
         # A resume rechecks the recorded partial state exactly as the next step
         # of a single run would, and changes nothing unless it holds.
-        phase = RESUME_PHASE if self.completed else 'validated-all-four-stopped'
+        if not self.completed:
+            phase = 'validated-all-four-stopped'
+        else:
+            phase = RESUME_PHASE if self.loaded_holds else RESUME_RELEASED_PHASE
         self.recheck(phase)
         self.journal.value['phase'] = phase
         self.journal.save()
@@ -1436,7 +1511,10 @@ def activate(validator_source, validator_sha, *, activation_sha, effect_source, 
                     'Reviewed primary-systemd proof source differs from explicit lease')
             for path, digest in ((CANDIDATE, CANDIDATE_SHA), (OLD_IMAGE, OLD_SHA)):
                 images.append(ImagePin(path, digest))
-            activation = Activation(validator, DrainView(operator), manifest, backup, images, effects, window)
+            sources = {'activation_source': str(Path(__file__)), 'activation_sha256': activation_sha,
+                       'effect_source': str(effect_source),
+                       'effect_sha256': effect_sha}
+            activation = Activation(validator, DrainView(operator), manifest, backup, images, effects, window, sources)
             if recorded is not None:
                 activation.adopt(recorded)
             activation.execute()
