@@ -635,8 +635,12 @@ def response_job(row, attempt=None):
 
 
 class WindowSplit(RuntimeError):
-    """A run window must be listed as two halves (cap reached or no convergence)."""
+    """A run window must be listed as two halves (cap reached or no convergence).
+
+    ids: every run ID the split window's passes listed before giving up.
+    """
     calls = 0
+    ids = frozenset()
 
 
 def split_window(window):
@@ -646,8 +650,14 @@ def split_window(window):
 
 
 def list_windows(api, plan):
-    """Deterministic depth-first listing of the plan's windows, splitting on demand."""
-    leaves, pending = [], list(plan['windows'])
+    """Deterministic depth-first listing of the plan's windows, splitting on demand.
+
+    Parent-ID check: a closed window loses no runs, so every run ID a split
+    window's passes listed must be listed again by exactly the leaf under it
+    that holds its created_at (run_entry checks the window bounds later). A
+    parent ID missing from its leaves is a disappearing run: HOLD.
+    """
+    leaves, pending, parents = [], list(plan['windows']), []
     while pending:
         window = pending.pop(0)
         route = window_route(*window)
@@ -656,10 +666,20 @@ def list_windows(api, plan):
         except WindowSplit as split:
             halves = split_window(window)
             api.pages.append({'route': route, 'key': 'workflow_runs_split', 'calls': split.calls})
+            parents.append((window, frozenset(split.ids)))
             pending[:0] = list(halves)
             continue
         leaves.append((window, rows))
         require(len(leaves) <= MAX_LEAF_WINDOWS, 'Run window leaf bound exceeded')
+    listed = {}
+    for window, rows in leaves:
+        for row in rows:
+            if isinstance(row, dict) and type(row.get('id')) is int:
+                listed.setdefault(row['id'], []).append(window)
+    for window, ids in parents:
+        for run_id in ids:
+            under = [leaf for leaf in listed.get(run_id, ()) if window[0] <= leaf[0] and leaf[1] <= window[1]]
+            require(len(under) == 1, f'Run {run_id} listed in split window {list(window)} is missing from its halves; HOLD')
     return leaves
 
 
@@ -709,7 +729,9 @@ class GitHub:
                 total = row['total_count']
                 if total >= SEARCH_CAP:
                     # 1000 may be GitHub's truncation, never a complete count.
-                    raise WindowSplit('Run window reaches the filtered-listing cap')
+                    split = WindowSplit('Run window reaches the filtered-listing cap')
+                    split.ids = frozenset(ids)
+                    raise split
             for item in row[key]:
                 require(isinstance(item, dict), 'Paged record malformed')
                 identity = integer(item.get('id'), 'Paged response ID')
@@ -747,10 +769,15 @@ class GitHub:
             raise
 
     def _window(self, route):
-        passes, previous = [], None
+        passes, previous, seen = [], None, set()
         for _ in range(MAX_PASSES):
-            rows, total, pages = self.scan(route, 'workflow_runs', strict=False)
+            try:
+                rows, total, pages = self.scan(route, 'workflow_runs', strict=False)
+            except WindowSplit as split:
+                split.ids = frozenset(seen | split.ids)
+                raise
             ids = {row['id'] for row in rows}
+            seen |= ids
             passes.append(pages)
             if previous is not None:
                 require(previous[0] <= ids and total >= previous[1],
@@ -760,7 +787,9 @@ class GitHub:
                                        'pages': pages, 'passes': passes})
                     return rows
             previous = (ids, total)
-        raise WindowSplit('Run window did not converge within bounded passes')
+        split = WindowSplit('Run window did not converge within bounded passes')
+        split.ids = frozenset(seen)
+        raise split
 
 
 
@@ -927,12 +956,16 @@ def collect(manifest, api):
 REHEARSAL_KIND = 'pinned-collector-rehearsal'
 REHEARSAL_RESULT = 'pinned-collector-rehearsal-result'
 FAILED_CAPTURES = 8
+# A real capture's earliest adopted VM START can be as old as the legacy 8 h VM
+# lifetime before the drain: rehearse that worst case, not the last hour.
+REHEARSAL_EARLIEST_SECONDS = 8 * 3600
 
 
 def rehearsal_request(now):
-    """Root-built input: a closed horizon ending a minute ago, earliest START an hour ago."""
+    """Root-built input: a closed horizon ending a minute ago, earliest START 8 h before it."""
     until = int(now) - 60
-    return {'schema': 1, 'kind': REHEARSAL_KIND, 'until': until, 'earliest_us': (until - 3600) * 1000000,
+    return {'schema': 1, 'kind': REHEARSAL_KIND, 'until': until,
+            'earliest_us': (until - REHEARSAL_EARLIEST_SECONDS) * 1000000,
             'validator_source': str(Path(__file__)), 'gh_sha256': digest(read_root_bytes(GH_ELF, 64 * 1024 * 1024))}
 
 
@@ -1019,7 +1052,8 @@ def rehearse():
     require(not os.path.lexists(GH_CONFIG_DIR), 'Pinned gh copy survived the rehearsal; HOLD')
     print('HOUND_CI_ACTIONS_REHEARSED ' + ' '.join(f'{key}={result[key]}' for key in (
         'windows', 'leaves', 'splits', 'runs', 'scanned_runs', 'scanned_attempts', 'request_count',
-        'elapsed_ms', 'max_calls', 'capture_timeout_seconds')) + f' child_exit={actual["child_exit"]} gh_copy_removed=1', flush=True)
+        'elapsed_ms', 'max_calls', 'capture_timeout_seconds')) + f' child_exit={actual["child_exit"]} gh_copy_removed=1'
+        f' source={source} source_sha256={sha}', flush=True)
     return result
 
 
@@ -1369,8 +1403,25 @@ class CaptureSignal(BaseException):
     """A termination signal during capture: unwinds through every finally."""
 
 
-def raise_capture_signal(number, frame):
-    raise CaptureSignal(f'Capture interrupted by signal {number}; UNKNOWN/HOLD')
+class CaptureSignalGate:
+    """The capture's termination-signal handler: raises at most ONCE, only while armed.
+
+    A raise inside run_producer's finally would skip the cleanup. The handler
+    disarms itself before raising, and the finally's FIRST statement disarms
+    it (a plain attribute store: CPython runs Python signal handlers only at
+    eval-breaker points such as calls and backward jumps, none before it).
+    Once disarmed, a signal is only recorded (late) and redelivered to the
+    original handler after cleanup, never raised into it.
+    """
+    def __init__(self):
+        self.armed, self.late = True, None
+
+    def __call__(self, number, frame):
+        if not self.armed:
+            self.late = number
+            return
+        self.armed = False
+        raise CaptureSignal(f'Capture interrupted by signal {number}; UNKNOWN/HOLD')
 
 
 CAPTURE_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT)
@@ -1560,7 +1611,13 @@ def run_producer(manifest, data):
     # token copy is removed on success, error, timeout AND signal. SIGKILL or
     # power loss leaves it on tmpfs (cleared at boot); the next capture then
     # HOLDs with stale_gh_config()'s one-line remediation.
-    handlers = {number: signal.signal(number, raise_capture_signal) for number in CAPTURE_SIGNALS}
+    # The mask to restore is read BEFORE the try: a CaptureSignal raised right
+    # after an inner SIG_BLOCK returns (before its own try/finally) would make
+    # a mask read inside the finally the BLOCKED one, leaving termination
+    # signals blocked after this capture.
+    entry_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    gate = CaptureSignalGate()
+    handlers = {number: signal.signal(number, gate) for number in CAPTURE_SIGNALS}
     try:
         install_gh_config(ownership)
         argv = producer_argv(manifest, ready_write, ack_read)
@@ -1586,10 +1643,11 @@ def run_producer(manifest, data):
         return output, {'child_pid': child.pid, 'child_exit': code, 'boundary': boundary,
                         'ready_fd': argv[-2], 'ack_fd': argv[-1], 'argv_sha256': digest(canonical(argv))}
     finally:
+        gate.armed = False  # FIRST: from here no handler raises (CaptureSignalGate).
         # Cleanup runs with termination signals BLOCKED (a second signal can't
         # interrupt the kill/reap/removal); any pending one is delivered only
         # after the original handlers are back, i.e. after cleanup finished.
-        cleanup_mask = signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
+        signal.pthread_sigmask(signal.SIG_BLOCK, CAPTURE_SIGNALS)
         try:
             try:
                 if child is not None:
@@ -1612,7 +1670,9 @@ def run_producer(manifest, data):
         finally:
             for number, handler in handlers.items():
                 signal.signal(number, handler)
-            signal.pthread_sigmask(signal.SIG_SETMASK, cleanup_mask)
+            signal.pthread_sigmask(signal.SIG_SETMASK, entry_mask)
+            if gate.late is not None:
+                signal.raise_signal(gate.late)  # to the ORIGINAL handler, after cleanup
 
 
 def capture():

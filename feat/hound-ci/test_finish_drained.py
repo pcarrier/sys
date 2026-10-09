@@ -209,6 +209,7 @@ class FakeAPI:
             if splits:
                 self.calls += calls
                 split = finish.WindowSplit('fake split'); split.calls = calls
+                split.ids = frozenset(run['id'] for run in result)  # what its passes listed
                 raise split
         self.calls += 2
         self.pages.append({'route': route, 'key': 'workflow_runs', 'total_count': len(result),
@@ -2006,6 +2007,28 @@ class RunEnumerationTests(unittest.TestCase):
             finish.list_windows(api, {'windows': [(finish.micros('2026-10-01T00:00:00+00:00') // 1000000,) * 1 +
                                                   (finish.micros('2026-10-01T05:59:59+00:00') // 1000000,)]})
 
+    def test_split_parent_ids_must_reappear_in_exactly_one_half(self):
+        day = finish.micros('2026-10-01T00:00:00+00:00') // 1000000
+        api = FakeAPI(); api.split_over = 1
+        api.runs = [run_row(run_id=i, created=f'2026-10-01T0{i}:00:00Z') for i in (1, 4)]
+        leaves = finish.list_windows(api, {'windows': [(day, day + 21599)]})
+        self.assertEqual(sorted(run['id'] for _, rows in leaves for run in rows), [1, 4])
+        self.assertEqual([p['key'] for p in api.pages][0], 'workflow_runs_split')
+        class Vanishing(FakeAPI):
+            # The parent listed run 4 before the cap split; neither half lists
+            # it again: a run disappeared from a closed window.
+            def window(self, route):
+                if len(self.windows) == 0:
+                    self.windows.append(route)
+                    split = finish.WindowSplit('cap'); split.calls = 1
+                    split.ids = frozenset({1, 4}); raise split
+                return super().window(route)
+        api = Vanishing(); api.runs = [run_row(run_id=1, created='2026-10-01T01:00:00Z')]
+        with self.assertRaisesRegex(RuntimeError, r'Run 4 listed in split window .* missing from its halves'):
+            finish.list_windows(api, {'windows': [(day, day + 21599)]})
+        api = Vanishing(); api.runs = [run_row(run_id=i, created=f'2026-10-01T0{i}:00:00Z') for i in (1, 4)]
+        self.assertEqual(len(finish.list_windows(api, {'windows': [(day, day + 21599)]})), 2)
+
     def test_GitHub_window_raises_split_with_spent_calls_but_anomalies_HOLD(self):
         route = finish.window_route(1791201600, 1791223199)
         def page(*ids, total=None):
@@ -2019,6 +2042,15 @@ class RunEnumerationTests(unittest.TestCase):
             with self.subTest(rows=rows), self.assertRaises(finish.WindowSplit) as raised:
                 api.window(route)
             self.assertEqual((raised.exception.calls, api.calls, api.pages), (calls, calls, []))
+            # Every ID the passes listed before the split, for the parent-ID check.
+            self.assertEqual(raised.exception.ids, {1: set(), 3: {1, 2, 3}, 2: {1, 2}}[calls])
+        # The cap reached on page 2 of the FIRST pass keeps page 1's IDs.
+        rows = [{'total_count': 150, 'workflow_runs': [{'id': i} for i in range(250, 150, -1)]},
+                {'total_count': 1000, 'workflow_runs': []}]
+        api = self.api(rows)
+        with self.assertRaises(finish.WindowSplit) as raised:
+            api.window(route)
+        self.assertEqual(raised.exception.ids, set(range(151, 251)))
         for rows in ([page(1, 2), page(1)], [page(1, 2), page(1, 2, total=1)]):
             api = self.api(rows)
             with self.subTest(rows=rows), self.assertRaises(RuntimeError) as raised:
@@ -2213,6 +2245,67 @@ class PinnedGhConfigTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual(finish.signal.pthread_sigmask(finish.signal.SIG_BLOCK, []), set())
 
+    def test_signal_gate_raises_once_and_only_while_armed(self):
+        gate = finish.CaptureSignalGate()
+        with self.assertRaises(finish.CaptureSignal):
+            gate(finish.signal.SIGTERM, None)
+        gate(finish.signal.SIGINT, None)  # a second signal never raises into the unwinding
+        self.assertEqual((gate.armed, gate.late), (False, finish.signal.SIGINT))
+        gate = finish.CaptureSignalGate()
+        gate.armed = False  # run_producer's finally disarms it first
+        gate(finish.signal.SIGHUP, None)
+        self.assertEqual(gate.late, finish.signal.SIGHUP)
+
+    def test_signal_reaching_the_gate_during_cleanup_is_redelivered_after_it(self):
+        # The capture's own handler is still installed during cleanup; a signal
+        # it receives there (before the mask takes effect) must neither raise
+        # into the finally nor be lost: it reaches the ORIGINAL handler after.
+        order = []
+        def kill():
+            order.append('kill')
+            finish.signal.getsignal(finish.signal.SIGTERM)(finish.signal.SIGTERM, None)
+        child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(),
+                                kill=Mock(side_effect=kill), wait=Mock(side_effect=lambda: order.append('reap')))
+        previous = finish.signal.signal(finish.signal.SIGTERM, lambda number, frame: order.append('late-signal'))
+        try:
+            with ExitStack() as stack:
+                target = stack.enter_context(fake_gh_config(order))
+                self.producer_patches(stack, child)
+                stack.enter_context(patch.object(finish, 'pump_child', side_effect=RuntimeError('Collector capture timeout; UNKNOWN/HOLD')))
+                with self.assertRaisesRegex(RuntimeError, 'capture timeout'):
+                    finish.run_producer(manifest(), b'{}\n')
+        finally:
+            finish.signal.signal(finish.signal.SIGTERM, previous)
+        self.assertEqual(order, ['install', 'kill', 'reap', ('check', True), 'remove', 'late-signal'])
+        self.assertFalse(target.exists())
+
+    def test_signal_landing_while_an_inner_block_holds_still_restores_the_entry_mask(self):
+        # A CaptureSignal raised right after the Popen block's SIG_BLOCK returns
+        # (before its own finally exists) used to leave the BLOCKED mask as the
+        # one the outer finally restored.
+        real = finish.signal.pthread_sigmask
+        calls = []
+        def mask(how, signals):
+            result = real(how, signals)
+            if how == finish.signal.SIG_BLOCK and set(signals) == set(finish.CAPTURE_SIGNALS):
+                calls.append('block')
+                if len(calls) == 1:
+                    finish.signal.getsignal(finish.signal.SIGTERM)(finish.signal.SIGTERM, None)
+            return result
+        order = []
+        child = SimpleNamespace(pid=9999, returncode=None, stdin=io.BytesIO(), stdout=io.BytesIO(), kill=Mock(), wait=Mock())
+        self.assertFalse(set(real(finish.signal.SIG_BLOCK, [])) & set(finish.CAPTURE_SIGNALS))
+        with ExitStack() as stack:
+            target = stack.enter_context(fake_gh_config(order))
+            self.producer_patches(stack, child)
+            popen = stack.enter_context(patch.object(finish.subprocess, 'Popen', return_value=child))
+            stack.enter_context(patch.object(finish.signal, 'pthread_sigmask', side_effect=mask))
+            with self.assertRaises(finish.CaptureSignal):
+                finish.run_producer(manifest(), b'{}\n')
+        popen.assert_not_called()
+        self.assertEqual(order, ['install', ('check', True), 'remove']); self.assertFalse(target.exists())
+        self.assertFalse(set(real(finish.signal.SIG_BLOCK, [])) & set(finish.CAPTURE_SIGNALS))
+
     def test_stale_or_foreign_directory_HOLDS_with_remediation_and_is_never_removed(self):
         order = []
         with ExitStack() as stack:
@@ -2373,6 +2466,9 @@ class RehearsalAndRetryTests(unittest.TestCase):
             self.assertEqual((request['kind'], data, request['validator_source']), (finish.REHEARSAL_KIND, finish.canonical(request) + b'\n', pseudo['validator_source']))
             self.assertTrue(printed.call_args.args[0].startswith('HOUND_CI_ACTIONS_REHEARSED windows='))
             self.assertIn('gh_copy_removed=1', printed.call_args.args[0])
+            self.assertTrue(printed.call_args.args[0].endswith(
+                f' source={Path(finish.__file__)} source_sha256={finish.digest(b"reviewed bytes")}'))
+            self.assertEqual(request['until'] * 1000000 - request['earliest_us'], 8 * 3600 * 1000000)
             producer.side_effect = lambda *a: (pinned.mkdir(), (output, {'child_exit': 0}))[1]
             with self.assertRaisesRegex(RuntimeError, 'survived the rehearsal'):
                 finish.rehearse()
