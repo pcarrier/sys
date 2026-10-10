@@ -62,7 +62,8 @@ let
     }
   );
   # What jobs find on PATH: the runner's own needs, what actions reach for and
-  # what xmit-dev/ultimator's macOS workflows call (rustup, npx, xcodegen), then
+  # what xmit-dev/ultimator's macOS workflows call (rustup, npx, xcodegen, and
+  # cmake, which builds libopus for opusic-sys under YAS's server), then
   # Determinate's Nix and the system's, whose /usr/bin shims reach the Xcode
   # command line tools (clang, lipo, notarytool, stapler). Those
   # aren't Nix's: `softwareupdate` installs them, as Chrome for browser.yml
@@ -72,6 +73,7 @@ let
     with pkgs;
     [
       bashInteractive
+      cmake
       coreutils
       curl
       file
