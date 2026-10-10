@@ -20,6 +20,9 @@ lib.bare {
         imageName = "base-cache-v2.qcow2";
       };
     }
+    ../feat/hound-devbox.nix
+    ../feat/ultimator-mesh.nix
+    ../feat/waydroid.nix
     ../feat/libk.nix
     ../feat/mail.nix
     ../feat/media.nix
