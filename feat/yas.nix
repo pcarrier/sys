@@ -133,37 +133,57 @@ in
   # inherit the server service env, and scoping these here (rather than
   # global sessionVariables) keeps them out of the host's other, XWayland-
   # capable sessions (sway/gnome/plasma).
-  systemd.services = lib.genAttrs (map (u: "yas-server@${u}") normalUsers) (_: {
-    environment = {
-      NIXOS_OZONE_WL = "1";
-      ELECTRON_OZONE_PLATFORM_HINT = "wayland";
-      # The Codex Desktop launcher otherwise disables GPU compositing on every
-      # Wayland session, forcing full-rate wl_shm uploads through the compositor.
-      CODEX_ELECTRON_DISABLE_GPU_COMPOSITING = "0";
-      MOZ_ENABLE_WAYLAND = "1";
-      GDK_BACKEND = "wayland";
-      QT_QPA_PLATFORM = "wayland";
-      SDL_VIDEODRIVER = "wayland";
-    };
-    # The module's unit sets no descriptor limit, so the server runs at
-    # systemd's 1024 soft default while its hard limit sits at 524288 — and
-    # the server only ever reads the hard one (to bound the cloexec sweep it
-    # does before exec), never raising the soft one for itself. Every PTY
-    # master, client socket, watched file, and extension connection spends
-    # from that 1024. Soft is set equal to hard because nothing raises it
-    # later; the value matches the login-shell limit above so a dev stack and
-    # the packaged server hit the same ceiling.
-    #
-    # TasksMax is the other per-unit ceiling worth removing: the whole
-    # process tree of every terminal lives in this one cgroup, so the default
-    # (153484 here, from DefaultTasksMax) is shared by every shell, editor,
-    # language server, and build those terminals start.
-    serviceConfig = {
-      LimitNOFILE = "1048576:1048576";
-      LimitNPROC = "infinity";
-      TasksMax = "infinity";
-    };
-  });
+  systemd.services = lib.listToAttrs (
+    map (
+      user:
+      lib.nameValuePair "yas-server@${user}" {
+        environment = {
+          # A system service inherits no XDG_RUNTIME_DIR, and yas's compositor
+          # falls back to std::env::temp_dir() when it finds none — putting the
+          # Wayland socket in the shared /tmp, one user's server against every
+          # other's. The second server to start finds wayland-0.lock owned by the
+          # first, and with fs.protected_regular=1 a sticky-directory O_CREAT on
+          # another user's file is EACCES; wayland-server reports that as
+          # PermissionDenied and stops rather than trying wayland-1, so the
+          # compositor thread panics and the unit crash-loops. RuntimeDirectory
+          # already gives each unit an owner-private 0700 directory — the one
+          # YAS_SOCK is in — so name it.
+          #
+          # Belongs in the yas module (it owns RuntimeDirectory and YAS_SOCK) and
+          # is fixed there; this override is what reaches the running host until
+          # that lands in the flake input. Same value, so it is inert afterwards.
+          XDG_RUNTIME_DIR = "/run/yas/${user}";
+          NIXOS_OZONE_WL = "1";
+          ELECTRON_OZONE_PLATFORM_HINT = "wayland";
+          # The Codex Desktop launcher otherwise disables GPU compositing on every
+          # Wayland session, forcing full-rate wl_shm uploads through the compositor.
+          CODEX_ELECTRON_DISABLE_GPU_COMPOSITING = "0";
+          MOZ_ENABLE_WAYLAND = "1";
+          GDK_BACKEND = "wayland";
+          QT_QPA_PLATFORM = "wayland";
+          SDL_VIDEODRIVER = "wayland";
+        };
+        # The module's unit sets no descriptor limit, so the server runs at
+        # systemd's 1024 soft default while its hard limit sits at 524288 — and
+        # the server only ever reads the hard one (to bound the cloexec sweep it
+        # does before exec), never raising the soft one for itself. Every PTY
+        # master, client socket, watched file, and extension connection spends
+        # from that 1024. Soft is set equal to hard because nothing raises it
+        # later; the value matches the login-shell limit above so a dev stack and
+        # the packaged server hit the same ceiling.
+        #
+        # TasksMax is the other per-unit ceiling worth removing: the whole
+        # process tree of every terminal lives in this one cgroup, so the default
+        # (153484 here, from DefaultTasksMax) is shared by every shell, editor,
+        # language server, and build those terminals start.
+        serviceConfig = {
+          LimitNOFILE = "1048576:1048576";
+          LimitNPROC = "infinity";
+          TasksMax = "infinity";
+        };
+      }
+    ) normalUsers
+  );
 
   services.yas = {
     enable = true;
