@@ -12,7 +12,7 @@
 #     (ULTIMATOR_ARTIFACTS_URL). What it serves is signed and content-addressed: the transport needn't be trusted;
 #   - ultimator-cluster-assets: the client assets (the CLI's downloads, the YAS frame, the desktop app) of the last
 #     release deploy/cd.sh put live (/var/lib/ultimator-cluster-release/assets-wanted), built after the release and
-#     beside the next ones, never before them (deploy/nixos/release.sh --assets-only in a checkout of its own). Started
+#     beside the next ones, never before them (`deploy/cd.sh --assets-only` in a checkout of its own). Started
 #     by deploy/cd.sh; one at a time, and a run that ends finds the newest commit wanted and builds that.
 #
 # Nothing changes how main goes out until /var/lib/ultimator-cluster-release/mode says `releases` (deploy/cd.sh; the
@@ -137,7 +137,7 @@ lib.mkIf (config.networking.hostName == "hound") {
         export CLUSTER_SSH_KEY=${release}/deploy-key
         [ -r "$CLUSTER_SSH_KEY" ] || CLUSTER_SSH_KEY=$HOME/.ssh/id_ed25519
         export DEPLOY_REPORT_RUN="assets-''${wanted:0:12}"
-        if deploy/nixos/release.sh --assets-only; then
+        if deploy/cd.sh --assets-only; then
           printf '%s\n' "$wanted" >"$base/built"
         else
           # The next release's run starts this again; its keys still differ, so it builds them again.
