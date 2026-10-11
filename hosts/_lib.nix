@@ -17,7 +17,6 @@ let
       yas
       plenty
       plz
-      ultimator
       edl-ng
       claude-desktop
       codex-desktop
