@@ -122,8 +122,9 @@ lib.mkIf (config.networking.hostName == "hound") {
           echo "$(date -u +%FT%TZ) held (${release}/hold): not building the client assets"
           exit 0
         fi
-        wanted=$(tr -d '[:space:]' <${release}/assets-wanted 2>/dev/null)
-        built=$(tr -d '[:space:]' <"$base/built" 2>/dev/null)
+        # NixOS runs this under set -e: a missing file (no assets built yet) reads as empty.
+        wanted=$(tr -d '[:space:]' 2>/dev/null <${release}/assets-wanted || true)
+        built=$(tr -d '[:space:]' 2>/dev/null <"$base/built" || true)
         [ -n "$wanted" ] && [ "$wanted" != "$built" ] || exit 0
         echo "$(date -u +%FT%TZ) client assets of ''${wanted:0:12}"
         if [ ! -d "$checkout/.git" ]; then
