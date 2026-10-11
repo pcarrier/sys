@@ -18,7 +18,8 @@
 #     (`flock /var/lib/ultimator-cluster-release/lock deploy/nixos/release.sh`), waiting for it up to an hour;
 #   - main, fetched into a clean checkout of its own (/var/lib/ultimator-cluster-release/checkout: reset and cleaned
 #     each run, never anyone's working tree);
-#   - its deploy/nixos/release.sh (--build-only for a dry run), with CLUSTER_KNOWN_HOSTS the hosts' installed keys
+#   - its deploy/cd.sh (deploy/nixos/release.sh on a main from before it; --build-only for a dry run), which runs
+#     release.sh as before unless ${state}/mode says `releases` (feat/ultimator-release-build.nix), with CLUSTER_KNOWN_HOSTS the hosts' installed keys
 #     (/etc/ultimator-cluster/known-hosts, below) and CLUSTER_SSH_KEY /var/lib/ultimator-cluster-release/deploy-key
 #     (pcarrier's, 0600: generate it, add its public half to deploy/nixos/inventory.nix's sshAuthorizedKeys and
 #     release that), or pcarrier's own ~/.ssh/id_ed25519 until it exists, with a warning.
@@ -160,8 +161,12 @@ in
       git fetch --quiet origin main || exit 1
       main=$(git rev-parse FETCH_HEAD)
       git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
-      if [ ! -x deploy/nixos/release.sh ]; then
-        echo "::error::GitHub's main (''${main:0:12}) has no deploy/nixos/release.sh"
+      # deploy/cd.sh decides how main goes out (its ${state}/mode: absent, today's deploy/nixos/release.sh; `releases`,
+      # releases from artifacts, xmit-dev/ultimator's "deploy in a minute"); a main from before it has release.sh alone.
+      entry=deploy/cd.sh
+      [ -x "$entry" ] || entry=deploy/nixos/release.sh
+      if [ ! -x "$entry" ]; then
+        echo "::error::GitHub's main (''${main:0:12}) has neither deploy/cd.sh nor deploy/nixos/release.sh"
         exit 1
       fi
       export CLUSTER_KNOWN_HOSTS=/etc/ultimator-cluster/known-hosts
@@ -170,8 +175,8 @@ in
         echo "::warning::$CLUSTER_SSH_KEY isn't there yet: releasing with ${user}'s own ~/.ssh/id_ed25519"
         CLUSTER_SSH_KEY=$HOME/.ssh/id_ed25519
       fi
-      echo "releasing ''${main:0:12} (run $run)"
-      exec deploy/nixos/release.sh "''${args[@]}"
+      echo "releasing ''${main:0:12} (run $run, $entry)"
+      exec "$entry" "''${args[@]}"
     '';
   };
 }
