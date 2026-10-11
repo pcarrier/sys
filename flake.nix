@@ -32,14 +32,6 @@
       url = "github:pcarrier/yas";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Ultimator's own flake, for its CLI (packages.<system>.ultimator) on hound: the release unit fetches Ultimator's
-    # main from Forge over HTTPS (feat/ultimator-cluster-cd.nix), whose password comes from the CLI's git credential
-    # helper. Forge's URL, and it is a private repository, so update flake.lock (and `nix flake prefetch` it) from a
-    # machine whose git can already read `ulti/ultimator`; ultimator's nixpkgs is deliberately not made to follow this
-    # repository's, so its toolchain stays the one its own lock pins.
-    ultimator = {
-      url = "git+https://ultimator.app/git/ulti/ultimator.git";
-    };
     plenty = {
       url = "github:pcarrier/plenty";
       inputs.nixpkgs.follows = "nixpkgs";
