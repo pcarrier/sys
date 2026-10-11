@@ -236,6 +236,13 @@ lib.mkMerge [
             name = "Pierre Carrier";
             email = userEmail;
           };
+          # Forge's credential helper, exactly as `ultimator git setup` writes it (crates/ultimator-cli/src/native/git.rs):
+          # declared here because ~/.config/git/config is a read-only store symlink that command can't write. On hound,
+          # where the release unit fetches Ultimator's main from Forge, `ultimator` is in the system profile
+          # (feat/ultimator-cluster-cd.nix); elsewhere it is the dev shell's or the release bundle's.
+          "credential \"https://ultimator.app\"" = {
+            helper = "!ultimator git credential";
+          };
           pull.rebase = true;
           init.defaultBranch = "main";
           github.user = "pcarrier";

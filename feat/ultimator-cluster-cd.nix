@@ -17,7 +17,8 @@
 #   - the lock, /var/lib/ultimator-cluster-release/lock, which releases by hand take too
 #     (`flock /var/lib/ultimator-cluster-release/lock deploy/nixos/release.sh`), waiting for it up to an hour;
 #   - main, fetched into a clean checkout of its own (/var/lib/ultimator-cluster-release/checkout: reset and cleaned
-#     each run, never anyone's working tree);
+#     each run, never anyone's working tree) from Forge's ulti/ultimator, which the unit's git reaches with the CLI's
+#     credential helper (the package below);
 #   - its deploy/nixos/release.sh (--build-only for a dry run), with CLUSTER_KNOWN_HOSTS the hosts' installed keys
 #     (/etc/ultimator-cluster/known-hosts, below) and CLUSTER_SSH_KEY /var/lib/ultimator-cluster-release/deploy-key
 #     (pcarrier's, 0600: generate it, add its public half to deploy/nixos/inventory.nix's sshAuthorizedKeys and
@@ -32,6 +33,8 @@
 # /var/lib/github-runner/<host>-deploy once registered.
 {
   config,
+  pkgs,
+  ultimator,
   ...
 }:
 let
@@ -60,6 +63,14 @@ in
     "d ${state} 0750 ${user} users -"
     "d ${logs} 0755 ${user} users 30d"
   ];
+
+  # Ultimator's CLI, for the release unit below: it fetches Ultimator's main from Forge over HTTPS, and git gets that
+  # password from the CLI's credential helper (`ultimator git credential`, crates/ultimator-cli/src/native/git.rs),
+  # signed in as pcarrier (`ultimator login`; his session lives in his ~/.config/ultimator). System-wide, so it is on
+  # the unit's PATH (/run/current-system/sw) and its path is a GC root, never a dev shell's store path. pcarrier's git
+  # config names the helper itself (home/programs.nix, `!ultimator git credential`), because his
+  # ~/.config/git/config is a read-only store symlink `ultimator git setup` can't write.
+  environment.systemPackages = [ ultimator.packages.${pkgs.stdenv.hostPlatform.system}.ultimator ];
 
   # The cluster hosts' installed SSH host keys (deploy/nixos/install: each host's /etc/ssh/ssh_host_ed25519_key).
   environment.etc."ultimator-cluster/known-hosts".text = ''
@@ -154,9 +165,11 @@ in
       checkout=${state}/checkout
       if [ ! -d "$checkout/.git" ]; then
         rm -rf "$checkout"
-        git clone --quiet --no-checkout git@github.com:xmit-dev/ultimator.git "$checkout" || exit 1
+        git clone --quiet --no-checkout https://ultimator.app/git/ulti/ultimator.git "$checkout" || exit 1
       fi
       cd "$checkout" || exit 1
+      # An existing checkout (from before this change) still has GitHub's URL as its origin: point it at Forge.
+      git remote set-url origin https://ultimator.app/git/ulti/ultimator.git
       git fetch --quiet origin main || exit 1
       main=$(git rev-parse FETCH_HEAD)
       git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
