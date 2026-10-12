@@ -14,8 +14,23 @@ let
   # normalize PATH and drop systemd's service.path. No global shell changes.
   devboxStart = pkgs.writeShellScript "start-devbox-local-compute" ''
     export PATH=${pkgs.lib.makeBinPath [ pkgs.pipewire pkgs.wireplumber pkgs.dbus pkgs.xwayland-satellite ]}:$PATH
-    exec /srv/devbox/bin/ultimator computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json
+    exec ${devboxCli} computer start devbox --workspace /src/ultimator/.dev/workspace --config /srv/devbox/computer.json
   '';
+  # devbox's CLI, placed by hand (not by Nix), kept current like forge-deploy's (feat/ultimator-cli-refresh.nix): at each
+  # start of ultimator-devbox and daily (devbox-cli-refresh). A stale CLI ran phantom exit-127 commands and stale check
+  # summaries on 10-11. The new build goes into a staging directory in /srv/devbox/bin itself (one filesystem, whatever
+  # is mounted there) and is renamed over the old one, so the running computer keeps its own inode: nothing that runs is
+  # replaced in place. Run as pcarrier, so /srv/devbox/bin must be pcarrier's to write; when it isn't, the refresh says
+  # so in the journal and keeps the binary there.
+  devboxCli = "/srv/devbox/bin/ultimator";
+  refreshDevboxCli = import ./ultimator-cli-refresh.nix {
+    inherit pkgs;
+    name = "devbox-refresh-cli";
+    label = "devbox";
+    bin = devboxCli;
+    stamp = "/srv/devbox/bin/.ultimator-cli.sha256";
+    stage = "/srv/devbox/bin";
+  };
   waydroidSessionStart = pkgs.writeShellScript "start-waydroid-on-devbox-desktop" (
     builtins.replaceStrings
       [ "/nix/store/0r99vylsrphb6c2pw6fdyi8labmp2pj2-nodejs-26.10.0/bin/node" ]
@@ -504,6 +519,10 @@ in
 
   systemd.services.ultimator-devbox = {
     description = "Ultimator devbox computer (local HOUND compute)";
+    # Its sessions' commands and terminals (its YAS) end when it restarts: a switch that changes this unit leaves the
+    # running computer alone, and the next start (a crash, a boot, `systemctl restart ultimator-devbox` when nothing
+    # runs there) takes the new unit and the CLI its ExecStartPre brings.
+    restartIfChanged = false;
     # Marker is created by the coordinator ONLY after source worker fencing,
     # final cold sync, and validation. It permits normal restart/boot later
     # but ensures this preparation cannot seize the live machine identity.
@@ -561,6 +580,10 @@ in
         "ULTIMATOR_TOKEN"
         "ULTIMATOR_DIRECTORY_TOKEN"
       ];
+      # The CLI as ultimator.app serves it, refreshed at each start (refreshDevboxCli, above), before nix develop.
+      ExecStartPre = refreshDevboxCli;
+      # The refresh may download the CLI (40 MB) before the computer starts: room for it beyond the default 90 s.
+      TimeoutStartSec = "5min";
       ExecStart = "${pkgs.fish}/bin/fish --login --command 'set -e FLOWER_ADMIN_TOKEN; set -e ULTIMATOR_TOKEN; set -e ULTIMATOR_DIRECTORY_TOKEN; exec ${pkgs.nix}/bin/nix develop /src/ultimator --command ${devboxStart}'";
       Restart = "on-failure";
       RestartSec = "3s";
@@ -571,6 +594,51 @@ in
       IOWeight = 20;
       LimitNOFILE = "1048576:1048576";
       TasksMax = "infinity";
+    };
+  };
+
+  # A computer that runs for weeks would keep the CLI it started with: bring the file up to date daily, so the next
+  # start runs the current CLI at once. Unlike forge-deploy's, this never restarts the computer: a restart would end
+  # the commands and terminals its sessions have running. When the running computer's binary is the replaced one, it
+  # says so in the journal (and how to restart it when nothing runs there).
+  systemd.services.devbox-cli-refresh = {
+    description = "Refresh the Ultimator CLI of the computer devbox";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    unitConfig.RequiresMountsFor = [ "/srv/devbox/bin" ];
+    unitConfig.ConditionPathExists = [ devboxCli ];
+    environment.HOME = "/home/pcarrier";
+    serviceConfig = {
+      Type = "oneshot";
+      User = "pcarrier";
+      Group = "users";
+      ExecStart = refreshDevboxCli;
+      ExecStartPost = "${pkgs.writeShellScript "devbox-cli-stale" ''
+        set -u
+        export PATH=${
+          lib.makeBinPath [
+            pkgs.coreutils
+            config.systemd.package
+          ]
+        }
+        cgroup=$(systemctl show -p ControlGroup --value ultimator-devbox.service)
+        [ -n "$cgroup" ] && [ -r "/sys/fs/cgroup$cgroup/cgroup.procs" ] || exit 0
+        while read -r pid; do
+          if [ "$(readlink /proc/"$pid"/exe 2>/dev/null)" = "${devboxCli} (deleted)" ]; then
+            echo "devbox: the running computer has the CLI from before; it takes the new one at its next start (sudo systemctl restart ultimator-devbox, when nothing runs there)" >&2
+            exit 0
+          fi
+        done <"/sys/fs/cgroup$cgroup/cgroup.procs"
+      ''}";
+      NoNewPrivileges = true;
+    };
+  };
+  systemd.timers.devbox-cli-refresh = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "daily";
+      RandomizedDelaySec = "1h";
+      Persistent = true;
     };
   };
 }
