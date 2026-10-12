@@ -6,7 +6,9 @@
 # The computer runs as its own user, forge-deploy (not pcarrier, not the CI runners' users), with no sudo. Its jobs'
 # runner (`ultimator ci job`, which the job's launch starts) may do one thing beyond what any user may (polkit,
 # below): start ultimator-cluster-release@forge-<run>-<attempt>.service (`forge-dry-` for a dry run), where <run> is
-# Forge's run ID: letters and digits. The unit is feat/ultimator-cluster-cd.nix's, as pcarrier, unchanged but for
+# Forge's run ID: letters and digits. It may also start ultimator-release-build@<commit>.service
+# (feat/ultimator-cluster-cd.nix), which builds a merge-queue candidate's release ahead of its merge and releases nothing.
+# Executor, once: `ultimator ci executor set hound,prebuild --machine hound-deploy --max 2`. The release unit is feat/ultimator-cluster-cd.nix's, as pcarrier, unchanged but for
 # reading `forge-dry-` as a dry run; it fetches main from GitHub, which Forge's one-way mirror keeps equal to Forge's
 # main until Ultimator moves (P4 points it at Forge).
 #
@@ -189,12 +191,21 @@ in
   };
 
   security.polkit.extraConfig = ''
-    // Forge's deploy executor (feat/forge-deploy.nix) may start releases of Ultimator's main, and nothing else.
+    // Forge's deploy executor (feat/forge-deploy.nix) may start releases of Ultimator's main and prebuilds of its merge-queue
+    // candidates, and nothing else.
     polkit.addRule(function (action, subject) {
       if (action.id == "org.freedesktop.systemd1.manage-units" &&
           subject.user == "forge-deploy" &&
           action.lookup("verb") == "start" &&
           /^ultimator-cluster-release@forge-(dry-)?[A-Za-z0-9_]+-[0-9]+\.service$/.test(action.lookup("unit"))) {
+        return polkit.Result.YES;
+      }
+      // …and the merge queue's release prebuilds (feat/ultimator-cluster-cd.nix): a commit ID, which the unit checks
+      // with Forge before building anything.
+      if (action.id == "org.freedesktop.systemd1.manage-units" &&
+          subject.user == "forge-deploy" &&
+          action.lookup("verb") == "start" &&
+          /^ultimator-release-build@[0-9a-f]{40}\.service$/.test(action.lookup("unit"))) {
         return polkit.Result.YES;
       }
     });
