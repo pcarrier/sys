@@ -219,4 +219,92 @@ in
       exec "$entry" "''${args[@]}"
     '';
   };
+
+  # Merge-queue prebuilds (ulti/ultimator deploy/hound/README.md, "Prebuilt in the merge queue"): Forge's
+  # .ultimator/workflows/release-prebuild.ts, on the executor labelled hound,prebuild (feat/forge-deploy.nix's computer),
+  # starts ultimator-release-build@<commit> for each candidate of main's merge queue, so that its release's manifest is in
+  # the artifact store when the queue lands that very commit and CD only rolls. As pcarrier, with the read token above:
+  # it builds only a commit Forge lists as one of main's queue candidates (refs/queue/main/*) or main itself, so the job's
+  # user can't have anything else built; from a checkout of main (the scripts it trusts) holding the candidate's objects,
+  # it runs deploy/cd.sh --prebuild <commit>: main's bin/release-build builds the candidate as ultimator-release and signs
+  # its manifest, and no release is asked for. Not the release lock (CD never waits for a prebuild to start): prebuilds go
+  # one at a time (their own lock), and bin/release-build's lock orders them with CD's build, which then finds the
+  # manifest, or waits for the build of it under way. The hold, or no read token yet: nothing built, CD builds as before.
+  systemd.services."ultimator-release-build@" = {
+    description = "Build the release of Ultimator's merge-queue candidate %i ahead of its merge";
+    path = [
+      "/run/wrappers"
+      "/etc/profiles/per-user/${user}"
+      "/run/current-system/sw"
+    ];
+    restartIfChanged = false;
+    stopIfChanged = false;
+    serviceConfig = {
+      Type = "oneshot";
+      User = user;
+      Group = "users";
+      WorkingDirectory = state;
+      StandardOutput = "truncate:${logs}/prebuild-%i.log";
+      StandardError = "inherit";
+      # An hour for the prebuild lock at worst, then a build (about a minute warm, 10 cold).
+      TimeoutStartSec = "100min";
+    };
+    unitConfig.CollectMode = "inactive-or-failed";
+    environment = {
+      GIT_TERMINAL_PROMPT = "0";
+      GIT_CONFIG_COUNT = "1";
+      GIT_CONFIG_KEY_0 = "credential.https://ultimator.app.helper";
+      GIT_CONFIG_VALUE_0 = "${forgeCredential}";
+    };
+    scriptArgs = "%i";
+    script = ''
+      set -uo pipefail
+      commit=$1
+      if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "::error::not a commit ID: $commit"
+        exit 2
+      fi
+      if [ -e ${state}/hold ]; then
+        echo "Cluster releases are held (${state}/hold): no prebuild of ''${commit:0:12}"
+        exit 0
+      fi
+      if [ ! -r ${state}/forge-read-token ]; then
+        echo "::warning::${state}/forge-read-token isn't there: no prebuild (CD builds after the merge)"
+        exit 0
+      fi
+      exec 9>${state}/prebuild.lock
+      if ! flock -w 3600 9; then
+        echo "::error::Another prebuild still holds ${state}/prebuild.lock after an hour"
+        exit 1
+      fi
+      mkdir -p ${state}/prebuild
+      checkout=${state}/prebuild/ultimator
+      if [ ! -d "$checkout/.git" ]; then
+        rm -rf "$checkout"
+        git clone --quiet --no-checkout ${forge} "$checkout" || exit 1
+      fi
+      cd "$checkout" || exit 1
+      # Forge says which commits are main's candidates now: one that left the queue, or was built again on a newer
+      # base, is no longer listed and isn't built.
+      refs=$(git ls-remote origin refs/heads/main 'refs/queue/main/*') || exit 1
+      ref=$(awk -v c="$commit" '$1 == c { print $2; exit }' <<<"$refs")
+      if [ -z "$ref" ]; then
+        echo "''${commit:0:12} is neither main nor one of its merge-queue candidates on Forge (any more): nothing to build"
+        exit 0
+      fi
+      git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+$ref:refs/prebuild/candidate" || exit 1
+      if [ "$(git rev-parse refs/prebuild/candidate)" != "$commit" ]; then
+        echo "::error::$ref moved away from ''${commit:0:12} while fetching it"
+        exit 1
+      fi
+      main=$(git rev-parse refs/remotes/origin/main)
+      git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
+      if ! grep -q -- '--prebuild' deploy/cd.sh 2>/dev/null; then
+        echo "main (''${main:0:12}) has no deploy/cd.sh --prebuild yet: nothing to build"
+        exit 0
+      fi
+      echo "prebuilding ''${commit:0:12} ($ref) with main ''${main:0:12}'s deploy/cd.sh"
+      exec deploy/cd.sh --prebuild "$commit"
+    '';
+  };
 }
