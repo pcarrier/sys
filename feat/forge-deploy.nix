@@ -28,52 +28,15 @@ let
   name = "${host}-deploy";
   home = "/var/lib/forge-deploy";
   bin = "${home}/bin/ultimator";
-  # The download this host's CLI comes from, which install.sh picks the same way.
-  download = "ultimator-${if pkgs.stdenv.hostPlatform.isAarch64 then "linux-aarch64" else "linux-x86_64"}.gz";
-
   # The CLI as ultimator.app serves it, brought up to date: at each start of the computer (ExecStartPre) and daily
-  # (forge-deploy-cli-refresh). It runs install.sh only when SHA256SUMS names another build than the one installed
-  # (so a crash loop doesn't download 40 MB every 10 s), installs into a staging directory beside bin/ and renames the
-  # binary over the old one (one filesystem: atomic, and the running computer keeps its own inode). When it can't
-  # (ultimator.app down, no network at boot), it keeps the binary it has and says so: the computer still starts. Only
-  # a first install with nothing to keep fails.
-  refreshCli = pkgs.writeShellScript "forge-deploy-refresh-cli" ''
-    set -u
-    export PATH=${
-      pkgs.lib.makeBinPath [
-        pkgs.coreutils
-        pkgs.curl
-        pkgs.gawk
-        pkgs.gnugrep
-        pkgs.gzip
-        pkgs.getconf
-      ]
-    }:$PATH
-    stamp=${home}/.ultimator-cli.sha256
-    keep() {
-      if [ -x ${bin} ]; then
-        echo "forge-deploy: $*; keeping $(${bin} --version 2>/dev/null | head -n 1 || echo the installed CLI)" >&2
-        exit 0
-      fi
-      echo "forge-deploy: $*; no CLI installed yet" >&2
-      exit 1
-    }
-    sums=$(curl -fsSL --max-time 60 https://ultimator.app/downloads/SHA256SUMS) || keep "could not fetch SHA256SUMS"
-    want=$(printf '%s\n' "$sums" | awk -v f=${download} '$2 == f || $2 == "*" f { print $1 }')
-    [ -n "$want" ] || keep "${download} is not in SHA256SUMS"
-    if [ -x ${bin} ] && [ "$(cat "$stamp" 2>/dev/null)" = "$want" ]; then
-      exit 0
-    fi
-    stage=$(mktemp -d ${home}/.cli-XXXXXX) || keep "could not make a staging directory"
-    trap 'rm -rf "$stage"' EXIT
-    curl -fsSL --max-time 60 -o "$stage/install.sh" https://ultimator.app/install.sh || keep "could not fetch install.sh"
-    TMPDIR=$stage ULTIMATOR_INSTALL_DIR=$stage/bin ${pkgs.bash}/bin/sh "$stage/install.sh" >&2 \
-      || keep "install.sh failed"
-    "$stage/bin/ultimator" --version >/dev/null 2>&1 || keep "the new CLI does not run"
-    mv -f "$stage/bin/ultimator" ${bin} || keep "could not put the new CLI in place"
-    printf '%s\n' "$want" >"$stamp"
-    echo "forge-deploy: installed $(${bin} --version 2>/dev/null | head -n 1)" >&2
-  '';
+  # (forge-deploy-cli-refresh). feat/ultimator-cli-refresh.nix says how; feat/hound-devbox.nix's devbox uses the same.
+  refreshCli = import ./ultimator-cli-refresh.nix {
+    inherit pkgs bin;
+    name = "forge-deploy-refresh-cli";
+    label = "forge-deploy";
+    stamp = "${home}/.ultimator-cli.sha256";
+    stage = home;
+  };
 in
 {
   users = {
