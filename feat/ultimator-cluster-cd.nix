@@ -39,7 +39,10 @@
 #     release that), or pcarrier's own ~/.ssh/id_ed25519 until it exists, with a warning.
 # Its output goes to /var/log/ultimator-cluster-release/<run>.log, which the job follows; the logs go after 30 days.
 # A release goes on to its end when the job stops early (a cancelled run, this runner restarting).
-# Forge's deploy executor (feat/forge-deploy.nix) starts the same unit as forge-<run>-<attempt>.
+# Forge's deploy executor (feat/forge-deploy.nix) starts the same unit as forge-<run>-<attempt>-<commit>: the unit then
+# releases that commit, the run's, once it checked it is on Forge's main, rather than main as it is when it starts (a
+# burst of merges otherwise left a run releasing what an earlier one already had, and the burst's last commit waiting
+# for the next merge). forge-<run>-<attempt>, as before ulti/ultimator's deploy.ts named the commit, still releases main.
 #
 # The runner registers with /var/lib/secrets/github-runner-deploy.token: a registration token (org › Settings ›
 # Actions › Runners › New runner, or `gh api -X POST orgs/xmit-dev/actions/runners/registration-token --jq .token`;
@@ -172,6 +175,13 @@ in
       args=()
       # dry-<run>-<attempt> from GitHub's runner, forge-dry-<run>-<attempt> from Forge's (feat/forge-deploy.nix).
       case "$run" in dry-* | forge-dry-*) args+=(--build-only) ;; esac
+      # Forge's runs name the commit they release last (forge-<run>-<attempt>-<commit>): that commit goes out, not
+      # whatever main is when the unit starts, so each push's run releases its own push, the last of a burst included.
+      # Without one (GitHub's runner, a run from before), main as it is.
+      commit=
+      if [[ "$run" =~ ^.+-[0-9]+-([0-9a-f]{40})$ ]]; then
+        commit=''${BASH_REMATCH[1]}
+      fi
       if [ -e ${state}/hold ]; then
         echo "::error::Cluster releases are held: $(head -c 2000 ${state}/hold | tr '\n' ' ')(${state}/hold on ${host}: remove it, then run the workflow again)"
         exit 1
@@ -198,8 +208,18 @@ in
       cd "$checkout" || exit 1
       # A checkout from before Forge still has GitHub's URL as its origin.
       git remote set-url origin ${forge}
-      git fetch --quiet origin main || exit 1
-      main=$(git rev-parse FETCH_HEAD)
+      git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main || exit 1
+      main=$(git rev-parse refs/remotes/origin/main)
+      if [ -n "$commit" ]; then
+        # Only a commit of main's goes out: fetching main brings it, and one that isn't on it (a branch's, one main
+        # lost) is refused. A rerun of an older run releases that older commit again: that's a rollback.
+        if ! git cat-file -e "$commit^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$commit" "$main"; then
+          echo "::error::''${commit:0:12} isn't on Forge's main (''${main:0:12}): nothing released"
+          exit 1
+        fi
+        [ "$commit" = "$main" ] || echo "Forge's main is ''${main:0:12} already: releasing ''${commit:0:12}, this run's commit (main's own run releases main)"
+        main=$commit
+      fi
       git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
       # deploy/cd.sh decides how main goes out (its ${state}/mode: absent, today's deploy/nixos/release.sh; `releases`,
       # releases from artifacts, xmit-dev/ultimator's "deploy in a minute"); a main from before it has release.sh alone.
