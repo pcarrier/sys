@@ -139,11 +139,15 @@ in
   systemd.services."ultimator-cluster-release@" = {
     description = "Release Ultimator's main to its cluster (run %i)";
     # The setuid wrappers first (sudo: /run/current-system/sw has a sudo without the setuid bit), then pcarrier's
-    # tools (git, gh as Git's credential helper, ssh's config), then the system's (nix, ssh, jq, flock).
+    # tools (git, gh as Git's credential helper, ssh's config), then the system's (nix, ssh, jq, flock). Node last:
+    # deploy/cd.sh hands this PATH to bin/release-build (as ultimator-release), which computes the layers' keys with
+    # a Node that runs TypeScript on the host instead of starting a builder container for them (deploy run 469, 10-12:
+    # the keys took 0.4 s, the container around them 20 s while the disks were busy).
     path = [
       "/run/wrappers"
       "/etc/profiles/per-user/${user}"
       "/run/current-system/sw"
+      pkgs.nodejs
     ];
     # A release under way goes on to its end through a switch of this host.
     restartIfChanged = false;
@@ -252,10 +256,12 @@ in
   # manifest, or waits for the build of it under way. The hold, or no read token yet: nothing built, CD builds as before.
   systemd.services."ultimator-release-build@" = {
     description = "Build the release of Ultimator's merge-queue candidate %i ahead of its merge";
+    # As the release unit's, Node included (the keys on the host, no container).
     path = [
       "/run/wrappers"
       "/etc/profiles/per-user/${user}"
       "/run/current-system/sw"
+      pkgs.nodejs
     ];
     restartIfChanged = false;
     stopIfChanged = false;
