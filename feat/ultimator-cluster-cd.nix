@@ -1,5 +1,7 @@
-# Continuous deployment of Ultimator to its cluster (i0, i1 and i2, xmit-dev/ultimator's deploy/nixos): each push to
-# xmit-dev/ultimator's main goes live through .github/workflows/deploy-main.yml there, whose job runs on this host.
+# Continuous deployment of Ultimator to its cluster (i0, i1 and i2, ulti/ultimator's deploy/nixos): each push to
+# ulti/ultimator's main on Forge goes live through .ultimator/workflows/deploy.ts there, whose job runs on this host
+# (feat/forge-deploy.nix). What follows describes the unit both start; the GitHub Actions runner below is what
+# .github/workflows/deploy-main.yml used, which is gone (#975): the runner can go once Forge's deploys are trusted.
 #
 # A GitHub Actions runner of xmit-dev's, `<host>-deploy`, labelled `hound` and `deploy` and with none of GitHub's
 # default labels (`self-hosted`, `Linux`, `X64`), so only jobs naming both land here, never the org's CI (which
@@ -16,8 +18,20 @@
 #     which needs every voter switched at once);
 #   - the lock, /var/lib/ultimator-cluster-release/lock, which releases by hand take too
 #     (`flock /var/lib/ultimator-cluster-release/lock deploy/nixos/release.sh`), waiting for it up to an hour;
-#   - main, fetched into a clean checkout of its own (/var/lib/ultimator-cluster-release/checkout: reset and cleaned
-#     each run, never anyone's working tree);
+#   - main, fetched from Forge (https://ultimator.app/git/ulti/ultimator.git) into a clean checkout of its own
+#     (/var/lib/ultimator-cluster-release/checkout: reset and cleaned each run, never anyone's working tree). Forge
+#     asks for a credential, and nothing here may wait on a person's sign-in (a CLI sign-in ends within 7 days): the
+#     unit's git (and Nix's, for the Flower input, and deploy/cd.sh's fetches of the flake.lock pins) reads a READ TOKEN
+#     from /var/lib/ultimator-cluster-release/forge-read-token, the token's password alone (0600, pcarrier's; the
+#     token is read-only, for ulti/ultimator and ulti/flower, expiring and revocable) through a helper that only ever
+#     answers (git's own `store` would erase the file at the first refusal). Make it, as pcarrier on a machine signed in
+#     to Ultimator as an integration manager:
+#       ultimator repo token ulti/ultimator ulti/flower --days 90 --label hound-release \
+#         | sed -n 's/^password: //p' > /var/lib/ultimator-cluster-release/forge-read-token.new \
+#         && chmod 600 /var/lib/ultimator-cluster-release/forge-read-token.new \
+#         && mv /var/lib/ultimator-cluster-release/forge-read-token.new /var/lib/ultimator-cluster-release/forge-read-token
+#     (a pipe, so the secret reaches no terminal or log) and make it again before it expires (`ultimator repo tokens`
+#     lists it; the unit warns in its log from 14 days before it ends);
 #   - its deploy/cd.sh (deploy/nixos/release.sh on a main from before it; --build-only for a dry run), which runs
 #     release.sh as before unless ${state}/mode says `releases` (feat/ultimator-release-build.nix), with CLUSTER_KNOWN_HOSTS the hosts' installed keys
 #     (/etc/ultimator-cluster/known-hosts, below) and CLUSTER_SSH_KEY /var/lib/ultimator-cluster-release/deploy-key
@@ -33,9 +47,16 @@
 # /var/lib/github-runner/<host>-deploy once registered.
 {
   config,
+  pkgs,
   ...
 }:
 let
+  forge = "https://ultimator.app/git/ulti/ultimator.git";
+  # Git's credential helper for Forge: the read token, as `username=read` and its password, for a request to get one.
+  forgeCredential = pkgs.writeShellScript "forge-read-token-helper" ''
+    [ "$1" = get ] || exit 0
+    printf 'username=read\npassword=%s\n' "$(cat ${state}/forge-read-token)"
+  '';
   host = config.networking.hostName;
   name = "${host}-deploy";
   user = "pcarrier";
@@ -136,6 +157,14 @@ in
     };
     # Each run its own instance: gone once it ends, failed or not (its log stays).
     unitConfig.CollectMode = "inactive-or-failed";
+    # Git's (and Nix's, which runs it for the Flower input) own configuration for Forge: the read token through a
+    # helper, never a prompt. Only this unit: pcarrier's own git config is his.
+    environment = {
+      GIT_TERMINAL_PROMPT = "0";
+      GIT_CONFIG_COUNT = "1";
+      GIT_CONFIG_KEY_0 = "credential.https://ultimator.app.helper";
+      GIT_CONFIG_VALUE_0 = "${forgeCredential}";
+    };
     scriptArgs = "%i";
     script = ''
       set -uo pipefail
@@ -152,12 +181,23 @@ in
         echo "::error::Another release still holds ${state}/lock after an hour"
         exit 1
       fi
+      if [ ! -r ${state}/forge-read-token ]; then
+        echo "::error::${state}/forge-read-token isn't there: Forge's git needs a read token (feat/ultimator-cluster-cd.nix says how to make one)"
+        exit 1
+      fi
+      # The token is an Ultimator one with an end date, which only its maker's `ultimator repo tokens` shows: say when
+      # the file is old, the way to know a month ahead that the next release would fail.
+      if [ -n "$(find ${state}/forge-read-token -mtime +76 -print)" ]; then
+        echo "::warning::${state}/forge-read-token is over 76 days old: its token (90 days) ends soon, make another (ultimator repo token)"
+      fi
       checkout=${state}/checkout
       if [ ! -d "$checkout/.git" ]; then
         rm -rf "$checkout"
-        git clone --quiet --no-checkout git@github.com:xmit-dev/ultimator.git "$checkout" || exit 1
+        git clone --quiet --no-checkout ${forge} "$checkout" || exit 1
       fi
       cd "$checkout" || exit 1
+      # A checkout from before Forge still has GitHub's URL as its origin.
+      git remote set-url origin ${forge}
       git fetch --quiet origin main || exit 1
       main=$(git rev-parse FETCH_HEAD)
       git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
@@ -166,7 +206,7 @@ in
       entry=deploy/cd.sh
       [ -x "$entry" ] || entry=deploy/nixos/release.sh
       if [ ! -x "$entry" ]; then
-        echo "::error::GitHub's main (''${main:0:12}) has neither deploy/cd.sh nor deploy/nixos/release.sh"
+        echo "::error::Forge's main (''${main:0:12}) has neither deploy/cd.sh nor deploy/nixos/release.sh"
         exit 1
       fi
       export CLUSTER_KNOWN_HOSTS=/etc/ultimator-cluster/known-hosts
