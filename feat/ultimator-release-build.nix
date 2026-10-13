@@ -105,7 +105,13 @@ lib.mkIf (config.networking.hostName == "hound") {
     # This unit runs as pcarrier too: reuse the release unit's Forge read-token helper. Its token already reads
     # ulti/ultimator and ulti/flower, and the 0600 file stays private to pcarrier. The helper, never a token value,
     # is in the environment, inherited by git, the sibling fetches and Nix. No CLI sign-in or new credential.
-    environment = config.systemd.services."ultimator-cluster-release@".environment;
+    environment = {
+      inherit (config.systemd.services."ultimator-cluster-release@".environment)
+        GIT_CONFIG_COUNT
+        GIT_CONFIG_KEY_0
+        GIT_CONFIG_VALUE_0
+        GIT_TERMINAL_PROMPT;
+    };
     serviceConfig = {
       Type = "oneshot";
       User = "pcarrier";
