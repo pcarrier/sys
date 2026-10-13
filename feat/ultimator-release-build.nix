@@ -102,6 +102,10 @@ lib.mkIf (config.networking.hostName == "hound") {
     ];
     restartIfChanged = false;
     stopIfChanged = false;
+    # This unit runs as pcarrier too: reuse the release unit's Forge read-token helper. Its token already reads
+    # ulti/ultimator and ulti/flower, and the 0600 file stays private to pcarrier. The helper, never a token value,
+    # is in the environment, inherited by git, the sibling fetches and Nix. No CLI sign-in or new credential.
+    environment = config.systemd.services."ultimator-cluster-release@".environment;
     serviceConfig = {
       Type = "oneshot";
       User = "pcarrier";
@@ -127,11 +131,17 @@ lib.mkIf (config.networking.hostName == "hound") {
         built=$(tr -d '[:space:]' 2>/dev/null <"$base/built" || true)
         [ -n "$wanted" ] && [ "$wanted" != "$built" ] || exit 0
         echo "$(date -u +%FT%TZ) client assets of ''${wanted:0:12}"
+        if [ ! -r ${release}/forge-read-token ]; then
+          echo "::error::${release}/forge-read-token isn't readable: client assets need the release unit's Forge read token"
+          exit 1
+        fi
         if [ ! -d "$checkout/.git" ]; then
           rm -rf "$checkout"
-          git clone --quiet --no-checkout git@github.com:xmit-dev/ultimator.git "$checkout" || exit 1
+          git clone --quiet --no-checkout https://ultimator.app/git/ulti/ultimator.git "$checkout" || exit 1
         fi
         cd "$checkout" || exit 1
+        # Existing assets checkouts keep GitHub's origin until we repoint them too; a new commit must fetch Forge.
+        git remote set-url origin https://ultimator.app/git/ulti/ultimator.git
         git cat-file -e "$wanted^{commit}" 2>/dev/null || git fetch --quiet origin main || exit 1
         git checkout --quiet --force --detach "$wanted" && git clean --quiet -ffdx || exit 1
         export CLUSTER_KNOWN_HOSTS=/etc/ultimator-cluster/known-hosts
