@@ -248,14 +248,15 @@ in
   # .ultimator/workflows/release-prebuild.ts, on the executor labelled hound,prebuild (feat/forge-deploy.nix's computer),
   # starts ultimator-release-build@<commit> for each candidate of main's merge queue, so that its release's manifest is in
   # the artifact store when the queue lands that very commit and CD only rolls. As pcarrier, with the read token above:
-  # it builds only a commit Forge lists as one of main's queue candidates (refs/queue/main/*) or main itself, so the job's
-  # user can't have anything else built; from a checkout of main (the scripts it trusts) holding the candidate's objects,
+  # it builds only a commit Forge lists as one of main's queue candidates (refs/queue/main/*) or a commit of main's (its
+  # tip or one behind it: main's own CI prebuilds every push, and main may move on before the prebuild lock frees, while
+  # CD releases `verified`, which trails main), so the job's user can't have anything else built; from a checkout of main (the scripts it trusts) holding the candidate's objects,
   # it runs deploy/cd.sh --prebuild <commit>: main's bin/release-build builds the candidate as ultimator-release and signs
   # its manifest, and no release is asked for. Not the release lock (CD never waits for a prebuild to start): prebuilds go
   # one at a time (their own lock), and bin/release-build's lock orders them with CD's build, which then finds the
   # manifest, or waits for the build of it under way. The hold, or no read token yet: nothing built, CD builds as before.
   systemd.services."ultimator-release-build@" = {
-    description = "Build the release of Ultimator's merge-queue candidate %i ahead of its merge";
+    description = "Build the release of Ultimator's commit %i (main's or a merge-queue candidate's) ahead of its release";
     # As the release unit's, Node included (the keys on the host, no container).
     path = [
       "/run/wrappers"
@@ -311,17 +312,23 @@ in
       fi
       cd "$checkout" || exit 1
       # Forge says which commits are main's candidates now: one that left the queue, or was built again on a newer
-      # base, is no longer listed and isn't built.
-      refs=$(git ls-remote origin refs/heads/main 'refs/queue/main/*') || exit 1
+      # base, is no longer listed and isn't built. A commit of main's (its tip, or one main has moved past) is built
+      # too: fetching main brings it, and only a commit main holds counts.
+      refs=$(git ls-remote origin 'refs/queue/main/*') || exit 1
       ref=$(awk -v c="$commit" '$1 == c { print $2; exit }' <<<"$refs")
-      if [ -z "$ref" ]; then
-        echo "''${commit:0:12} is neither main nor one of its merge-queue candidates on Forge (any more): nothing to build"
-        exit 0
-      fi
-      git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+$ref:refs/prebuild/candidate" || exit 1
-      if [ "$(git rev-parse refs/prebuild/candidate)" != "$commit" ]; then
-        echo "::error::$ref moved away from ''${commit:0:12} while fetching it"
-        exit 1
+      if [ -n "$ref" ]; then
+        git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+$ref:refs/prebuild/candidate" || exit 1
+        if [ "$(git rev-parse refs/prebuild/candidate)" != "$commit" ]; then
+          echo "::error::$ref moved away from ''${commit:0:12} while fetching it"
+          exit 1
+        fi
+      else
+        git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" || exit 1
+        if ! git cat-file -e "$commit^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+          echo "''${commit:0:12} is neither on main nor one of its merge-queue candidates on Forge (any more): nothing to build"
+          exit 0
+        fi
+        ref=refs/heads/main
       fi
       main=$(git rev-parse refs/remotes/origin/main)
       git checkout --quiet --force --detach "$main" && git clean --quiet -ffdx || exit 1
