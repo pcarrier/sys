@@ -4,7 +4,7 @@
     extraGroups = [ "wheel" ];
     isNormalUser = true;
     openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtQFot+HHGCg8dvecNcQ7fOu4XTTkZGfQOnuZXuzzw4"
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIESswVXkWceiXMo5jasnYmopKXKVmhdK/xb1wrx6vFkA"
     ];
   };
   home-manager.users.dauriac = {
