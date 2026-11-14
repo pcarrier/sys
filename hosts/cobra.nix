@@ -1,5 +1,5 @@
 { lib }:
 lib.darwin {
-  name = "indentmbp";
+  name = "cobra";
   system = "aarch64-darwin";
 } lib.commonInputs
