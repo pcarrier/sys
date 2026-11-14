@@ -122,8 +122,8 @@ lib.mkMerge [
   )
   (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     home.packages = with pkgs; [
-      aerospace
       betterdisplay
+      iterm2
       noto-fonts-color-emoji
       slack
       steam-unwrapped
