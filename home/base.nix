@@ -73,7 +73,6 @@ lib.mkMerge [
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           chatgpt
           mas
-          raycast
         ];
       sessionVariables = {
         OLLAMA_HOST = "dog";
@@ -129,6 +128,7 @@ lib.mkMerge [
       slack
       steam-unwrapped
       spotify
+      whatsapp-for-mac
       zoom-us
     ];
   })
