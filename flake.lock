@@ -1453,11 +1453,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790034803,
-        "narHash": "sha256-W3wstTNffzFMRbjy9pSyjs9aLmsyDsa1TuM2zn/+TFY=",
+        "lastModified": 1794654640,
+        "narHash": "sha256-gbGxS+qwT1hMgrxJFTPGn+fdFW6rjqnoCAb/SGFFm2w=",
         "owner": "pcarrier",
         "repo": "plz",
-        "rev": "5318e77be9d4f3db1f6b9e5881c1570f1a670127",
+        "rev": "00144fe49aaefc7e6cfdd12d02f061dfbc91c50e",
         "type": "github"
       },
       "original": {
