@@ -123,6 +123,7 @@ lib.mkMerge [
   (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     home.packages = with pkgs; [
       betterdisplay
+      discord
       iterm2
       noto-fonts-color-emoji
       slack
@@ -131,9 +132,6 @@ lib.mkMerge [
       whatsapp-for-mac
       zoom-us
     ];
-  })
-  (lib.mkIf (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-    home.packages = with pkgs; [ slack ];
   })
   (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
     dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
