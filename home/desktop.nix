@@ -53,7 +53,6 @@ lib.mkIf desktop {
     legcord
     networkmanagerapplet
     pcmanfm-qt
-    qutebrowser
     signal-desktop
     spotify
     vlc
