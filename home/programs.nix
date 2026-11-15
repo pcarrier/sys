@@ -376,7 +376,7 @@ lib.mkMerge [
           lg = "lazygit";
           n =
             if pkgs.stdenv.hostPlatform.isDarwin then
-              "nh darwin switch --accept-flake-config ~/src/sys"
+              "nh darwin switch --accept-flake-config ~/src/pcarrier/sys"
             else
               "nh os switch --accept-flake-config";
           t = "zellij attach -c";
