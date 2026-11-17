@@ -10,7 +10,6 @@ lib.bare {
     ../feat/autoniri.nix
     ../feat/yas.nix
     ../feat/flatpak.nix
-    ../feat/hound-ci.nix
     ../feat/waydroid.nix
     ../feat/libk.nix
     ../feat/mail.nix

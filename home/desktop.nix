@@ -9,6 +9,7 @@
   desktop,
 }:
 let
+  hwloc = pkgs.hwloc.override { x11Support = true; };
   executor = llm-agents.packages.${system}.executor;
   wsConfig = pkgs.writeText "ws.yaml" ''
     version: "0.5"
@@ -58,6 +59,7 @@ lib.mkIf desktop {
     vlc
     xwayland-satellite
     zoom-us
+    hwloc
   ];
   programs = {
     alacritty = {
